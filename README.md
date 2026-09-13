@@ -18,7 +18,7 @@ This repository is being prepared for public release. Keep it private until its 
 1. Clone the repository to a user-writable folder.
 2. Copy `config.example.json` to `config.json`.
 3. Replace `https://xsoar.example.com` in `allowedXsoarOrigins` with the exact HTTPS origin of each trusted XSOAR tenant. Do not include a path.
-4. Set `template.analystName` and `template.analystTitle` in `config.json` if you want a signature. Leave `analystName` blank to omit it.
+4. Set `template.analystName` and `template.analystTitle` in `config.json` if you want your name and role in the sign-off. Leave `analystName` blank to omit both.
 5. Run `npm ci`.
 6. Run `start-chrome-debug.bat`, sign in to XSOAR in the dedicated browser profile, and focus the incident you want to process.
 7. Press the physical Numpad+ key to create a draft.
