@@ -1,0 +1,13 @@
+node_modules/
+config.json
+# Legacy runtime artifacts may contain incident data. Current releases do not
+# create them, but they must remain ignored on upgraded installations.
+output.json
+progress.json
+template.txt
+logs/
+*-cdp-session.txt
+*.tmp
+*.zip
+.DS_Store
+Thumbs.db

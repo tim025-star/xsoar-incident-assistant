@@ -1,0 +1,21 @@
+{
+  "name": "xsoar-incident-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local AutoHotkey and Playwright helper for preparing incident-response drafts from Cortex XSOAR.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check search-xsoar.js && node --check lib/xsoar.js && tsc --noEmit"
+  },
+  "dependencies": {
+    "playwright-core": "1.62.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.4",
+    "typescript": "5.9.3"
+  }
+}
