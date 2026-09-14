@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XSOAR Incident Assistant</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main>
+    <header><p class="eyebrow">LOCAL PLAYWRIGHT TOOL</p><h1>XSOAR Incident Assistant</h1><p>Prepare a response draft from the incident currently open in the assistant browser.</p></header>
+    <section class="card">
+      <h2>Session</h2>
+      <label>Browser mode<select id="mode"><option value="managed">Managed profile (recommended)</option><option value="cdp">Debug browser (advanced)</option></select></label>
+      <label>Browser<select id="browser"><option value="edge">Microsoft Edge</option><option value="chrome">Google Chrome</option></select></label>
+      <label>Dedicated profile directory<input id="profileDirectory" readonly></label>
+      <p class="note debug-only">Debug mode exposes an unauthenticated Chromium control endpoint to other processes on this computer while it runs. Use it only on a trusted, organisation-approved workstation; managed mode avoids this endpoint.</p>
+      <p class="note">The dedicated profile keeps sign-in cookies between runs, but your XSOAR or identity-provider policy decides when reauthentication is required. Your everyday browser profile is never copied or reused.</p>
+    </section>
+    <section class="card">
+      <h2>XSOAR</h2>
+      <label>Tenant origin<input id="allowedOrigin" type="url" placeholder="https://xsoar.example.com" autocomplete="off"></label>
+      <div class="grid"><label>Analyst name<input id="analystName" autocomplete="name" placeholder="Your name"></label><label>Analyst title<input id="analystTitle" placeholder="Security Analyst"></label></div>
+      <details><summary>Advanced query settings</summary>
+        <label>Incident URL pattern<input id="incidentUrlPattern"></label>
+        <div class="grid"><label>Incidents path<input id="incidentsPath"></label><label>Query parameter<input id="searchQueryParameter"></label></div>
+        <label>Historical lookback query<input id="lookbackQuery"></label>
+        <div class="grid"><label>Maximum history<input id="maxHistoricalIncidents" type="number" min="1" max="20"></label><label>Page timeout (ms)<input id="pageReadyTimeoutMs" type="number" min="1000" max="120000"></label></div>
+      </details>
+      <button id="save" class="secondary">Save settings</button>
+    </section>
+    <section class="card actions">
+      <h2>Run</h2><p id="status">Loading…</p>
+      <div class="buttons"><button id="launchDebug" class="debug-only secondary">Launch debug browser</button><button id="open">Open / connect browser</button><button id="run">Generate draft</button><button id="stop" class="secondary">Close browser</button></div>
+      <label>Draft<textarea id="draft" rows="18" readonly placeholder="The generated draft appears here."></textarea></label>
+      <button id="copy" class="secondary">Copy draft</button>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

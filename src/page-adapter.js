@@ -1,4 +1,9 @@
 export async function extractIncidentFromPage(settings) {
+  const currentUrl = new URL(location.href);
+  if (currentUrl.protocol !== "https:" || currentUrl.origin !== settings.allowedOrigin
+    || !new RegExp(settings.incidentUrlPattern).test(`${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`)) {
+    throw new Error("Incident extraction refused an untrusted page URL.");
+  }
   const normalize = (value) => String(value || "")
     .replace(/\u00a0/g, " ")
     .replace(/[ \t]+/g, " ")
@@ -180,6 +185,16 @@ export async function extractIncidentFromPage(settings) {
 }
 
 export async function extractSearchResultsFromPage(options) {
+  const normalizedPath = (value) => value.length > 1 ? value.replace(/\/+$/, "") : value;
+  const assertCurrentUrl = () => {
+    const currentUrl = new URL(location.href);
+    if (currentUrl.origin !== options.expectedOrigin
+      || normalizedPath(currentUrl.pathname) !== normalizedPath(options.expectedPath)
+      || currentUrl.searchParams.get(options.queryParameter)?.trim() !== String(options.expectedQuery || "").trim()) {
+      throw new Error("Search extraction refused an unexpected page URL.");
+    }
+  };
+  assertCurrentUrl();
   const normalize = (value) => String(value || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
   const isVisible = (element) => {
     if (!element) return false;
@@ -190,6 +205,7 @@ export async function extractSearchResultsFromPage(options) {
   const ticketPattern = /\/(?:incident|investigation)\/(\d+)\/?(?:[?#].*)?$/i;
   const tickets = new Map();
   const collect = () => {
+    assertCurrentUrl();
     const root = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page")
       || document.body;
     for (const link of root.querySelectorAll("a[href]")) {
@@ -236,5 +252,6 @@ export async function extractSearchResultsFromPage(options) {
     .sort(([left], [right]) => Number(right) - Number(left))
     .slice(0, Math.max(1, Number(options.maxResults) || 5))
     .map(([ticketId, href]) => ({ ticketId, href }));
+  assertCurrentUrl();
   return { total: state.total || sorted.length, tickets: sorted };
 }

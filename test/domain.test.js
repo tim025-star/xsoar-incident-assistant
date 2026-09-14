@@ -10,7 +10,7 @@ import {
   buildSearchQuery,
   permissionPatternForOrigin,
   resolveSettings
-} from "../extension/domain.js";
+} from "../src/domain.js";
 
 const settings = () => resolveSettings({
   allowedOrigin: "https://xsoar.example.test",
