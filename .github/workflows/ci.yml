@@ -24,7 +24,7 @@ jobs:
       - run: npm test
       - run: npm run verify:browser
       - run: npm run package
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: xsoar-incident-assistant-extension
           path: output/xsoar-incident-assistant-extension.zip
