@@ -5,19 +5,31 @@
   "description": "A local Playwright assistant for preparing incident-response drafts in Cortex XSOAR.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "test": "node --test",
+    "build": "vite build",
+    "test": "npm run build && node --test",
+    "prestart": "npm run build",
     "start": "node src/server.js",
-    "check": "node --check src/domain.js && node --check src/workflow.js && node --check src/page-adapter.js && node --check src/browser-session.js && node --check src/config.js && node --check src/server.js && node --check public/app.js && tsc --noEmit",
-    "verify:browser": "node scripts/verify-ui.mjs"
+    "check": "node --check src/domain.js && node --check src/workflow.js && node --check src/page-adapter.js && node --check src/browser-session.js && node --check src/config.js && node --check src/rpc.js && node --check src/server.js && node --check scripts/check-node-version.mjs && tsc --noEmit",
+    "verify:browser": "npm run build && node scripts/verify-ui.mjs"
   },
   "dependencies": {
-    "playwright-core": "1.62.1"
+    "@hono/node-server": "^2.1.1",
+    "@orpc/client": "^1.15.0",
+    "@orpc/server": "^1.15.0",
+    "hono": "^4.13.7",
+    "playwright-core": "1.62.1",
+    "solid-js": "^1.9.15",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "24.13.4",
-    "typescript": "5.9.3"
+    "tailwindcss": "^4.3.3",
+    "typescript": "5.9.3",
+    "vite": "^8.3.0",
+    "vite-plugin-solid": "^2.11.14"
   }
 }

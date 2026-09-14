@@ -6,5 +6,5 @@ if not exist "node_modules\playwright-core" (
   pause
   exit /b 1
 )
-node src\server.js
+call npm start
 if errorlevel 1 pause

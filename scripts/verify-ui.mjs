@@ -6,10 +6,23 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 
 import { createAssistantServer } from "../src/server.js";
+import { resolveAppConfig } from "../src/config.js";
 import { resolveSettings } from "../src/domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "../src/page-adapter.js";
 
-const app = createAssistantServer({ token: "browser-verification-token" });
+let uiConfig = resolveAppConfig({}, { requireTenant: false });
+const app = createAssistantServer({
+  token: "browser-verification-token",
+  routerOptions: {
+    configStore: {
+      load: async () => uiConfig,
+      save: async (input) => {
+        uiConfig = resolveAppConfig(input);
+        return uiConfig;
+      }
+    }
+  }
+});
 const url = await app.listen(0);
 let browser;
 let persistentContext;
@@ -28,9 +41,26 @@ try {
   await page.getByRole("heading", { name: "XSOAR Incident Assistant" }).waitFor();
   assert.equal(await page.locator("#mode").inputValue(), "managed");
   assert.equal(await page.locator("#analystName").inputValue(), "");
-  assert.equal(await page.locator("#launchDebug").isVisible(), false);
-  await page.locator("#mode").selectOption("cdp");
-  assert.equal(await page.locator("#launchDebug").isVisible(), true);
+  await page.reload();
+  await page.locator("#mode").waitFor();
+  assert.match(await page.locator("#status").textContent(), /Configure the assistant/);
+  await page.getByText("Advanced query settings").click();
+  await page.locator("#maxHistoricalIncidents").fill("", { timeout: 2000 });
+  assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "");
+  await page.locator("#maxHistoricalIncidents").fill("10", { timeout: 2000 });
+  assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "10");
+  await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
+  await page.locator("#analystName").fill("Example Analyst");
+  await page.locator("#save").click();
+  await page.getByText("Settings saved.").waitFor();
+  assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
+  assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
+  assert.deepEqual(await page.locator("#mode option").evaluateAll((options) => options.map((option) => option.value)), ["managed", "diagnostics"]);
+  await page.locator("#mode").selectOption("diagnostics");
+  assert.equal(await page.locator("#launchDebug").count(), 0);
+  await page.getByText("does not expose a remote-debugging network port").waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await browser.close();
   browser = null;
 

@@ -1,8 +1,9 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { z } from "zod";
 
-import { DEFAULT_SETTINGS, resolveSettings } from "./domain.js";
+import { DEFAULT_SETTINGS, FIELD_LABELS, resolveSettings } from "./domain.js";
 
 export const APP_DATA_DIRECTORY = path.join(
   process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
@@ -11,7 +12,7 @@ export const APP_DATA_DIRECTORY = path.join(
 export const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 3,
+  configVersion: 4,
   session: {
     mode: "managed",
     browser: "edge",
@@ -20,22 +21,74 @@ export const DEFAULT_APP_CONFIG = Object.freeze({
   xsoar: DEFAULT_SETTINGS
 });
 
+const templateShape = {
+  greeting: z.string(),
+  recommendationsHeading: z.string(),
+  contactText: z.string(),
+  signOff: z.string(),
+  analystName: z.string(),
+  analystTitle: z.string()
+};
+const templateSchema = z.object(templateShape).partial().strict();
+
+const fieldLabelsShape = Object.fromEntries(
+  Object.keys(FIELD_LABELS).map((key) => [key, z.array(z.string())])
+);
+const fieldLabelsSchema = z.object(fieldLabelsShape).partial().strict();
+
+const xsoarShape = {
+  configVersion: z.number().int(),
+  allowedOrigin: z.string(),
+  incidentUrlPattern: z.string(),
+  incidentsPath: z.string(),
+  searchQueryParameter: z.string(),
+  lookbackQuery: z.string(),
+  maxHistoricalIncidents: z.number().int(),
+  pageReadyTimeoutMs: z.number().int(),
+  incidentInfoTabLabel: z.string(),
+  investigationTabLabel: z.string(),
+  historicalSummaryLabels: z.array(z.string()),
+  historicalRecommendationLabels: z.array(z.string()),
+  fieldLabels: fieldLabelsSchema,
+  template: templateSchema
+};
+const xsoarSchema = z.object(xsoarShape).partial().strict();
+
+export const appConfigInputSchema = z.object({
+  configVersion: z.number().int().optional(),
+  session: z.object({
+    mode: z.enum(["managed", "diagnostics", "cdp"]),
+    browser: z.enum(["edge", "chrome"]),
+    profileDirectory: z.string()
+  }).partial().strict().optional(),
+  xsoar: xsoarSchema.optional()
+}).strict();
+
+export const resolvedAppConfigSchema = z.object({
+  configVersion: z.literal(4),
+  session: z.object({
+    mode: z.enum(["managed", "diagnostics"]),
+    browser: z.enum(["edge", "chrome"]),
+    profileDirectory: z.string()
+  }).strict(),
+  xsoar: z.object({
+    ...xsoarShape,
+    configVersion: z.literal(2),
+    fieldLabels: z.object(fieldLabelsShape).strict(),
+    template: z.object(templateShape).strict()
+  }).strict()
+}).strict();
+
+function parseConfigInput(input) {
+  const parsed = appConfigInputSchema.safeParse(input);
+  if (parsed.success) return parsed.data;
+  const issue = parsed.error.issues[0];
+  const location = issue.path.length ? `${issue.path.join(".")}: ` : "";
+  throw new Error(`${location}${issue.message}`);
+}
+
 export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new Error("Configuration must be an object.");
-  }
-  for (const key of Object.keys(input)) {
-    if (!Object.hasOwn(DEFAULT_APP_CONFIG, key)) throw new Error(`Unsupported configuration field: ${key}.`);
-  }
-  if (input.session !== undefined && (!input.session || typeof input.session !== "object" || Array.isArray(input.session))) {
-    throw new Error("session must be an object.");
-  }
-  if (input.xsoar !== undefined && (!input.xsoar || typeof input.xsoar !== "object" || Array.isArray(input.xsoar))) {
-    throw new Error("xsoar must be an object.");
-  }
-  for (const key of Object.keys(input.session || {})) {
-    if (!Object.hasOwn(DEFAULT_APP_CONFIG.session, key)) throw new Error(`Unsupported session field: ${key}.`);
-  }
+  input = parseConfigInput(input);
   const merged = structuredClone(DEFAULT_APP_CONFIG);
   Object.assign(merged, input);
   merged.session = { ...DEFAULT_APP_CONFIG.session, ...(input.session || {}) };
@@ -45,16 +98,23 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
     fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...(input.xsoar?.fieldLabels || {}) },
     template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
   };
-  merged.configVersion = 3;
+  merged.configVersion = 4;
 
-  if (!["managed", "cdp"].includes(merged.session.mode)) {
-    throw new Error("Session mode must be managed or cdp.");
+  // Version 3 stored debug-mode sessions in a sibling profile. Keep that
+  // authenticated profile while migrating away from its TCP control endpoint.
+  if (merged.session.mode === "cdp" && (input.configVersion === undefined || input.configVersion === 3)) {
+    merged.session.mode = "diagnostics";
+    if (!merged.session.profileDirectory.endsWith("-debug")) merged.session.profileDirectory += "-debug";
+  }
+
+  if (!["managed", "diagnostics"].includes(merged.session.mode)) {
+    throw new Error("Session mode must be managed or diagnostics.");
   }
   if (!["edge", "chrome"].includes(merged.session.browser)) {
     throw new Error("Browser must be edge or chrome.");
   }
   if (typeof merged.session.profileDirectory !== "string" || !path.isAbsolute(merged.session.profileDirectory)) {
-    throw new Error("The managed profile directory must be an absolute path.");
+    throw new Error("The dedicated profile directory must be an absolute path.");
   }
   const resolvedProfile = path.resolve(merged.session.profileDirectory);
   const defaultChromeData = path.resolve(process.env.LOCALAPPDATA || "C:\\", "Google", "Chrome", "User Data");
