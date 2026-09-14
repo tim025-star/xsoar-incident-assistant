@@ -9,7 +9,7 @@ call npm ci
 if errorlevel 1 exit /b 1
 call npm run build
 if errorlevel 1 exit /b 1
-cscript //nologo install-startup-shortcut.vbs
+cscript //nologo install-start-menu-shortcut.vbs
 if errorlevel 1 exit /b 1
 echo Installation complete. Use the XSOAR Incident Assistant shortcut in the Start menu.
 pause

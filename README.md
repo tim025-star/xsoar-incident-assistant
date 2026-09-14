@@ -14,7 +14,7 @@ Neither mode can guarantee a particular session lifetime or bypass an organisati
 
 ## Install on Windows
 
-Requirements: Node.js 20.19 or 22.12 and newer, plus a current Microsoft Edge or Google Chrome installation.
+Requirements: Windows 11, Node.js 20.19 or 22.12 and newer, plus a current Microsoft Edge or Google Chrome installation. Windows PowerShell provides the keyboard listener. The application does not require AutoHotkey or Notepad++.
 
 1. Download or clone this repository to a stable location.
 2. Run `install-assistant.bat`.
@@ -34,6 +34,8 @@ The installer runs `npm ci` and creates a per-user Start menu shortcut. It does 
 Temporary search and historical tabs are closed, and the original incident is brought back to the front. If multiple incident tabs are open, the assistant asks you to bring the intended one to the front.
 
 The local server starts a Windows-only global **Numpad+** listener alongside the control page. The listener sends an authenticated loopback request to the same local server; it does not connect directly to XSOAR, hold browser credentials, or write drafts to disk. If another application has already registered Numpad+, close that application before starting the assistant.
+
+If the Start-menu launch reports a startup error, run `start-assistant.bat` from the application folder to see the specific cause.
 
 ### Diagnostics mode
 
@@ -59,6 +61,7 @@ An organisation must review and approve the tool against its own browser, identi
 - `src/workflow.js`: browser-independent incident/search/history orchestration.
 - `src/page-adapter.js`: XSOAR DOM extraction.
 - `src/browser-session.js`: Playwright-owned managed and diagnostics browser sessions.
+- `src/keyboard-trigger.js` and `scripts/keyboard-trigger.ps1`: the Windows Numpad+ listener and its authenticated loopback hand-off.
 - `src/rpc.js`: typed oRPC operations and local application state.
 - `src/server.js`: Hono loopback server, request security checks, and static delivery.
 - `web/`: Solid and Tailwind configuration/status interface, built by Vite into ignored `dist/` output.
