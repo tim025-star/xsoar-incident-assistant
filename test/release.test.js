@@ -115,3 +115,37 @@ test("local oRPC API requires the process token and exact origin", async () => {
     await new Promise((resolve) => app.server.close(resolve));
   }
 });
+
+test("Numpad+ trigger is separately authenticated and uses the same draft workflow", async () => {
+  let generated = 0;
+  const config = resolveAppConfig({ xsoar: { allowedOrigin: "https://xsoar.example.test" } });
+  const sessions = {
+    status: () => ({ running: true, mode: "managed" }),
+    start: async () => {},
+    adapter: () => ({})
+  };
+  const app = createAssistantServer({
+    token: "page-token",
+    hotkeyToken: "keyboard-token",
+    routerOptions: {
+      sessions,
+      configStore: { load: async () => config, save: async () => config },
+      generateDraft: async () => {
+        generated += 1;
+        return { draft: "Keyboard draft", reviewed: 0, warning: "" };
+      }
+    }
+  });
+  const origin = new URL(await app.listen(0)).origin;
+  try {
+    assert.equal((await fetch(`${origin}/internal/keyboard-trigger`, { method: "POST" })).status, 403);
+    const response = await fetch(`${origin}/internal/keyboard-trigger`, {
+      method: "POST",
+      headers: { "X-Assistant-Hotkey-Token": "keyboard-token" }
+    });
+    assert.equal(response.status, 204);
+    assert.equal(generated, 1);
+  } finally {
+    await new Promise((resolve) => app.server.close(resolve));
+  }
+});
