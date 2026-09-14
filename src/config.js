@@ -4,6 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import { DEFAULT_SETTINGS, FIELD_LABELS, resolveSettings } from "./domain.js";
+import { DEFAULT_ACTIVATION_HOTKEY, activationHotkeySpec } from "./hotkey.js";
 
 export const APP_DATA_DIRECTORY = path.join(
   process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
@@ -12,10 +13,11 @@ export const APP_DATA_DIRECTORY = path.join(
 export const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 4,
+  configVersion: 5,
   session: {
     mode: "managed",
     browser: "edge",
+    activationHotkey: DEFAULT_ACTIVATION_HOTKEY,
     profileDirectory: path.join(APP_DATA_DIRECTORY, "browser-profile")
   },
   xsoar: DEFAULT_SETTINGS
@@ -59,16 +61,18 @@ export const appConfigInputSchema = z.object({
   session: z.object({
     mode: z.enum(["managed", "diagnostics", "cdp"]),
     browser: z.enum(["edge", "chrome"]),
+    activationHotkey: z.string(),
     profileDirectory: z.string()
   }).partial().strict().optional(),
   xsoar: xsoarSchema.optional()
 }).strict();
 
 export const resolvedAppConfigSchema = z.object({
-  configVersion: z.literal(4),
+  configVersion: z.literal(5),
   session: z.object({
     mode: z.enum(["managed", "diagnostics"]),
     browser: z.enum(["edge", "chrome"]),
+    activationHotkey: z.string(),
     profileDirectory: z.string()
   }).strict(),
   xsoar: z.object({
@@ -98,7 +102,7 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
     fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...(input.xsoar?.fieldLabels || {}) },
     template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
   };
-  merged.configVersion = 4;
+  merged.configVersion = 5;
 
   // Version 3 stored debug-mode sessions in a sibling profile. Keep that
   // authenticated profile while migrating away from its TCP control endpoint.
@@ -113,6 +117,7 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
   if (!["edge", "chrome"].includes(merged.session.browser)) {
     throw new Error("Browser must be edge or chrome.");
   }
+  merged.session.activationHotkey = activationHotkeySpec(merged.session.activationHotkey).id;
   if (typeof merged.session.profileDirectory !== "string" || !path.isAbsolute(merged.session.profileDirectory)) {
     throw new Error("The dedicated profile directory must be an absolute path.");
   }
@@ -145,8 +150,8 @@ export async function loadConfig({ requireTenant = false } = {}) {
   }
 }
 
-export async function saveConfig(input) {
-  const config = resolveAppConfig(input);
+export async function saveConfig(input, { requireTenant = true } = {}) {
+  const config = resolveAppConfig(input, { requireTenant });
   await mkdir(APP_DATA_DIRECTORY, { recursive: true });
   const temporaryPath = `${CONFIG_PATH}.${process.pid}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });

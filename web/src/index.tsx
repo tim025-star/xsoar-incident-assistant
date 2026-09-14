@@ -1,6 +1,7 @@
 import { Show, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 
+import { ACTIVATION_HOTKEYS } from "../../src/hotkey.js";
 import { rpc, sessionToken } from "./rpc";
 import "./styles.css";
 
@@ -37,6 +38,15 @@ function App() {
       if (!current) return current;
       const next = structuredClone(current);
       next.session.browser = value;
+      return next;
+    });
+  };
+
+  const updateActivationHotkey = (value: string) => {
+    setConfig((current) => {
+      if (!current) return current;
+      const next = structuredClone(current);
+      next.session.activationHotkey = value;
       return next;
     });
   };
@@ -90,7 +100,13 @@ function App() {
   const save = () => runAction(async () => {
     const current = config();
     if (!current) return;
-    setConfig(await rpc.config.save(current));
+    try {
+      setConfig(await rpc.config.save(current));
+    } catch (error) {
+      const persisted = await rpc.config.get().catch(() => undefined);
+      if (persisted) setConfig(persisted);
+      throw error;
+    }
   });
 
   const copyDraft = async () => {
@@ -154,11 +170,20 @@ function App() {
                       <option value="chrome">Google Chrome</option>
                     </select>
                   </label>
+                  <label class="field">Activation shortcut
+                    <select id="activationHotkey" class="control" value={settings().session.activationHotkey} onInput={(event) => updateActivationHotkey(event.currentTarget.value)}>
+                      {ACTIVATION_HOTKEYS.map((hotkey) => <option value={hotkey.id}>{hotkey.label}</option>)}
+                    </select>
+                  </label>
                 </div>
                 <label class="field mt-4">Dedicated profile directory
                   <input id="profileDirectory" class="control bg-slate-50 text-slate-600" value={settings().session.profileDirectory} readOnly />
                 </label>
                 <p class="helper mb-0">Diagnostics mode opens Chromium DevTools in the Playwright-owned browser. It does not expose a remote-debugging network port.</p>
+                <p class="helper mb-0">Save settings to apply a new activation shortcut immediately. If it is already used by another application, the assistant keeps your previous shortcut.</p>
+                <Show when={status()?.hotkey.error}>
+                  {(error) => <p class="mb-0 text-sm font-semibold text-amber-800">Activation shortcut unavailable: {error()}. Choose another shortcut and save settings.</p>}
+                </Show>
                 <p class="helper mb-0">The dedicated profile retains browser session data between runs, while your identity-provider policy controls reauthentication. Your everyday browser profile is never copied or reused.</p>
               </section>
 
@@ -223,7 +248,7 @@ function App() {
                 <button id="run" class="button" type="button" disabled={busy()} onClick={() => runAction(() => rpc.draft.generate())}>Generate draft</button>
                 <button id="stop" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(() => rpc.browser.stop())}>Close browser</button>
               </div>
-              <p class="helper mt-0">You can also press the physical Numpad+ key while an XSOAR incident is open. The draft will appear here.</p>
+              <p class="helper mt-0">You can also press the configured activation shortcut while an XSOAR incident is open. The draft will appear here.</p>
               <label class="field">Draft
                 <textarea id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The generated draft appears here." value={status()?.draft || ""} />
               </label>

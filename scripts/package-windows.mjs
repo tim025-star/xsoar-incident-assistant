@@ -71,7 +71,7 @@ async function stageRelease() {
   if (!npmCliPath) throw new Error("Run packaging through npm so its locked dependency installer is available.");
   await run(process.execPath, [npmCliPath, "ci", "--omit=dev", "--ignore-scripts"], { cwd: applicationDirectory });
   await requireFile(path.join(applicationDirectory, "node_modules", "playwright-core", "package.json"), "Staged Playwright dependency");
-  await requireFile(path.join(applicationDirectory, "scripts", "keyboard-trigger.ps1"), "Staged Numpad+ keyboard trigger");
+  await requireFile(path.join(applicationDirectory, "scripts", "keyboard-trigger.ps1"), "Staged keyboard trigger");
 }
 
 async function main() {
