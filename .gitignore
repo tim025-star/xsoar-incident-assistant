@@ -1,4 +1,5 @@
 node_modules/
+dist/
 config.json
 # Legacy runtime artifacts may contain incident data. Current releases do not
 # create them, but they must remain ignored on upgraded installations.

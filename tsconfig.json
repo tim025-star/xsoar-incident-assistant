@@ -5,12 +5,16 @@
     "moduleResolution": "Bundler",
     "allowJs": true,
     "checkJs": false,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node", "vite/client"]
   },
   "include": [
     "src/**/*.js",
-    "public/**/*.js"
+    "web/src/**/*.ts",
+    "web/src/**/*.tsx",
+    "vite.config.ts"
   ]
 }

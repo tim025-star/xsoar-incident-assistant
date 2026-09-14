@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #172033;
+  --color-muted: #59677e;
+  --color-canvas: #f4f7fb;
+  --color-panel: #ffffff;
+  --color-line: #dbe3ef;
+  --color-brand: #315cc9;
+  --color-brand-dark: #24489f;
+  --font-sans: Inter, "Segoe UI", sans-serif;
+  --font-mono: "Cascadia Code", Consolas, monospace;
+}
+
+@layer base {
+  * { box-sizing: border-box; }
+  body { margin: 0; min-width: 320px; background: var(--color-canvas); color: var(--color-ink); }
+  button, input, select, textarea { font: inherit; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+    outline: 3px solid rgb(49 92 201 / 25%);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .panel { @apply rounded-2xl border border-line bg-panel p-5 shadow-[0_10px_30px_rgb(23_32_51/0.06)] sm:p-6; }
+  .field { @apply grid gap-1.5 text-sm font-semibold text-ink; }
+  .control { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-ink transition focus:border-brand; }
+  .button { @apply inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50; }
+  .button-secondary { @apply bg-slate-200 text-slate-800 hover:bg-slate-300; }
+  .helper { @apply text-sm leading-6 text-muted; }
+}

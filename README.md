@@ -8,34 +8,34 @@ This is an independent community project. It is not affiliated with or endorsed 
 
 The default **Managed profile** mode opens Edge or Chrome with a dedicated Playwright profile. Sign in to XSOAR in that window once. Cookies and local storage remain in that dedicated profile between runs, but the XSOAR and identity-provider session policies still decide when reauthentication, MFA, revocation, or expiry occurs.
 
-The optional **Debug browser** mode is for users who deliberately prefer remote debugging. The assistant launches Edge or Chrome with a separate profile and connects over a loopback-only CDP endpoint. It does not connect to or copy data from the normal browser profile. Current Chromium security controls also require a non-default user-data directory for remote debugging. Chromium's debugging endpoint has no application-level authentication, so other processes on the same computer may be able to control that debug browser; use this mode only on a trusted, organisation-approved workstation.
+The optional **Diagnostics with DevTools** mode launches the same Playwright-owned browser and dedicated profile while automatically opening Chromium DevTools. It does not expose a remote-debugging network endpoint or attach to an independently launched browser.
 
 Neither mode can guarantee a particular session lifetime or bypass an organisation's authentication policy.
 
 ## Install on Windows
 
-Requirements: Node.js 20 or newer and current Microsoft Edge or Google Chrome.
+Requirements: Node.js 20.19 or 22.12 and newer, plus a current Microsoft Edge or Google Chrome installation.
 
 1. Download or clone this repository to a stable location.
 2. Run `install-assistant.bat`.
 3. Open **XSOAR Incident Assistant** from the Windows Start menu.
 4. Enter the exact HTTPS origin of your XSOAR tenant and your optional analyst name/title, then save.
-5. Keep **Managed profile** unless you specifically need debug mode.
+5. Keep **Managed profile** unless you need Chromium DevTools for troubleshooting.
 
 The installer runs `npm ci` and creates a per-user Start menu shortcut. It does not add a browser extension, alter browser policy, or start automatically at Windows sign-in.
 
 ## Use
 
-1. Select **Open / connect browser**.
+1. Select **Open browser**.
 2. Sign in if your organisation requires it and open one XSOAR incident.
 3. Select **Generate draft**.
 4. Review the draft, then explicitly select **Copy draft** if needed.
 
 Temporary search and historical tabs are closed, and the original incident is brought back to the front. If multiple incident tabs are open, the assistant asks you to bring the intended one to the front.
 
-### Debug browser mode
+### Diagnostics mode
 
-Select **Debug browser**, save settings, then select **Launch debug browser**. The assistant chooses a temporary loopback port; users cannot configure or attach an unrelated endpoint. Sign in within the separate window and select **Open / connect browser**. **Close browser** ends that separate debug browser session but retains its dedicated profile for the next run.
+Select **Diagnostics with DevTools**, save settings, then select **Open browser**. The assistant launches the dedicated profile directly through Playwright and opens DevTools for each browser tab. Switching modes does not copy or replace the profile, so the existing assistant-browser sign-in remains available subject to the organisation's normal authentication policy. Close the browser before changing modes.
 
 ## Configure and verify your tenant
 
@@ -56,15 +56,20 @@ An organisation must review and approve the tool against its own browser, identi
 - `src/domain.js`: validation, URL construction, data merging, and draft generation.
 - `src/workflow.js`: browser-independent incident/search/history orchestration.
 - `src/page-adapter.js`: XSOAR DOM extraction.
-- `src/browser-session.js`: managed Playwright and CDP session adapters.
-- `src/server.js` and `public/`: loopback-only local controller and settings UI.
+- `src/browser-session.js`: Playwright-owned managed and diagnostics browser sessions.
+- `src/rpc.js`: typed oRPC operations and local application state.
+- `src/server.js`: Hono loopback server, request security checks, and static delivery.
+- `web/`: Solid and Tailwind configuration/status interface, built by Vite into ignored `dist/` output.
 
 New extraction rules belong in the page adapter, draft formats in the domain module, and browser behavior behind the browser adapter. This keeps future features independent of session mode.
+
+The local application stack is Solid, Tailwind CSS, Hono, oRPC, Zod, and Vite on Node.js. It intentionally remains a single package: this desktop-style local tool does not need a database, server rendering, external authentication framework, or monorepo overhead.
 
 ## Development
 
 ```powershell
 npm ci
+npm run build
 npm run check
 npm test
 npm run verify:browser

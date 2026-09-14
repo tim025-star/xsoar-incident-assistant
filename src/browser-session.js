@@ -1,8 +1,6 @@
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
-import net from "node:net";
 
 import { chromium } from "playwright-core";
 
@@ -23,17 +21,6 @@ function findBrowserExecutable(browser) {
   const executable = browserExecutableCandidates(browser).find(existsSync);
   if (!executable) throw new Error(`${browser === "edge" ? "Microsoft Edge" : "Google Chrome"} was not found.`);
   return executable;
-}
-
-async function chooseLoopbackPort() {
-  const server = net.createServer();
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const port = server.address().port;
-  await new Promise((resolve) => server.close(resolve));
-  return port;
 }
 
 async function ensureIsolatedProfile(profileDirectory) {
@@ -126,7 +113,6 @@ class PlaywrightBrowserAdapter {
 export class BrowserSessionManager {
   constructor() {
     this.context = null;
-    this.browser = null;
     this.mode = null;
   }
 
@@ -134,39 +120,24 @@ export class BrowserSessionManager {
     return { running: Boolean(this.context), mode: this.mode };
   }
 
-  async start(config, { cdpEndpoint } = {}) {
+  async start(config) {
     if (this.context) return this.context;
-    if (config.session.mode === "managed") {
-      const profileDirectory = await ensureIsolatedProfile(config.session.profileDirectory);
-      this.context = await chromium.launchPersistentContext(profileDirectory, {
-        executablePath: findBrowserExecutable(config.session.browser),
-        headless: false,
-        viewport: null,
-        acceptDownloads: false
-      });
-      this.mode = "managed";
-      const pages = this.context.pages();
-      const page = pages[0] || await this.context.newPage();
-      if (!page.url() || page.url() === "about:blank") {
-        await page.goto(config.xsoar.allowedOrigin, { waitUntil: "domcontentloaded" });
-      }
-      this.context.once("close", () => {
-        this.context = null;
-        this.mode = null;
-      });
-      return this.context;
+    const profileDirectory = await ensureIsolatedProfile(config.session.profileDirectory);
+    const diagnostics = config.session.mode === "diagnostics";
+    this.context = await chromium.launchPersistentContext(profileDirectory, {
+      executablePath: findBrowserExecutable(config.session.browser),
+      headless: false,
+      viewport: null,
+      acceptDownloads: false,
+      args: diagnostics ? ["--auto-open-devtools-for-tabs"] : []
+    });
+    this.mode = config.session.mode;
+    const pages = this.context.pages();
+    const page = pages.find((candidate) => !candidate.url().startsWith("devtools://")) || await this.context.newPage();
+    if (!page.url() || page.url() === "about:blank") {
+      await page.goto(config.xsoar.allowedOrigin, { waitUntil: "domcontentloaded" });
     }
-
-    if (!cdpEndpoint) throw new Error("Launch the separate debug browser before connecting.");
-    this.browser = await chromium.connectOverCDP(cdpEndpoint, { noDefaults: true });
-    this.context = this.browser.contexts()[0];
-    if (!this.context) {
-      this.browser = null;
-      throw new Error("The debug browser did not expose a default context.");
-    }
-    this.mode = "cdp";
-    this.browser.once("disconnected", () => {
-      this.browser = null;
+    this.context.once("close", () => {
       this.context = null;
       this.mode = null;
     });
@@ -179,24 +150,8 @@ export class BrowserSessionManager {
   }
 
   async stop() {
-    if (this.mode === "managed") await this.context?.close();
-    else await this.browser?.close();
+    await this.context?.close();
     this.context = null;
-    this.browser = null;
     this.mode = null;
   }
-}
-
-export async function launchDebugBrowser(config) {
-  const executable = findBrowserExecutable(config.session.browser);
-  const port = await chooseLoopbackPort();
-  const debugProfile = await ensureIsolatedProfile(`${config.session.profileDirectory}-debug`);
-  const child = spawn(executable, [
-    "--remote-debugging-address=127.0.0.1",
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${debugProfile}`,
-    config.xsoar.allowedOrigin
-  ], { detached: true, stdio: "ignore", windowsHide: false });
-  child.unref();
-  return { browser: config.session.browser, profileDirectory: debugProfile, endpoint: `http://127.0.0.1:${port}` };
 }
