@@ -1,0 +1,240 @@
+export async function extractIncidentFromPage(settings) {
+  const normalize = (value) => String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s*\n\s*/g, "\n")
+    .trim();
+  const normalizeLabel = (value) => normalize(value).toLowerCase().replace(/\s+/g, " ");
+  const available = (value) => Boolean(normalize(value)
+    && !/^(?:n\/?a|none|null|undefined|-)$/i.test(normalize(value)));
+  const first = (...values) => values.map(normalize).find(available) || "";
+  const isVisible = (element) => {
+    if (!element) return false;
+    const style = window.getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden"
+      && Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
+  };
+  const extractValue = (root) => {
+    if (!root) return "";
+    for (const selector of [
+      ".text-field-display-value",
+      ".date-display-value",
+      ".single-select-field-wrapper__single-value",
+      "[class*='singleValue']",
+      ".markdown",
+      ".preplacer"
+    ]) {
+      const element = Array.from(root.querySelectorAll(selector)).find(isVisible);
+      const value = normalize(element?.getAttribute("title") || element?.innerText || element?.textContent);
+      if (value && !/^(?:edit|clear|select)$/i.test(value)) return value;
+    }
+    const titled = Array.from(root.querySelectorAll("[title]"))
+      .filter((element) => isVisible(element) && !element.closest("label,button,input,textarea,select"))
+      .map((element) => normalize(element.getAttribute("title")))
+      .filter((value) => value && !/^(?:edit|clear|select|open)$/i.test(value));
+    if (titled.length) return titled.sort((a, b) => b.length - a.length)[0];
+    const copy = root.cloneNode(true);
+    copy.querySelectorAll("label,button,input,textarea,select,svg,object,.resize-sensor,.xdr-sr-only")
+      .forEach((element) => element.remove());
+    return normalize(copy.innerText || copy.textContent);
+  };
+
+  const read = () => {
+    const wrappers = Array.from(document.querySelectorAll(".field-wrapper")).filter(isVisible);
+    const fields = {};
+    for (const [key, configuredLabels] of Object.entries(settings.fieldLabels || {})) {
+      const labels = Array.isArray(configuredLabels) ? configuredLabels : [];
+      const accepted = labels.map(normalizeLabel);
+      const fieldId = normalize(key).toLowerCase().replace(/[^a-z0-9]+/g, "");
+      let value = "";
+      for (const candidate of document.querySelectorAll(`.fieldId-${fieldId}`)) {
+        if (!isVisible(candidate)) continue;
+        const wrapper = candidate.matches(".field-wrapper") ? candidate : candidate.querySelector(".field-wrapper");
+        const root = wrapper?.querySelector(".value-wrapper") || wrapper || candidate;
+        value = extractValue(root);
+        if (available(value)) break;
+      }
+      if (!available(value)) {
+        for (const wrapper of wrappers) {
+          const label = wrapper.querySelector("label");
+          const actual = [
+            normalizeLabel(label?.getAttribute("title")),
+            normalizeLabel(label?.innerText || label?.textContent)
+          ].filter(Boolean);
+          if (!actual.some((entry) => accepted.includes(entry))) continue;
+          value = extractValue(wrapper.querySelector(".value-wrapper") || wrapper);
+          if (available(value)) break;
+        }
+      }
+      fields[key] = available(value) ? normalize(value) : "";
+    }
+
+    const semanticFields = {
+      historicalSummary: settings.historicalSummaryLabels?.length
+        ? settings.historicalSummaryLabels
+        : ["Historical Summary"],
+      historicalRecommendations: settings.historicalRecommendationLabels?.length
+        ? settings.historicalRecommendationLabels
+        : ["Historical Recommendations", "Customer Recommendations"]
+    };
+    for (const [key, labels] of Object.entries(semanticFields)) {
+      fields[key] = "";
+      const accepted = labels.map(normalizeLabel);
+      for (const wrapper of wrappers) {
+        const label = wrapper.querySelector("label");
+        const actual = normalizeLabel(label?.getAttribute("title") || label?.innerText || label?.textContent);
+        if (!accepted.includes(actual)) continue;
+        const value = extractValue(wrapper.querySelector(".value-wrapper") || wrapper);
+        if (available(value)) {
+          fields[key] = normalize(value);
+          break;
+        }
+      }
+    }
+
+    const aliases = {
+      sourceIp: ["source ip", "source ip address", "client ip address"],
+      sourceUsername: ["source username", "source user name", "client principal name", "accountname"],
+      deviceHostname: ["device hostname", "device dns name", "compromisedentity", "hostname"],
+      eventName: ["event name", "display name", "display_name"],
+      detectionUrl: ["detection url", "incidentweburl", "incident web url", "incident_web_url"],
+      serviceMessage: ["service message", "event info", "error message", "description"]
+    };
+    const normalizeKey = (value) => normalize(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const pairs = [];
+    for (const row of document.querySelectorAll("tr")) {
+      if (!isVisible(row)) continue;
+      const cells = row.querySelectorAll("td");
+      if (cells.length >= 2) pairs.push([
+        normalizeKey(cells[0].innerText || cells[0].textContent),
+        normalize(cells[1].innerText || cells[1].textContent)
+      ]);
+    }
+    const embedded = {};
+    for (const [key, candidates] of Object.entries(aliases)) {
+      embedded[key] = "";
+      for (const candidate of candidates.map(normalizeKey)) {
+        const match = pairs.find(([label, value]) => label === candidate && available(value));
+        if (match) {
+          embedded[key] = match[1];
+          break;
+        }
+      }
+    }
+
+    const headerTicket = normalize(document.querySelector(".header-inv-id")?.textContent);
+    const urlTicket = location.href.match(/\/(\d+)\/?(?:[?#].*)?$/)?.[1] || "";
+    let incidentName = normalize(
+      document.querySelector(".header-inv-title")?.getAttribute("title")
+      || document.querySelector(".header-inv-title")?.textContent
+    );
+    const activeTab = normalize(document.querySelector("[role='tab'][aria-selected='true'] .tab-label")?.textContent);
+    if (activeTab && incidentName.toLowerCase().endsWith(` - ${activeTab}`.toLowerCase())) {
+      incidentName = incidentName.slice(0, -(activeTab.length + 3)).trim();
+    }
+
+    const tabUrls = [];
+    const wantedTabs = new Set([
+      normalizeLabel(settings.incidentInfoTabLabel),
+      normalizeLabel(settings.investigationTabLabel)
+    ]);
+    for (const link of document.querySelectorAll("a[role='tab'][href]")) {
+      const label = normalizeLabel(link.querySelector(".tab-label")?.textContent || link.textContent);
+      if (!wantedTabs.has(label)) continue;
+      try {
+        tabUrls.push(new URL(link.getAttribute("href"), location.href).toString());
+      } catch {}
+    }
+
+    return {
+      ticketId: headerTicket.match(/\d+/)?.[0] || urlTicket,
+      incidentName,
+      ...fields,
+      deviceHostname: first(fields.deviceHostname, embedded.deviceHostname),
+      eventName: first(fields.eventName, embedded.eventName),
+      detectionUrl: first(fields.detectionUrl, embedded.detectionUrl),
+      serviceMessage: first(fields.serviceMessage, embedded.serviceMessage),
+      sourceIp: first(fields.sourceIp, fields.clientIp, embedded.sourceIp),
+      sourceUsername: first(fields.sourceUsername, fields.clientUserName, embedded.sourceUsername),
+      tabUrls: [...new Set(tabUrls)]
+    };
+  };
+
+  const deadline = Date.now() + Math.min(Number(settings.pageReadyTimeoutMs) || 20000, 10000);
+  let previous = "";
+  let stableSince = Date.now();
+  let result = read();
+  while (Date.now() < deadline) {
+    const signature = JSON.stringify(result);
+    if (signature !== previous) {
+      previous = signature;
+      stableSince = Date.now();
+    } else if (Date.now() - stableSince >= 500
+      && (result.ruleName || result.caseType || result.ticketId)) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    result = read();
+  }
+  return result;
+}
+
+export async function extractSearchResultsFromPage(options) {
+  const normalize = (value) => String(value || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  const isVisible = (element) => {
+    if (!element) return false;
+    const style = window.getComputedStyle(element);
+    return style.display !== "none" && style.visibility !== "hidden"
+      && Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
+  };
+  const ticketPattern = /\/(?:incident|investigation)\/(\d+)\/?(?:[?#].*)?$/i;
+  const tickets = new Map();
+  const collect = () => {
+    const root = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page")
+      || document.body;
+    for (const link of root.querySelectorAll("a[href]")) {
+      if (!isVisible(link)) continue;
+      let url;
+      try {
+        url = new URL(link.getAttribute("href"), location.href);
+      } catch {
+        continue;
+      }
+      const ticketId = url.pathname.match(ticketPattern)?.[1];
+      if (ticketId && url.origin === location.origin) tickets.set(ticketId, url.toString());
+    }
+    const paging = normalize(document.querySelector(".table-paging-message")?.textContent);
+    const total = Number(paging.match(/out of\s+([\d,]+)/i)?.[1]?.replace(/,/g, "") || 0);
+    const empty = Boolean(document.querySelector(".no-data,.empty-table,.no-results"));
+    const busy = Array.from(root.querySelectorAll("[aria-busy='true'],.loading,.spinner"))
+      .some(isVisible);
+    return { root, paging, total, empty, busy };
+  };
+
+  const deadline = Date.now() + Math.min(Number(options.timeoutMs) || 20000, 120000);
+  let previous = "";
+  let stableSince = Date.now();
+  let state = collect();
+  while (Date.now() < deadline) {
+    const signature = `${state.paging}|${state.total}|${state.empty}|${[...tickets.keys()].join(",")}`;
+    if (signature !== previous) {
+      previous = signature;
+      stableSince = Date.now();
+    } else if (!state.busy && (state.empty || tickets.size > 0 || state.paging)
+      && Date.now() - stableSince >= 750) {
+      break;
+    }
+    const scrollHost = state.root.querySelector(".fixedDataTableLayout_rowsContainer,[role='rowgroup']") || state.root;
+    if ("scrollTop" in scrollHost) scrollHost.scrollTop += Math.max(300, scrollHost.clientHeight || 0);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    state = collect();
+  }
+  if (!state.empty && !tickets.size && !state.paging) {
+    throw new Error("XSOAR search results did not become ready before the timeout.");
+  }
+  const sorted = [...tickets.entries()]
+    .sort(([left], [right]) => Number(right) - Number(left))
+    .slice(0, Math.max(1, Number(options.maxResults) || 5))
+    .map(([ticketId, href]) => ({ ticketId, href }));
+  return { total: state.total || sorted.length, tickets: sorted };
+}

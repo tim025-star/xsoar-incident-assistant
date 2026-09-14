@@ -1,134 +1,118 @@
 # XSOAR Incident Assistant
 
-[![CI](https://github.com/tim025-star/xsoar-incident-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/tim025-star/xsoar-incident-assistant/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+XSOAR Incident Assistant is a Manifest V3 browser extension that prepares an incident-response draft from the Cortex XSOAR incident already open in Chrome or Microsoft Edge.
 
-XSOAR Incident Assistant is a local Windows utility for preparing incident-response drafts from Cortex XSOAR. It reads the active incident, searches for recent incidents with the same rule name and case type, reviews up to the configured number of historical incidents, and opens a draft in a new Notepad++ tab.
+It reads configured fields from the active incident, opens a matching-incident search through the XSOAR page URL, reviews a limited number of recent matches, and displays an editable draft in the browser side panel. It does not update XSOAR, submit forms, or send incident data to an external service.
 
-The assistant does not update the incident in XSOAR. Review each generated draft before using it.
+> This is an independent community project. It is not affiliated with or endorsed by Palo Alto Networks.
 
-## Requirements
+## What changed in version 2
 
-- Windows 11
-- Node.js 20 or newer
-- AutoHotkey v2
-- Google Chrome or Microsoft Edge
-- Notepad++
-- Access to a Cortex XSOAR tenant
+Version 2 replaces the remote-debugging, dedicated-browser-profile, AutoHotkey, Node.js runtime, and Notepad++ workflow with a browser extension:
 
-The installer can use `winget` to install missing per-user prerequisites without administrator access.
+- Use the browser and signed-in XSOAR session you already have open.
+- Grant access to one exact HTTPS tenant origin from the settings page.
+- Run searches by navigating to a URL containing the configured query parameter.
+- Review and copy the draft from the extension side panel.
+- Set your analyst name and title in Settings; no person's identity is built into the template.
 
-## Install
+The version 1 startup scripts and debug-mode integration have been removed.
 
-### Installer
+## Install for testing
 
-1. Clone or download this repository to a user-writable folder.
-2. Run `install-xsoar-incident-assistant.bat`.
-3. Open the generated `config.json` and replace `https://xsoar.example.com` with the exact HTTPS origin of your XSOAR tenant.
-4. Add your name and role under `template`, or leave `analystName` blank to omit both from the sign-off.
-5. Run `start-chrome-debug.bat` once to start the dedicated browser profile and assistant. The installer also adds a per-user Startup shortcut for later Windows sign-ins.
+Chrome Web Store and Microsoft Edge Add-ons packages are not published yet. To test the release from source:
 
-The installer installs the locked Node.js dependencies, creates `config.json` from the public example, configures the detected Notepad++ path, and adds the Startup shortcut. It does not require repository or XSOAR secrets.
+1. Download or clone this repository.
+2. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
+3. Enable **Developer mode**.
+4. Select **Load unpacked** and choose the repository's `extension` folder.
+5. Open the extension's **Settings** page.
+6. Enter the exact HTTPS origin of your XSOAR tenant and select **Save and grant tenant access**.
 
-### Manual setup
-
-1. Clone the repository to a user-writable folder.
-2. Copy `config.example.json` to `config.json`.
-3. Configure your trusted XSOAR origin and template identity as described below.
-4. Run `npm ci`.
-5. Run `start-chrome-debug.bat`.
+Node.js is needed only for development and tests, not to run the extension.
 
 ## Configure
 
-Keep local settings in `config.json`. Git ignores this file so tenant addresses, local executable paths, and analyst details do not enter the repository.
+The Settings page contains the public defaults and all tenant-specific values:
 
-At minimum, replace the example origin and review the sign-off:
+- **XSOAR HTTPS origin:** one exact tenant origin, without a path or credentials.
+- **Incident path pattern:** a regular expression matching incident page paths.
+- **Incidents page path:** the page used to search for matching incidents.
+- **Search URL parameter:** the URL parameter that XSOAR uses for the query. The default is `query`.
+- **Lookback query:** the additional time constraint included in the search.
+- **Analyst name and title:** optional signature values stored in extension-local settings.
+- **Field labels:** mappings for layouts whose visible labels differ from the generic defaults.
 
-```json
-{
-  "allowedXsoarOrigins": [
-    "https://your-xsoar-tenant.example"
-  ],
-  "template": {
-    "greeting": "Hello",
-    "recommendationsHeading": "Recommended Actions",
-    "contactText": "If you require more information or would like to discuss this incident, contact your security operations team and quote the incident ID.",
-    "signOff": "Kind regards,",
-    "analystName": "Your Name",
-    "analystTitle": "Your Role"
-  }
-}
-```
+Settings are stored by the browser in `chrome.storage.local` for this extension. Do not include passwords, session cookies, API tokens, customer names, or incident content in settings. Exported settings files can include your tenant origin and analyst identity, so handle them according to your organisation's policy.
 
-Each `allowedXsoarOrigins` entry must contain an exact HTTPS origin without a path, query string, or fragment. Leave `analystName` empty to omit the analyst name and title. You can also change the greeting, headings, contact text, and sign-off.
+### Verify the search URL for your tenant
 
-XSOAR layouts and labels can differ between tenants. The main compatibility settings are:
+XSOAR deployments and versions can use different routes and URL parameters. Before operational use, perform a synthetic test:
 
-- `incidentUrlPattern`: path pattern for incident views. The assistant validates the origin separately.
-- `incidentsPath`: same-origin Incidents page or path.
-- `incidentInfoTabLabel` and `investigationTabLabel`: labels for the incident views used during extraction.
-- `fieldLabels`: labels for the incident fields. The checked-in values provide generic examples.
-- `timeRangeLabel`: label for the historical-search time range.
-- `historicalSummaryLabels` and `historicalRecommendationLabels`: tenant-specific labels to use when the semantic defaults do not match.
-- `maxHistoricalIncidents`: maximum number of recent matching incidents to review. The default is five.
-- `headless`: runs extraction in a temporary headless Playwright context using the signed-in browser's storage state.
-- `debugMode`: shows generic progress information without writing debug logs.
+1. In XSOAR, run a harmless incident search manually.
+2. Confirm that the query remains visible in the browser address bar.
+3. Copy the incidents page path and query-parameter name into Settings.
+4. Generate a draft from a synthetic incident and confirm the side panel reports the expected matches.
 
-See [`config.example.json`](config.example.json) for all settings and defaults.
+The extension stops if navigation leaves the configured HTTPS origin, the active page does not match the configured incident path, or XSOAR does not retain the exact expected query in the final URL.
 
 ## Use
 
-1. Start `start-chrome-debug.bat` if the assistant is not running.
-2. Sign in to XSOAR through the dedicated browser profile.
-3. Open the incident and select its browser tab.
-4. Press the physical **Numpad+** key.
-5. Review the draft that opens in a new Notepad++ tab.
+1. Sign in to XSOAR normally in Chrome or Edge.
+2. Open an incident that matches the configured path.
+3. Select the extension button to open the side panel.
+4. Select **Generate draft**, or press `Alt+Shift+X`.
+5. Review the draft. Select **Copy** only when you are ready to place it on the system clipboard.
 
-Chrome is the default browser. To use Edge for a manual launch from PowerShell:
+The original incident tab is restored when processing finishes. Temporary search and historical-incident tabs are closed.
 
-```powershell
-$env:XSOAR_ASSISTANT_BROWSER = "edge"
-.\start-chrome-debug.bat
-```
+## Credentials and data handling
 
-Set `XSOAR_ASSISTANT_BROWSER` as a Windows user environment variable if the Startup shortcut should use Edge at sign-in.
+The extension does not ask for, read, store, or transmit XSOAR passwords, cookies, or API tokens. XSOAR authentication remains owned by the normal browser session. The extension asks the browser for page access only to the exact HTTPS origin selected in Settings.
 
-## Troubleshooting
+During a run, incident fields are read from XSOAR pages and processed locally in the extension. The finished draft and generic progress state are kept in `chrome.storage.session`, which is cleared when the browser session ends. The draft reaches the Windows clipboard only after the user selects **Copy**.
 
-- **Port 9222 is already in use:** close the existing remote-debugging browser and run the launcher again.
-- **The incident tab is not found:** confirm that its HTTPS origin appears in `allowedXsoarOrigins` and that its path matches `incidentUrlPattern`.
-- **Fields are missing:** update the tab and field labels in `config.json` to match the tenant's XSOAR layout.
-- **Notepad++ is not found:** set `notepadPlusPlusPath` to the full executable path. Environment variables such as `%LOCALAPPDATA%` are supported.
-- **The hidden Startup launch fails:** run `start-chrome-debug.bat` by hand to see the detailed error.
+Browser history, XSOAR itself, endpoint monitoring, clipboard managers, or browser synchronisation may retain data independently of this project. An organisation must assess those controls and approve the extension for its own environment. This repository does not claim compliance with any employer's internal security policy.
 
-## Security and data handling
+See [SECURITY.md](SECURITY.md) for the permission model and reporting process.
 
-- Use a dedicated browser profile and close it when you finish. Chromium DevTools listens on `127.0.0.1`, but other processes running as the same Windows user can access that endpoint because CDP has no application-level authentication.
-- Add only trusted HTTPS tenant origins to `allowedXsoarOrigins`. The assistant keeps incident, search, and historical navigation on the selected origin.
-- The assistant sends generated text to the verified Notepad++ editor control through an in-memory protocol. It does not use the Windows clipboard or create incident, template, progress, or error-log files.
-- Chrome profile data and Notepad++ recovery or plugin features can persist content. Configure those applications to meet your data-handling requirements.
-- Error dialogs can contain local paths or incident identifiers needed to diagnose a failed run.
-- Do not commit browser profiles, screenshots, captured production HTML, incident exports, or production-derived test fixtures.
+## Architecture and extension points
 
-Read [SECURITY.md](SECURITY.md) before reporting a vulnerability or contributing security-sensitive changes.
+The code is split around a small browser-adapter boundary:
+
+- `extension/domain.js` owns validation, URL construction, data merging, and draft generation.
+- `extension/workflow.js` coordinates the incident, search, and historical-review sequence without depending directly on Chrome APIs.
+- `extension/page-adapter.js` contains XSOAR DOM extraction.
+- `extension/background.js` implements the Chrome/Edge adapter and controls session state.
+- `extension/options.*` and `extension/sidepanel.*` provide configuration and output UI.
+
+New extraction rules belong in the page adapter, new draft formats in the domain module, and new browser behavior behind the adapter interface. This keeps tenant compatibility changes separate from the security-sensitive navigation and permission checks.
 
 ## Development
 
-GitHub Actions runs these commands on Windows with Node.js 20:
+Requirements:
+
+- Node.js 20 or newer
+- Chrome or Microsoft Edge for extension testing
+
+Run the checks:
 
 ```powershell
 npm ci
 npm run check
 npm test
-```
-
-Run the dependency audit before a release or dependency update:
-
-```powershell
+npm run verify:browser
+npm run package
 npm audit --audit-level=high
 ```
 
-Tests and optional DOM fixtures must use fictional organizations, reserved domains such as `example.test`, and documentation address ranges such as `192.0.2.0/24`.
+`npm run package` creates `output/xsoar-incident-assistant-extension.zip`. GitHub Actions also publishes this ZIP as a workflow artifact after all checks pass.
+
+Tests and fixtures must use fictional organisations, reserved domains such as `example.test`, and documentation IP address ranges. Never commit production HTML, screenshots, incident exports, tenant names, credentials, or browser profiles.
+
+## Known compatibility boundary
+
+The automated test suite verifies URL construction, origin/path enforcement, workflow cleanup, permissions, and generic DOM extraction. A maintainer must still test the configured search URL and field labels against each supported XSOAR release because the public product documentation does not define a stable browser deep-link contract for incident searches.
 
 ## License
 
