@@ -25,6 +25,42 @@ test("runtime version check matches the Vite-supported Node ranges", () => {
   }
 });
 
+test("the published Windows installer is per-user, self-contained, and does not depend on npm at launch", async () => {
+  const root = new URL("../", import.meta.url);
+  const [installer, launcher, packager, runtimeDownloader, releaseWorkflow, ciWorkflow] = await Promise.all([
+    readFile(new URL("installer/XSOARIncidentAssistant.iss", root), "utf8"),
+    readFile(new URL("installer/launcher.vbs", root), "utf8"),
+    readFile(new URL("scripts/package-windows.mjs", root), "utf8"),
+    readFile(new URL("installer/download-node-runtime.ps1", root), "utf8"),
+    readFile(new URL(".github/workflows/release.yml", root), "utf8"),
+    readFile(new URL(".github/workflows/ci.yml", root), "utf8")
+  ]);
+
+  assert.match(installer, /^PrivilegesRequired=lowest$/m);
+  assert.match(installer, /^DefaultDirName=\{localappdata\}\\Programs\\\{#AppName\}$/m);
+  assert.match(installer, /^AppId=\{\{60EBD23D-706E-4D31-AC14-431621E99316\}$/m);
+  assert.match(installer, /^ArchitecturesAllowed=x64$/m);
+  assert.match(installer, /^Source: "\{#StageDir\}\\\*"; DestDir: "\{app\}"; Flags: recursesubdirs createallsubdirs$/m);
+  assert.match(launcher, /runtime\\node\.exe/);
+  assert.doesNotMatch(launcher, /npm(?:\.cmd)?/i);
+  assert.match(packager, /npmCliPath, "ci", "--omit=dev", "--ignore-scripts"/);
+  assert.match(packager, /Portable Node\.js runtime/);
+  assert.match(packager, /scripts", "keyboard-trigger\.ps1"/);
+  assert.match(packager, /Staged Numpad\+ keyboard trigger/);
+  assert.match(runtimeDownloader, /dist\/v24\.14\.0\/win-x64\/node\.exe/);
+  assert.match(runtimeDownloader, /63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088/);
+  assert.match(releaseWorkflow, /download-node-runtime\.ps1/);
+  assert.match(releaseWorkflow, /choco install innosetup --version=6\.7\.1/);
+  assert.match(releaseWorkflow, /WINDOWS_SIGNING_CERTIFICATE_BASE64/);
+  assert.match(releaseWorkflow, /signtool\.FullName verify \/pa \/v/);
+  assert.match(releaseWorkflow, /environment: windows-release/);
+  assert.match(releaseWorkflow, /git merge-base --is-ancestor \$env:GITHUB_SHA origin\/main/);
+  assert.match(releaseWorkflow, /The release tag must be v\$version\./);
+  assert.match(releaseWorkflow, /gh release create/);
+  assert.match(ciWorkflow, /windows-installer:/);
+  assert.match(ciWorkflow, /npm run package:windows/);
+});
+
 test("legacy cdp settings migrate to diagnostics and endpoints remain unsupported", () => {
   const migrated = resolveAppConfig({ configVersion: 3, session: { mode: "cdp" } }, { requireTenant: false });
   assert.equal(migrated.configVersion, 4);
@@ -53,21 +89,6 @@ test("browser profiles stay inside the assistant application-data directory", ()
     () => resolveAppConfig({ session: { profileDirectory: path.resolve("C:\\Users\\Public\\assistant-profile") } }, { requireTenant: false }),
     /application-data directory/
   );
-});
-
-test("Windows launchers create a Start-menu shortcut and report hidden-launch failures", async () => {
-  const root = new URL("../", import.meta.url);
-  const [installer, shortcut, hiddenLauncher, launcher] = await Promise.all([
-    readFile(new URL("install-assistant.bat", root), "utf8"),
-    readFile(new URL("install-start-menu-shortcut.vbs", root), "utf8"),
-    readFile(new URL("start-assistant-hidden.vbs", root), "utf8"),
-    readFile(new URL("start-assistant.bat", root), "utf8")
-  ]);
-  assert.match(installer, /install-start-menu-shortcut\.vbs/i);
-  assert.match(shortcut, /SpecialFolders\("Programs"\)/);
-  assert.match(hiddenLauncher, /XSOAR_ASSISTANT_HIDDEN_LAUNCH/);
-  assert.match(hiddenLauncher, /could not start/i);
-  assert.match(launcher, /XSOAR_ASSISTANT_HIDDEN_LAUNCH/);
 });
 
 test("public runtime and documentation contain no extension or organisation-specific implementation", async () => {

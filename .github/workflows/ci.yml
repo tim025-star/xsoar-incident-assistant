@@ -24,3 +24,23 @@ jobs:
       - run: npm test
       - run: npm audit --audit-level=high
       - run: npm run verify:browser
+  windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.14.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Download the pinned Node.js runtime
+        shell: pwsh
+        run: .\installer\download-node-runtime.ps1 -Destination .\installer\runtime\node.exe
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --version=6.7.1 --yes --no-progress --limit-output
+      - name: Build the Windows installer
+        env:
+          NODE_RUNTIME_PATH: ${{ github.workspace }}\installer\runtime\node.exe
+        run: npm run package:windows
