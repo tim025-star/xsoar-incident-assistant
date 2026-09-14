@@ -25,6 +25,33 @@ export function createAssistantRouter({
     activity = { phase: "error", detail: messageFor(error), draft: activity.draft };
     throw new ORPCError(code, { message: activity.detail });
   };
+  const generate = async () => {
+    if (runningWorkflow) {
+      throw new ORPCError("CONFLICT", { message: "A draft is already being generated." });
+    }
+    runningWorkflow = true;
+    try {
+      const config = await configStore.load({ requireTenant: true });
+      await sessions.start(config);
+      const result = await generateDraft({
+        adapter: sessions.adapter(config.xsoar),
+        settings: config.xsoar,
+        onProgress: async (phase, detail) => {
+          activity = { phase, detail, draft: activity.draft };
+        }
+      });
+      activity = {
+        phase: "complete",
+        detail: result.warning || `Draft ready. Reviewed ${result.reviewed} historical incident(s).`,
+        draft: result.draft
+      };
+      return result;
+    } catch (error) {
+      return fail(error);
+    } finally {
+      runningWorkflow = false;
+    }
+  };
 
   const router = {
     config: {
@@ -79,35 +106,9 @@ export function createAssistantRouter({
       })
     },
     draft: {
-      generate: os.handler(async () => {
-        if (runningWorkflow) {
-          throw new ORPCError("CONFLICT", { message: "A draft is already being generated." });
-        }
-        runningWorkflow = true;
-        try {
-          const config = await configStore.load({ requireTenant: true });
-          await sessions.start(config);
-          const result = await generateDraft({
-            adapter: sessions.adapter(config.xsoar),
-            settings: config.xsoar,
-            onProgress: async (phase, detail) => {
-              activity = { phase, detail, draft: activity.draft };
-            }
-          });
-          activity = {
-            phase: "complete",
-            detail: result.warning || `Draft ready. Reviewed ${result.reviewed} historical incident(s).`,
-            draft: result.draft
-          };
-          return result;
-        } catch (error) {
-          return fail(error);
-        } finally {
-          runningWorkflow = false;
-        }
-      })
+      generate: os.handler(generate)
     }
   };
 
-  return { router, sessions, status };
+  return { router, sessions, status, generate };
 }

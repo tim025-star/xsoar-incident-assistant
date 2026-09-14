@@ -223,6 +223,7 @@ function App() {
                 <button id="run" class="button" type="button" disabled={busy()} onClick={() => runAction(() => rpc.draft.generate())}>Generate draft</button>
                 <button id="stop" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(() => rpc.browser.stop())}>Close browser</button>
               </div>
+              <p class="helper mt-0">You can also press the physical Numpad+ key while an XSOAR incident is open. The draft will appear here.</p>
               <label class="field">Draft
                 <textarea id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The generated draft appears here." value={status()?.draft || ""} />
               </label>
