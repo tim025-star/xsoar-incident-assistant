@@ -1,0 +1,84 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: windows-latest
+    environment: windows-release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.14.0
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run verify:browser
+      - run: npm audit --audit-level=high
+      - name: Verify that the tag matches package.json
+        shell: pwsh
+        run: |
+          $version = (node -p "require('./package.json').version").Trim()
+          if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "The release tag must be v$version." }
+      - name: Verify that the release tag is on main
+        shell: pwsh
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+          if ($LASTEXITCODE -ne 0) { throw "The release tag must reference a commit reachable from origin/main." }
+      - name: Download the pinned Node.js runtime
+        shell: pwsh
+        run: .\installer\download-node-runtime.ps1 -Destination .\installer\runtime\node.exe
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --version=6.7.1 --yes --no-progress --limit-output
+      - name: Build the installer
+        env:
+          NODE_RUNTIME_PATH: ${{ github.workspace }}\installer\runtime\node.exe
+          APP_VERSION: ${{ github.ref_name }}
+        run: npm run package:windows
+      - name: Sign and verify the installer
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_BASE64) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD)) {
+            throw "The protected windows-release environment must provide WINDOWS_SIGNING_CERTIFICATE_BASE64 and WINDOWS_SIGNING_CERTIFICATE_PASSWORD."
+          }
+          $installer = Get-ChildItem -LiteralPath artifacts -Filter *.exe | Select-Object -First 1
+          if ($null -eq $installer) { throw "Installer output was not found." }
+          $signtool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse | Sort-Object FullName -Descending | Select-Object -First 1
+          if ($null -eq $signtool) { throw "Windows SDK SignTool was not found on the release runner." }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "xsoar-incident-assistant-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE_BASE64))
+            & $signtool.FullName sign /fd SHA256 /f $certificatePath /p $env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD /tr "http://timestamp.digicert.com" /td SHA256 $installer.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed." }
+            & $signtool.FullName verify /pa /v $installer.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode signature verification failed." }
+          } finally {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+          }
+      - name: Write installer checksum
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath artifacts -Filter *.exe | Select-Object -First 1
+          if ($null -eq $installer) { throw "Installer output was not found." }
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath (Join-Path $installer.DirectoryName "$($installer.Name).sha256") -Value "$hash *$($installer.Name)" -NoNewline
+      - name: Publish the release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release create $env:GITHUB_REF_NAME .\artifacts\*.exe .\artifacts\*.sha256 --generate-notes --verify-tag

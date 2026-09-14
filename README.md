@@ -14,15 +14,17 @@ Neither mode can guarantee a particular session lifetime or bypass an organisati
 
 ## Install on Windows
 
-Requirements: Windows 11, Node.js 20.19 or 22.12 and newer, plus a current Microsoft Edge or Google Chrome installation. Windows PowerShell provides the keyboard listener. The application does not require AutoHotkey or Notepad++.
+Download the current `XSOAR-Incident-Assistant-Setup-<version>-x64.exe` from the project's GitHub Releases page, then run it. The installer is per-user: it does not require administrator access, Node.js, npm, or a system-wide software install.
 
-1. Download or clone this repository to a stable location.
-2. Run `install-assistant.bat`.
-3. Open **XSOAR Incident Assistant** from the Windows Start menu.
-4. Enter the exact HTTPS origin of your XSOAR tenant and your optional analyst name/title, then save.
-5. Keep **Managed profile** unless you need Chromium DevTools for troubleshooting.
+Each release includes a matching `.sha256` file and an Authenticode signature. Where your organisation requires it, verify the signature and compare the checksum with the downloaded installer before running it.
 
-The installer runs `npm ci` and creates a per-user Start menu shortcut. It does not add a browser extension, alter browser policy, or start automatically at Windows sign-in.
+1. Run the downloaded installer and leave **Launch XSOAR Incident Assistant** selected.
+2. In the application, enter the exact HTTPS origin of your XSOAR tenant and your optional analyst name/title, then save.
+3. Keep **Managed profile** unless you need Chromium DevTools for troubleshooting.
+
+The installer adds a Start-menu shortcut and includes the application's Node.js runtime and locked production dependencies. It does not add a browser extension, alter browser policy, start automatically at Windows sign-in, or overwrite configuration and browser-profile data during an upgrade.
+
+Requirements: Windows 11 x64 and a current Microsoft Edge or Google Chrome installation.
 
 ## Use
 
@@ -35,7 +37,7 @@ Temporary search and historical tabs are closed, and the original incident is br
 
 The local server starts a Windows-only global **Numpad+** listener alongside the control page. The listener sends an authenticated loopback request to the same local server; it does not connect directly to XSOAR, hold browser credentials, or write drafts to disk. If another application has already registered Numpad+, close that application before starting the assistant.
 
-If the Start-menu launch reports a startup error, run `start-assistant.bat` from the application folder to see the specific cause.
+If the Start-menu launch reports a startup error, reinstall the current release. The launcher displays an error instead of failing silently.
 
 ### Diagnostics mode
 
@@ -80,6 +82,16 @@ npm test
 npm run verify:browser
 npm audit --audit-level=high
 ```
+
+### Creating a Windows release
+
+The end-user installer is built only from a version tag. It stages the built application, production dependencies, and a pinned portable Node.js runtime, then packages them with Inno Setup. The staged files and output installer are ignored by Git.
+
+1. Update `package.json` with the release version and push a matching `v<version>` tag.
+2. Create a protected GitHub Actions environment named `windows-release` with required reviewers. Store the release certificate as environment-scoped secrets `WINDOWS_SIGNING_CERTIFICATE_BASE64` and `WINDOWS_SIGNING_CERTIFICATE_PASSWORD`.
+3. The **Windows release** GitHub Actions workflow verifies the project, verifies the downloaded runtime SHA-256, builds and Authenticode-signs `XSOAR-Incident-Assistant-Setup-<version>-x64.exe`, writes its SHA-256 sidecar, and publishes both files to the GitHub Release.
+
+For a local packaging run, install Inno Setup 6, build the application, set `NODE_RUNTIME_PATH` to a verified x64 `node.exe`, then run `npm run package:windows`. This is a maintainer operation; end users should always install a published release asset.
 
 Tests and examples must use fictional data and reserved domains such as `example.test`. Never commit browser profiles, production HTML, screenshots, incident exports, tenant names, credentials, or session data.
 
