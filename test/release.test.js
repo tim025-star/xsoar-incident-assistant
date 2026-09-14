@@ -55,6 +55,21 @@ test("browser profiles stay inside the assistant application-data directory", ()
   );
 });
 
+test("Windows launchers create a Start-menu shortcut and report hidden-launch failures", async () => {
+  const root = new URL("../", import.meta.url);
+  const [installer, shortcut, hiddenLauncher, launcher] = await Promise.all([
+    readFile(new URL("install-assistant.bat", root), "utf8"),
+    readFile(new URL("install-start-menu-shortcut.vbs", root), "utf8"),
+    readFile(new URL("start-assistant-hidden.vbs", root), "utf8"),
+    readFile(new URL("start-assistant.bat", root), "utf8")
+  ]);
+  assert.match(installer, /install-start-menu-shortcut\.vbs/i);
+  assert.match(shortcut, /SpecialFolders\("Programs"\)/);
+  assert.match(hiddenLauncher, /XSOAR_ASSISTANT_HIDDEN_LAUNCH/);
+  assert.match(hiddenLauncher, /could not start/i);
+  assert.match(launcher, /XSOAR_ASSISTANT_HIDDEN_LAUNCH/);
+});
+
 test("public runtime and documentation contain no extension or organisation-specific implementation", async () => {
   const root = new URL("../", import.meta.url);
   const entries = await readdir(root, { recursive: true, withFileTypes: true });

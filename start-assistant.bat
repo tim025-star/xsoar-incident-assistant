@@ -7,4 +7,4 @@ if not exist "node_modules\playwright-core" (
   exit /b 1
 )
 call npm start
-if errorlevel 1 pause
+if errorlevel 1 if /I not "%XSOAR_ASSISTANT_HIDDEN_LAUNCH%"=="1" pause

@@ -11,4 +11,4 @@ link.Arguments = Chr(34) & folder & "\start-assistant-hidden.vbs" & Chr(34)
 link.WorkingDirectory = folder
 link.Description = "Open the local XSOAR Incident Assistant"
 link.Save
-WScript.Echo "Created: " & shortcut
+WScript.Echo "Created Start menu shortcut: " & shortcut

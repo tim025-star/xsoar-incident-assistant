@@ -10,7 +10,8 @@ Security fixes apply to the latest default-branch revision. Use GitHub private v
 - Every XSOAR navigation must remain on the configured exact HTTPS origin. Incident and search paths are independently validated, including the expected URL query.
 - Both browser modes use a dedicated persistent profile launched and owned directly by Playwright. The normal Chrome or Edge user-data tree and its descendants are rejected.
 - Diagnostics mode opens Chromium DevTools without exposing a TCP remote-debugging endpoint or attaching to an independently launched browser.
-- No feature reads, exports, copies, logs, or serialises passwords, cookies, tokens, or Playwright storage state.
+- The Windows Numpad+ listener receives a separate random per-process token through its child-process environment. It can invoke only the local draft workflow and does not receive XSOAR cookies or browser-session data.
+- No feature reads, exports, copies, logs, or serialises XSOAR passwords, API tokens, cookies, or Playwright storage state.
 - Drafts are held in process memory. Clipboard access occurs only after an explicit user action in the local UI.
 
 The dedicated browser profile contains active browser-session material and must be protected by normal Windows account and endpoint controls. Removing the profile signs the assistant out but also deletes local browser state; close the assistant browser before removal.
