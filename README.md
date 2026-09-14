@@ -16,7 +16,7 @@ Neither mode can guarantee a particular session lifetime or bypass an organisati
 
 Download the current `XSOAR-Incident-Assistant-Setup-<version>-x64.exe` from the project's GitHub Releases page, then run it. The installer is per-user: it does not require administrator access, Node.js, npm, or a system-wide software install.
 
-Each release includes a matching `.sha256` file and an Authenticode signature. Where your organisation requires it, verify the signature and compare the checksum with the downloaded installer before running it.
+Each release includes a matching `.sha256` file. The current installer is unsigned, so Windows may show an unknown-publisher warning. Compare the checksum with the downloaded installer before running it.
 
 1. Run the downloaded installer and leave **Launch XSOAR Incident Assistant** selected.
 2. In the application, enter the exact HTTPS origin of your XSOAR tenant and your optional analyst name/title, then save.
@@ -88,8 +88,7 @@ npm audit --audit-level=high
 The end-user installer is built only from a version tag. It stages the built application, production dependencies, and a pinned portable Node.js runtime, then packages them with Inno Setup. The staged files and output installer are ignored by Git.
 
 1. Update `package.json` with the release version and push a matching `v<version>` tag.
-2. Create a protected GitHub Actions environment named `windows-release` with required reviewers. Store the release certificate as environment-scoped secrets `WINDOWS_SIGNING_CERTIFICATE_BASE64` and `WINDOWS_SIGNING_CERTIFICATE_PASSWORD`.
-3. The **Windows release** GitHub Actions workflow verifies the project, verifies the downloaded runtime SHA-256, builds and Authenticode-signs `XSOAR-Incident-Assistant-Setup-<version>-x64.exe`, writes its SHA-256 sidecar, and publishes both files to the GitHub Release.
+2. The **Windows release** GitHub Actions workflow verifies the project, verifies the downloaded runtime SHA-256, builds the unsigned `XSOAR-Incident-Assistant-Setup-<version>-x64.exe`, writes its SHA-256 sidecar, and publishes both files to the GitHub Release.
 
 For a local packaging run, install Inno Setup 6, build the application, set `NODE_RUNTIME_PATH` to a verified x64 `node.exe`, then run `npm run package:windows`. This is a maintainer operation; end users should always install a published release asset.
 

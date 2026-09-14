@@ -132,7 +132,7 @@ test("runtime version check matches the Vite-supported Node ranges", () => {
   }
 });
 
-test("the published Windows installer is per-user, self-contained, and does not depend on npm at launch", async () => {
+test("the published Windows installer is per-user, self-contained, and releases without signing credentials", async () => {
   const root = new URL("../", import.meta.url);
   const [installer, launcher, packager, runtimeDownloader, releaseWorkflow, ciWorkflow] = await Promise.all([
     readFile(new URL("installer/XSOARIncidentAssistant.iss", root), "utf8"),
@@ -158,11 +158,12 @@ test("the published Windows installer is per-user, self-contained, and does not 
   assert.match(runtimeDownloader, /63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088/);
   assert.match(releaseWorkflow, /download-node-runtime\.ps1/);
   assert.match(releaseWorkflow, /choco install innosetup --version=6\.7\.1/);
-  assert.match(releaseWorkflow, /WINDOWS_SIGNING_CERTIFICATE_BASE64/);
-  assert.match(releaseWorkflow, /signtool\.FullName verify \/pa \/v/);
-  assert.match(releaseWorkflow, /environment: windows-release/);
+  assert.doesNotMatch(releaseWorkflow, /WINDOWS_SIGNING_CERTIFICATE_BASE64/);
+  assert.doesNotMatch(releaseWorkflow, /signtool\.FullName verify \/pa \/v/);
+  assert.doesNotMatch(releaseWorkflow, /environment: windows-release/);
   assert.match(releaseWorkflow, /git merge-base --is-ancestor \$env:GITHUB_SHA origin\/main/);
   assert.match(releaseWorkflow, /The release tag must be v\$version\./);
+  assert.match(releaseWorkflow, /Write installer checksum/);
   assert.match(releaseWorkflow, /gh release create/);
   assert.match(ciWorkflow, /windows-installer:/);
   assert.match(ciWorkflow, /npm run package:windows/);
