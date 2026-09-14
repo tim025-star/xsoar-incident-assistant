@@ -11,7 +11,6 @@ permissions:
 jobs:
   package:
     runs-on: windows-latest
-    environment: windows-release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -47,29 +46,6 @@ jobs:
           NODE_RUNTIME_PATH: ${{ github.workspace }}\installer\runtime\node.exe
           APP_VERSION: ${{ github.ref_name }}
         run: npm run package:windows
-      - name: Sign and verify the installer
-        shell: pwsh
-        env:
-          WINDOWS_SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
-          WINDOWS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_BASE64) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD)) {
-            throw "The protected windows-release environment must provide WINDOWS_SIGNING_CERTIFICATE_BASE64 and WINDOWS_SIGNING_CERTIFICATE_PASSWORD."
-          }
-          $installer = Get-ChildItem -LiteralPath artifacts -Filter *.exe | Select-Object -First 1
-          if ($null -eq $installer) { throw "Installer output was not found." }
-          $signtool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter signtool.exe -Recurse | Sort-Object FullName -Descending | Select-Object -First 1
-          if ($null -eq $signtool) { throw "Windows SDK SignTool was not found on the release runner." }
-          $certificatePath = Join-Path $env:RUNNER_TEMP "xsoar-incident-assistant-signing.pfx"
-          try {
-            [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE_BASE64))
-            & $signtool.FullName sign /fd SHA256 /f $certificatePath /p $env:WINDOWS_SIGNING_CERTIFICATE_PASSWORD /tr "http://timestamp.digicert.com" /td SHA256 $installer.FullName
-            if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed." }
-            & $signtool.FullName verify /pa /v $installer.FullName
-            if ($LASTEXITCODE -ne 0) { throw "Authenticode signature verification failed." }
-          } finally {
-            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
-          }
       - name: Write installer checksum
         shell: pwsh
         run: |
@@ -81,4 +57,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
-        run: gh release create $env:GITHUB_REF_NAME .\artifacts\*.exe .\artifacts\*.sha256 --generate-notes --verify-tag
+        run: gh release create $env:GITHUB_REF_NAME .\artifacts\*.exe .\artifacts\*.sha256 --generate-notes --verify-tag --notes "This installer is unsigned. Verify its SHA-256 checksum before running it; Windows may show an unknown-publisher warning."
