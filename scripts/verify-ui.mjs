@@ -13,6 +13,7 @@ import { extractIncidentFromPage, extractSearchResultsFromPage } from "../src/pa
 let uiConfig = resolveAppConfig({}, { requireTenant: false });
 const app = createAssistantServer({
   token: "browser-verification-token",
+  keyboardTriggerStarter: async () => ({ stop: async () => {} }),
   routerOptions: {
     configStore: {
       load: async () => uiConfig,
@@ -51,10 +52,13 @@ try {
   assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "10");
   await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
   await page.locator("#analystName").fill("Example Analyst");
+  await page.locator("#activationHotkey").selectOption("ctrl_alt_g");
   await page.locator("#save").click();
   await page.getByText("Settings saved.").waitFor();
   assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
+  assert.equal(uiConfig.session.activationHotkey, "ctrl_alt_g");
+  assert.deepEqual(await page.locator("#activationHotkey option").evaluateAll((options) => options.map((option) => option.value)), ["numpad_plus", "ctrl_alt_g", "ctrl_shift_g", "ctrl_alt_i"]);
   assert.deepEqual(await page.locator("#mode option").evaluateAll((options) => options.map((option) => option.value)), ["managed", "diagnostics"]);
   await page.locator("#mode").selectOption("diagnostics");
   assert.equal(await page.locator("#launchDebug").count(), 0);
@@ -99,6 +103,7 @@ try {
 } finally {
   await browser?.close();
   await persistentContext?.close();
+  app.server.closeAllConnections?.();
   await new Promise((resolve) => app.server.close(resolve));
   if (profileDirectory) await rm(profileDirectory, { recursive: true, force: true });
 }

@@ -10,10 +10,117 @@ import { DEFAULT_APP_CONFIG, resolveAppConfig } from "../src/config.js";
 import { createAssistantServer } from "../src/server.js";
 import { isSupportedNodeVersion } from "../scripts/check-node-version.mjs";
 
-test("managed mode is the public default and the analyst identity is empty", () => {
+async function closeServer(server) {
+  server.closeAllConnections?.();
+  await new Promise((resolve) => server.close(resolve));
+}
+
+test("managed mode is the public default, with Numpad+ activation and an empty analyst identity", () => {
   assert.equal(DEFAULT_APP_CONFIG.session.mode, "managed");
   assert.equal(DEFAULT_APP_CONFIG.session.browser, "edge");
+  assert.equal(DEFAULT_APP_CONFIG.session.activationHotkey, "numpad_plus");
   assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "");
+});
+
+test("activation shortcuts are validated before being saved", () => {
+  assert.equal(resolveAppConfig({ session: { activationHotkey: "ctrl_shift_g" } }, { requireTenant: false }).session.activationHotkey, "ctrl_shift_g");
+  assert.throws(
+    () => resolveAppConfig({ session: { activationHotkey: "ctrl_alt_delete" } }, { requireTenant: false }),
+    /Activation hotkey/
+  );
+});
+
+test("activation shortcut changes apply immediately and roll back when registration fails", async () => {
+  let stored = resolveAppConfig({ xsoar: { allowedOrigin: "https://xsoar.example.test" } });
+  const started = [];
+  const stopped = [];
+  let rejectCtrlAltG = false;
+  let rejectCtrlShiftG = false;
+  const configStore = {
+    load: async () => stored,
+    save: async (input, options) => {
+      stored = resolveAppConfig(input, options);
+      return stored;
+    }
+  };
+  const app = createAssistantServer({
+    token: "shortcut-test-token",
+    routerOptions: { configStore },
+    keyboardTriggerStarter: async ({ activationHotkey }) => {
+      started.push(activationHotkey);
+      if (activationHotkey === "ctrl_alt_g" && rejectCtrlAltG) throw new Error("Ctrl + Alt + G is already registered.");
+      if (activationHotkey === "ctrl_shift_g" && rejectCtrlShiftG) throw new Error("Ctrl + Shift + G is already registered.");
+      return { stop: async () => stopped.push(activationHotkey) };
+    }
+  });
+  const origin = new URL(await app.listen(0)).origin;
+  const client = createORPCClient(new RPCLink({
+    url: `${origin}/rpc`,
+    headers: { "X-Assistant-Token": "shortcut-test-token", Origin: origin }
+  }));
+  try {
+    await app.startKeyboardTrigger();
+    await client.config.save({ ...stored, session: { ...stored.session, activationHotkey: "ctrl_shift_g" } });
+    rejectCtrlAltG = true;
+    await assert.rejects(
+      () => client.config.save({ ...stored, session: { ...stored.session, activationHotkey: "ctrl_alt_g" } }),
+      /already registered/
+    );
+    assert.deepEqual(started, ["numpad_plus", "ctrl_shift_g", "ctrl_alt_g", "ctrl_shift_g"]);
+    assert.deepEqual(stopped, ["numpad_plus", "ctrl_shift_g"]);
+    assert.equal(stored.session.activationHotkey, "ctrl_shift_g");
+    rejectCtrlShiftG = true;
+    await assert.rejects(
+      () => client.config.save({ ...stored, session: { ...stored.session, activationHotkey: "ctrl_alt_g" } }),
+      /previous activation shortcut could not be restored/
+    );
+    assert.deepEqual(started, ["numpad_plus", "ctrl_shift_g", "ctrl_alt_g", "ctrl_shift_g", "ctrl_alt_g", "ctrl_shift_g"]);
+    assert.deepEqual(stopped, ["numpad_plus", "ctrl_shift_g", "ctrl_shift_g"]);
+    assert.equal(stored.session.activationHotkey, "ctrl_shift_g");
+    const failedRestoreStatus = await client.status();
+    assert.equal(failedRestoreStatus.hotkey.active, false);
+    assert.match(failedRestoreStatus.hotkey.error, /previous activation shortcut could not be restored/);
+  } finally {
+    await app.stopKeyboardTrigger();
+    await closeServer(app.server);
+  }
+});
+
+test("an unavailable initial shortcut leaves Settings available to choose another", async () => {
+  let stored = resolveAppConfig({ xsoar: { allowedOrigin: "https://xsoar.example.test" } });
+  const started = [];
+  const configStore = {
+    load: async () => stored,
+    save: async (input, options) => {
+      stored = resolveAppConfig(input, options);
+      return stored;
+    }
+  };
+  const app = createAssistantServer({
+    token: "initial-shortcut-test-token",
+    routerOptions: { configStore },
+    keyboardTriggerStarter: async ({ activationHotkey }) => {
+      started.push(activationHotkey);
+      if (activationHotkey === "numpad_plus") throw new Error("Numpad + is already registered.");
+      return { stop: async () => {} };
+    }
+  });
+  const origin = new URL(await app.listen(0)).origin;
+  const client = createORPCClient(new RPCLink({
+    url: `${origin}/rpc`,
+    headers: { "X-Assistant-Token": "initial-shortcut-test-token", Origin: origin }
+  }));
+  try {
+    const initial = await app.startKeyboardTrigger();
+    assert.deepEqual(initial, { active: false, error: "Numpad + is already registered." });
+    assert.equal((await client.status()).hotkey.active, false);
+    await client.config.save({ ...stored, session: { ...stored.session, activationHotkey: "ctrl_alt_g" } });
+    assert.deepEqual(started, ["numpad_plus", "ctrl_alt_g"]);
+    assert.equal((await client.status()).hotkey.active, true);
+  } finally {
+    await app.stopKeyboardTrigger();
+    await closeServer(app.server);
+  }
 });
 
 test("runtime version check matches the Vite-supported Node ranges", () => {
@@ -46,7 +153,7 @@ test("the published Windows installer is per-user, self-contained, and does not 
   assert.match(packager, /npmCliPath, "ci", "--omit=dev", "--ignore-scripts"/);
   assert.match(packager, /Portable Node\.js runtime/);
   assert.match(packager, /scripts", "keyboard-trigger\.ps1"/);
-  assert.match(packager, /Staged Numpad\+ keyboard trigger/);
+  assert.match(packager, /Staged keyboard trigger/);
   assert.match(runtimeDownloader, /dist\/v24\.14\.0\/win-x64\/node\.exe/);
   assert.match(runtimeDownloader, /63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088/);
   assert.match(releaseWorkflow, /download-node-runtime\.ps1/);
@@ -63,7 +170,7 @@ test("the published Windows installer is per-user, self-contained, and does not 
 
 test("legacy cdp settings migrate to diagnostics and endpoints remain unsupported", () => {
   const migrated = resolveAppConfig({ configVersion: 3, session: { mode: "cdp" } }, { requireTenant: false });
-  assert.equal(migrated.configVersion, 4);
+  assert.equal(migrated.configVersion, 5);
   assert.equal(migrated.session.mode, "diagnostics");
   assert.ok(migrated.session.profileDirectory.endsWith("browser-profile-debug"));
   assert.equal(resolveAppConfig({ session: { mode: "diagnostics" } }, { requireTenant: false }).session.mode, "diagnostics");
@@ -148,7 +255,7 @@ test("local oRPC API requires the process token and exact origin", async () => {
     const page = await fetch(origin);
     assert.match(page.headers.get("content-security-policy"), /default-src 'self'/);
   } finally {
-    await new Promise((resolve) => app.server.close(resolve));
+    await closeServer(app.server);
   }
 });
 
@@ -182,6 +289,6 @@ test("Numpad+ trigger is separately authenticated and uses the same draft workfl
     assert.equal(response.status, 204);
     assert.equal(generated, 1);
   } finally {
-    await new Promise((resolve) => app.server.close(resolve));
+    await closeServer(app.server);
   }
 });

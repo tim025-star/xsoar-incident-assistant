@@ -2,6 +2,9 @@ $ErrorActionPreference = "Stop"
 
 $endpoint = $env:XSOAR_ASSISTANT_HOTKEY_ENDPOINT
 $token = $env:XSOAR_ASSISTANT_HOTKEY_TOKEN
+$hotkeyLabel = $env:XSOAR_ASSISTANT_HOTKEY_LABEL
+$modifiers = [uint32]$env:XSOAR_ASSISTANT_HOTKEY_MODIFIERS
+$virtualKey = [uint32]$env:XSOAR_ASSISTANT_HOTKEY_VIRTUAL_KEY
 if ([string]::IsNullOrWhiteSpace($endpoint) -or [string]::IsNullOrWhiteSpace($token)) {
   throw "The XSOAR Incident Assistant keyboard trigger is missing its local session details."
 }
@@ -42,9 +45,9 @@ public static class XsoarAssistantNative {
 }
 "@
 
-# VK_ADD is the physical Numpad+ key. No modifiers are required.
-if (-not [XsoarAssistantNative]::RegisterHotKey([IntPtr]::Zero, 1, 0, 0x6B)) {
-  throw "Numpad+ is already registered by another application."
+# The Node process resolves the user-selected, allow-listed shortcut to these native values.
+if (-not [XsoarAssistantNative]::RegisterHotKey([IntPtr]::Zero, 1, $modifiers, $virtualKey)) {
+  throw "$hotkeyLabel is already registered by another application."
 }
 
 Write-Output "READY"
