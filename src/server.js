@@ -8,6 +8,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { BodyLimitPlugin, RPCHandler } from "@orpc/server/fetch";
 import { Hono } from "hono";
 
+import { startKeyboardTrigger } from "./keyboard-trigger.js";
 import { createAssistantRouter } from "./rpc.js";
 
 const STATIC_DIRECTORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "web");
@@ -32,13 +33,18 @@ function withSecurityHeaders(response) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-export function createAssistantServer({ token = randomBytes(32).toString("base64url"), routerOptions } = {}) {
+export function createAssistantServer({
+  token = randomBytes(32).toString("base64url"),
+  hotkeyToken = randomBytes(32).toString("base64url"),
+  routerOptions
+} = {}) {
   const assistant = createAssistantRouter(routerOptions);
   const rpcHandler = new RPCHandler(assistant.router, {
     plugins: [new BodyLimitPlugin({ maxBodySize: 65536 })]
   });
   const app = new Hono();
   let localOrigin = "";
+  let keyboardTrigger;
 
   app.use("*", async (context, next) => {
     await next();
@@ -58,6 +64,22 @@ export function createAssistantServer({ token = randomBytes(32).toString("base64
     const result = await rpcHandler.handle(context.req.raw, { prefix: "/rpc", context: {} });
     if (result.matched) return result.response;
     return next();
+  });
+
+  app.post("/internal/keyboard-trigger", async (context) => {
+    if (!tokenMatches(context.req.header("X-Assistant-Hotkey-Token"), hotkeyToken)) {
+      return context.json({ error: "Invalid keyboard trigger token." }, 403);
+    }
+    if (!localOrigin || context.req.header("Host") !== new URL(localOrigin).host) {
+      return context.json({ error: "Invalid host." }, 403);
+    }
+    try {
+      await assistant.generate();
+      return context.body(null, 204);
+    } catch (error) {
+      const status = error?.code === "CONFLICT" ? 409 : 500;
+      return context.json({ error: "The keyboard trigger could not generate a draft." }, status);
+    }
   });
 
   app.get("/", serveStatic({ root: STATIC_DIRECTORY, path: "index.html" }));
@@ -91,6 +113,19 @@ export function createAssistantServer({ token = randomBytes(32).toString("base64
       if (!address || typeof address === "string") throw new Error("The local server did not provide a TCP address.");
       localOrigin = `http://127.0.0.1:${address.port}`;
       return `${localOrigin}/#${token}`;
+    },
+    async startKeyboardTrigger() {
+      if (!localOrigin) throw new Error("The local server must be listening before the keyboard trigger starts.");
+      if (!keyboardTrigger) {
+        keyboardTrigger = await startKeyboardTrigger({
+          endpoint: `${localOrigin}/internal/keyboard-trigger`,
+          token: hotkeyToken
+        });
+      }
+    },
+    async stopKeyboardTrigger() {
+      await keyboardTrigger?.stop();
+      keyboardTrigger = undefined;
     }
   };
 }
@@ -107,9 +142,12 @@ function openDefaultBrowser(url) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const app = createAssistantServer();
   const url = await app.listen(Number(process.env.XSOAR_ASSISTANT_PORT || 0));
+  await app.startKeyboardTrigger();
   console.log("XSOAR Incident Assistant is running on this computer.");
+  console.log("Press Numpad+ while an XSOAR incident is open to generate a draft in this local page.");
   if (process.env.XSOAR_ASSISTANT_NO_OPEN !== "1") openDefaultBrowser(url);
   const shutdown = async () => {
+    await app.stopKeyboardTrigger().catch(() => {});
     await app.sessions.stop().catch(() => {});
     app.server.close(() => process.exit(0));
   };
