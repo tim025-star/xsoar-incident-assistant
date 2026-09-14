@@ -7,9 +7,10 @@
     "checkJs": false,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["chrome", "node"]
+    "types": ["node"]
   },
   "include": [
-    "extension/**/*.js"
+    "src/**/*.js",
+    "public/**/*.js"
   ]
 }

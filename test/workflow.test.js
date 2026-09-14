@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveSettings } from "../extension/domain.js";
-import { runIncidentDraft } from "../extension/workflow.js";
+import { resolveSettings } from "../src/domain.js";
+import { runIncidentDraft } from "../src/workflow.js";
 
 function createAdapter({ searchRedirect } = {}) {
   const tabs = new Map([[1, "https://xsoar.example.test/Custom/GenericLayout/4200"]]);

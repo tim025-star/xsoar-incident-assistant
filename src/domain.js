@@ -67,10 +67,6 @@ export function firstAvailable(...values) {
   return values.map(cleanText).find(isAvailable) || "";
 }
 
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
 export function normalizeOrigin(value) {
   let url;
   try {
@@ -105,7 +101,10 @@ export function resolveSettings(input = {}) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("Settings must be an object.");
   }
-  const settings = clone(DEFAULT_SETTINGS);
+  for (const key of Object.keys(input)) {
+    if (!Object.hasOwn(DEFAULT_SETTINGS, key)) throw new Error(`Unsupported setting: ${key}.`);
+  }
+  const settings = structuredClone(DEFAULT_SETTINGS);
   Object.assign(settings, input);
   settings.configVersion = 2;
   settings.allowedOrigin = normalizeOrigin(settings.allowedOrigin);
@@ -149,7 +148,7 @@ export function resolveSettings(input = {}) {
   if (!suppliedFieldLabels || typeof suppliedFieldLabels !== "object" || Array.isArray(suppliedFieldLabels)) {
     throw new Error("fieldLabels must be an object.");
   }
-  settings.fieldLabels = clone(FIELD_LABELS);
+  settings.fieldLabels = structuredClone(FIELD_LABELS);
   for (const [key, labels] of Object.entries(suppliedFieldLabels)) {
     if (!Object.hasOwn(FIELD_LABELS, key)) throw new Error(`Unsupported field label: ${key}.`);
     settings.fieldLabels[key] = validateLabels(labels, `fieldLabels.${key}`);
@@ -166,6 +165,9 @@ export function resolveSettings(input = {}) {
   const suppliedTemplate = input.template ?? {};
   if (!suppliedTemplate || typeof suppliedTemplate !== "object" || Array.isArray(suppliedTemplate)) {
     throw new Error("template must be an object.");
+  }
+  for (const key of Object.keys(suppliedTemplate)) {
+    if (!Object.hasOwn(DEFAULT_SETTINGS.template, key)) throw new Error(`Unsupported template setting: ${key}.`);
   }
   settings.template = { ...DEFAULT_SETTINGS.template, ...suppliedTemplate };
   for (const [key, value] of Object.entries(settings.template)) {

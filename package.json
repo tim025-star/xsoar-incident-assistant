@@ -1,22 +1,23 @@
 {
   "name": "xsoar-incident-assistant",
-  "version": "2.0.0",
-  "private": true,
-  "description": "A browser extension for preparing incident-response drafts from an existing Cortex XSOAR session.",
+  "version": "3.0.0",
+  "private": false,
+  "description": "A local Playwright assistant for preparing incident-response drafts in Cortex XSOAR.",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check extension/domain.js && node --check extension/workflow.js && node --check extension/page-adapter.js && node --check extension/background.js && node --check extension/options.js && node --check extension/sidepanel.js && tsc --noEmit",
-    "verify:browser": "node scripts/verify-extension.mjs",
-    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1"
+    "start": "node src/server.js",
+    "check": "node --check src/domain.js && node --check src/workflow.js && node --check src/page-adapter.js && node --check src/browser-session.js && node --check src/config.js && node --check src/server.js && node --check public/app.js && tsc --noEmit",
+    "verify:browser": "node scripts/verify-ui.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.62.1"
   },
   "devDependencies": {
-    "@types/chrome": "0.1.37",
     "@types/node": "24.13.4",
-    "playwright-core": "1.62.1",
     "typescript": "5.9.3"
   }
 }

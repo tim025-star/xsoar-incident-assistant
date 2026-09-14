@@ -1,118 +1,77 @@
 # XSOAR Incident Assistant
 
-XSOAR Incident Assistant is a Manifest V3 browser extension that prepares an incident-response draft from the Cortex XSOAR incident already open in Chrome or Microsoft Edge.
+XSOAR Incident Assistant is a local Windows application that uses Playwright to prepare an incident-response draft from Cortex XSOAR. It reads the incident open in the assistant browser, searches for matching incidents through the XSOAR page URL, reviews a limited number of recent matches, and displays a draft locally. It does not update XSOAR or submit forms.
 
-It reads configured fields from the active incident, opens a matching-incident search through the XSOAR page URL, reviews a limited number of recent matches, and displays an editable draft in the browser side panel. It does not update XSOAR, submit forms, or send incident data to an external service.
+This is an independent community project. It is not affiliated with or endorsed by Palo Alto Networks.
 
-> This is an independent community project. It is not affiliated with or endorsed by Palo Alto Networks.
+## Browser modes
 
-## What changed in version 2
+The default **Managed profile** mode opens Edge or Chrome with a dedicated Playwright profile. Sign in to XSOAR in that window once. Cookies and local storage remain in that dedicated profile between runs, but the XSOAR and identity-provider session policies still decide when reauthentication, MFA, revocation, or expiry occurs.
 
-Version 2 replaces the remote-debugging, dedicated-browser-profile, AutoHotkey, Node.js runtime, and Notepad++ workflow with a browser extension:
+The optional **Debug browser** mode is for users who deliberately prefer remote debugging. The assistant launches Edge or Chrome with a separate profile and connects over a loopback-only CDP endpoint. It does not connect to or copy data from the normal browser profile. Current Chromium security controls also require a non-default user-data directory for remote debugging. Chromium's debugging endpoint has no application-level authentication, so other processes on the same computer may be able to control that debug browser; use this mode only on a trusted, organisation-approved workstation.
 
-- Use the browser and signed-in XSOAR session you already have open.
-- Grant access to one exact HTTPS tenant origin from the settings page.
-- Run searches by navigating to a URL containing the configured query parameter.
-- Review and copy the draft from the extension side panel.
-- Set your analyst name and title in Settings; no person's identity is built into the template.
+Neither mode can guarantee a particular session lifetime or bypass an organisation's authentication policy.
 
-The version 1 startup scripts and debug-mode integration have been removed.
+## Install on Windows
 
-## Install for testing
+Requirements: Node.js 20 or newer and current Microsoft Edge or Google Chrome.
 
-Chrome Web Store and Microsoft Edge Add-ons packages are not published yet. To test the release from source:
+1. Download or clone this repository to a stable location.
+2. Run `install-assistant.bat`.
+3. Open **XSOAR Incident Assistant** from the Windows Start menu.
+4. Enter the exact HTTPS origin of your XSOAR tenant and your optional analyst name/title, then save.
+5. Keep **Managed profile** unless you specifically need debug mode.
 
-1. Download or clone this repository.
-2. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
-3. Enable **Developer mode**.
-4. Select **Load unpacked** and choose the repository's `extension` folder.
-5. Open the extension's **Settings** page.
-6. Enter the exact HTTPS origin of your XSOAR tenant and select **Save and grant tenant access**.
-
-Node.js is needed only for development and tests, not to run the extension.
-
-## Configure
-
-The Settings page contains the public defaults and all tenant-specific values:
-
-- **XSOAR HTTPS origin:** one exact tenant origin, without a path or credentials.
-- **Incident path pattern:** a regular expression matching incident page paths.
-- **Incidents page path:** the page used to search for matching incidents.
-- **Search URL parameter:** the URL parameter that XSOAR uses for the query. The default is `query`.
-- **Lookback query:** the additional time constraint included in the search.
-- **Analyst name and title:** optional signature values stored in extension-local settings.
-- **Field labels:** mappings for layouts whose visible labels differ from the generic defaults.
-
-Settings are stored by the browser in `chrome.storage.local` for this extension. Do not include passwords, session cookies, API tokens, customer names, or incident content in settings. Exported settings files can include your tenant origin and analyst identity, so handle them according to your organisation's policy.
-
-### Verify the search URL for your tenant
-
-XSOAR deployments and versions can use different routes and URL parameters. Before operational use, perform a synthetic test:
-
-1. In XSOAR, run a harmless incident search manually.
-2. Confirm that the query remains visible in the browser address bar.
-3. Copy the incidents page path and query-parameter name into Settings.
-4. Generate a draft from a synthetic incident and confirm the side panel reports the expected matches.
-
-The extension stops if navigation leaves the configured HTTPS origin, the active page does not match the configured incident path, or XSOAR does not retain the exact expected query in the final URL.
+The installer runs `npm ci` and creates a per-user Start menu shortcut. It does not add a browser extension, alter browser policy, or start automatically at Windows sign-in.
 
 ## Use
 
-1. Sign in to XSOAR normally in Chrome or Edge.
-2. Open an incident that matches the configured path.
-3. Select the extension button to open the side panel.
-4. Select **Generate draft**, or press `Alt+Shift+X`.
-5. Review the draft. Select **Copy** only when you are ready to place it on the system clipboard.
+1. Select **Open / connect browser**.
+2. Sign in if your organisation requires it and open one XSOAR incident.
+3. Select **Generate draft**.
+4. Review the draft, then explicitly select **Copy draft** if needed.
 
-The original incident tab is restored when processing finishes. Temporary search and historical-incident tabs are closed.
+Temporary search and historical tabs are closed, and the original incident is brought back to the front. If multiple incident tabs are open, the assistant asks you to bring the intended one to the front.
 
-## Credentials and data handling
+### Debug browser mode
 
-The extension does not ask for, read, store, or transmit XSOAR passwords, cookies, or API tokens. XSOAR authentication remains owned by the normal browser session. The extension asks the browser for page access only to the exact HTTPS origin selected in Settings.
+Select **Debug browser**, save settings, then select **Launch debug browser**. The assistant chooses a temporary loopback port; users cannot configure or attach an unrelated endpoint. Sign in within the separate window and select **Open / connect browser**. **Close browser** ends that separate debug browser session but retains its dedicated profile for the next run.
 
-During a run, incident fields are read from XSOAR pages and processed locally in the extension. The finished draft and generic progress state are kept in `chrome.storage.session`, which is cleared when the browser session ends. The draft reaches the Windows clipboard only after the user selects **Copy**.
+## Configure and verify your tenant
 
-Browser history, XSOAR itself, endpoint monitoring, clipboard managers, or browser synchronisation may retain data independently of this project. An organisation must assess those controls and approve the extension for its own environment. This repository does not claim compliance with any employer's internal security policy.
+The settings page includes the tenant origin, analyst identity, incident URL pattern, incidents page path, URL query parameter, historical lookback, result limit, and page timeout. No person's name is hard-coded.
 
-See [SECURITY.md](SECURITY.md) for the permission model and reporting process.
+XSOAR routes vary by deployment. Before operational use, run a harmless search manually, confirm the query remains in the browser address bar, configure that path and parameter, then test against synthetic incidents. Automation stops if navigation leaves the configured HTTPS origin, an incident path does not match, or the final search URL does not retain the exact expected query.
 
-## Architecture and extension points
+## Credentials and data
 
-The code is split around a small browser-adapter boundary:
+The application never asks for or stores a password, API token, cookie value, or exported Playwright `storageState`. Authentication is handled by the selected browser profile. The dedicated profile contains browser session data and must be protected like any signed-in browser profile; by default it is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`.
 
-- `extension/domain.js` owns validation, URL construction, data merging, and draft generation.
-- `extension/workflow.js` coordinates the incident, search, and historical-review sequence without depending directly on Chrome APIs.
-- `extension/page-adapter.js` contains XSOAR DOM extraction.
-- `extension/background.js` implements the Chrome/Edge adapter and controls session state.
-- `extension/options.*` and `extension/sidepanel.*` provide configuration and output UI.
+Configuration is stored locally in the same application-data directory. It may include a tenant hostname and analyst identity, but must not contain credentials or incident content. Drafts remain in process memory and reach the clipboard only after the user selects **Copy draft**. Browser history, endpoint monitoring, clipboard managers, and XSOAR audit records operate independently.
 
-New extraction rules belong in the page adapter, new draft formats in the domain module, and new browser behavior behind the adapter interface. This keeps tenant compatibility changes separate from the security-sensitive navigation and permission checks.
+An organisation must review and approve the tool against its own browser, identity, information-handling, and software policies. This project makes no claim of compliance with any employer's internal requirements. See [SECURITY.md](SECURITY.md).
+
+## Architecture
+
+- `src/domain.js`: validation, URL construction, data merging, and draft generation.
+- `src/workflow.js`: browser-independent incident/search/history orchestration.
+- `src/page-adapter.js`: XSOAR DOM extraction.
+- `src/browser-session.js`: managed Playwright and CDP session adapters.
+- `src/server.js` and `public/`: loopback-only local controller and settings UI.
+
+New extraction rules belong in the page adapter, draft formats in the domain module, and browser behavior behind the browser adapter. This keeps future features independent of session mode.
 
 ## Development
-
-Requirements:
-
-- Node.js 20 or newer
-- Chrome or Microsoft Edge for extension testing
-
-Run the checks:
 
 ```powershell
 npm ci
 npm run check
 npm test
 npm run verify:browser
-npm run package
 npm audit --audit-level=high
 ```
 
-`npm run package` creates `output/xsoar-incident-assistant-extension.zip`. GitHub Actions also publishes this ZIP as a workflow artifact after all checks pass.
-
-Tests and fixtures must use fictional organisations, reserved domains such as `example.test`, and documentation IP address ranges. Never commit production HTML, screenshots, incident exports, tenant names, credentials, or browser profiles.
-
-## Known compatibility boundary
-
-The automated test suite verifies URL construction, origin/path enforcement, workflow cleanup, permissions, and generic DOM extraction. A maintainer must still test the configured search URL and field labels against each supported XSOAR release because the public product documentation does not define a stable browser deep-link contract for incident searches.
+Tests and examples must use fictional data and reserved domains such as `example.test`. Never commit browser profiles, production HTML, screenshots, incident exports, tenant names, credentials, or session data.
 
 ## License
 
