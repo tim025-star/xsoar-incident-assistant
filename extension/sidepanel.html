@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XSOAR Incident Assistant</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body class="panel-page">
+  <main>
+    <header>
+      <p class="eyebrow">XSOAR</p>
+      <h1>Incident Assistant</h1>
+      <p>Prepare a draft from the active incident using your current browser session.</p>
+    </header>
+    <div class="actions panel-actions">
+      <button id="run" class="primary">Generate draft</button>
+      <button id="settings">Settings</button>
+    </div>
+    <section class="run-state" aria-live="polite">
+      <span id="state-dot" class="state-dot"></span>
+      <div>
+        <strong id="state-title">Ready</strong>
+        <p id="state-detail">Open an XSOAR incident, then generate a draft.</p>
+      </div>
+    </section>
+    <section id="draft-section" hidden>
+      <div class="section-heading">
+        <h2>Draft</h2>
+        <div class="actions compact">
+          <button id="copy">Copy</button>
+          <button id="clear">Clear</button>
+        </div>
+      </div>
+      <textarea id="draft" rows="24" spellcheck="true" aria-label="Generated incident draft"></textarea>
+      <p class="hint">Copying places incident content on the Windows clipboard. Review the draft before external use.</p>
+    </section>
+  </main>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

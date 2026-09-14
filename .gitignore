@@ -6,6 +6,7 @@ output.json
 progress.json
 template.txt
 logs/
+output/
 *-cdp-session.txt
 *.tmp
 *.zip

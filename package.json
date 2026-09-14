@@ -1,21 +1,22 @@
 {
   "name": "xsoar-incident-assistant",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Local AutoHotkey and Playwright helper for preparing incident-response drafts from Cortex XSOAR.",
-  "type": "commonjs",
+  "description": "A browser extension for preparing incident-response drafts from an existing Cortex XSOAR session.",
+  "type": "module",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check search-xsoar.js && node --check lib/xsoar.js && tsc --noEmit"
-  },
-  "dependencies": {
-    "playwright-core": "1.62.1"
+    "check": "node --check extension/domain.js && node --check extension/workflow.js && node --check extension/page-adapter.js && node --check extension/background.js && node --check extension/options.js && node --check extension/sidepanel.js && tsc --noEmit",
+    "verify:browser": "node scripts/verify-extension.mjs",
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1"
   },
   "devDependencies": {
+    "@types/chrome": "0.1.37",
     "@types/node": "24.13.4",
+    "playwright-core": "1.62.1",
     "typescript": "5.9.3"
   }
 }
