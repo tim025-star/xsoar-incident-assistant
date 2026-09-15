@@ -45,7 +45,7 @@ function historicalWarning(items) {
   return failed ? `${failed} historical incident(s) could not be read.` : "";
 }
 
-export async function runIncidentDraft({ adapter, settings: inputSettings, onProgress = async () => {} }) {
+export async function runIncidentDraft({ adapter, settings: inputSettings, onProgress = async () => {}, enrichDraft }) {
   if (!adapter) throw new Error("A browser adapter is required.");
   const settings = resolveSettings(inputSettings);
   const originalTab = await adapter.getActiveTab();
@@ -120,10 +120,24 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, onPro
 
     const output = { ...incident, historical };
     await onProgress("Preparing the incident-response draft.");
+    let draft = buildDraft(output, settings.template);
+    let enrichmentWarning = "";
+    let aiEnriched = false;
+    if (enrichDraft) {
+      await onProgress("Optionally enriching the deterministic draft with local Ollama.");
+      try {
+        const enrichment = await enrichDraft({ incident, historical, draft });
+        draft = buildDraft(output, settings.template, enrichment);
+        aiEnriched = true;
+      } catch {
+        enrichmentWarning = "Local AI enrichment was unavailable; the deterministic draft was provided.";
+      }
+    }
     return {
-      draft: buildDraft(output, settings.template),
-      warning: historicalWarning(historical),
-      reviewed: historical.filter((item) => !item.error).length
+      draft,
+      warning: [historicalWarning(historical), enrichmentWarning].filter(Boolean).join(" "),
+      reviewed: historical.filter((item) => !item.error).length,
+      aiEnriched
     };
   } finally {
     for (const tab of [...temporaryTabs].reverse()) {

@@ -20,7 +20,7 @@ Download `XSOAR-Incident-Assistant-Setup-<version>-x64.exe` from the project's G
 
 Each release includes a matching `.sha256` file. The installer is currently unsigned, so Windows may show an unknown-publisher warning. Compare the checksum before running it.
 
-1. Run the installer and leave **Create a desktop shortcut** and **Launch XSOAR Incident Assistant** selected.
+1. Run the installer and leave **Create a desktop shortcut** and **Launch XSOAR Incident Assistant** selected. **Install local Ollama and download qwen3.5:9b** is optional and starts unchecked.
 2. Select **Open Chrome setup**, enable remote debugging, and accept Chrome's prompt.
 3. Enter the exact HTTPS origin of your XSOAR tenant and optional analyst name/title.
 4. Select **Connect Chrome**. The current settings are saved before the connection is made.
@@ -28,6 +28,14 @@ Each release includes a matching `.sha256` file. The installer is currently unsi
 The installer also adds a Start-menu shortcut. It does not add a browser extension, alter browser policy, start automatically at Windows sign-in, or overwrite configuration during an upgrade.
 
 Requirements: Windows 11 x64 and Google Chrome 144 or newer.
+
+### Optional local AI
+
+The assistant always produces its baseline draft deterministically. If enabled in the settings page, it can use a locally installed Ollama model to fill concise investigation, related-activity, vendor-guidance, and recommendation sections. The default model is `qwen3.5:9b`, a practical CPU-only option for a machine with 32 GB RAM.
+
+The optional installer task installs the pinned WinGet package `Ollama.Ollama` version `0.34.0` and downloads `qwen3.5:9b` (about 6.6 GB). It is unchecked and failure does not affect the core installation. Releases pass the exact package version through `OLLAMA_VERSION`; change it only after verifying that version in WinGet.
+
+Cloud/remote aliases are rejected. Before incident evidence is sent, the selected model must be listed by the loopback Ollama service at `127.0.0.1:11434` and pass a fresh local-model check. The application has no cloud-AI endpoint or configurable AI URL. Downloads report progress, can be cancelled, use a short connection timeout and stop after two minutes with no valid progress; continuous progress has no total elapsed-time cap. Inference has a separate three-minute limit. Invalid, unavailable, remote, or malformed AI output falls back to the deterministic draft.
 
 ## Use
 
@@ -51,7 +59,7 @@ XSOAR routes vary by deployment. Before operational use, run a harmless search m
 
 The application never asks for or stores a password or API token, and it does not export Playwright `storageState` or copy Chrome profile files. Authentication remains in the normal Chrome profile. While connected, Playwright can inspect and control tabs exposed by Chrome's approved debugging session, so connect only this trusted local application and disconnect when finished.
 
-Configuration is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. It may include a tenant hostname and analyst identity, but must not contain credentials or incident content. Drafts remain in process memory and reach the clipboard only after the user selects **Copy draft**. Browser history, endpoint monitoring, clipboard managers, and XSOAR audit records operate independently.
+Configuration is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. It may include a tenant hostname, analyst identity, local-AI opt-in, and selected local model name, but must not contain credentials or incident content. Drafts remain in process memory and reach the clipboard only after the user selects **Copy draft**. An AI-enriched draft must be explicitly acknowledged as reviewed for that generation before it can be copied. Only a bounded allowlist of extracted incident and historical fields is sent to loopback Ollama, never to configuration. Browser history, endpoint monitoring, clipboard managers, and XSOAR audit records operate independently.
 
 An organisation must review and approve the tool against its own browser, identity, information-handling, and software policies. See [SECURITY.md](SECURITY.md).
 
@@ -61,6 +69,7 @@ An organisation must review and approve the tool against its own browser, identi
 - `src/workflow.js`: browser-independent incident/search/history orchestration.
 - `src/page-adapter.js`: XSOAR DOM extraction.
 - `src/browser-session.js`: user-approved current-Chrome connection and the browser adapter.
+- `src/local-ai.js`: loopback-only Ollama client, bounded evidence construction, and strict enrichment validation.
 - `src/rpc.js`: typed oRPC operations and local application state.
 - `src/server.js`: Hono loopback server, request security checks, and static delivery.
 - `web/`: Solid and Tailwind configuration/status interface, built by Vite into ignored `dist/` output.
@@ -80,7 +89,7 @@ npm audit --audit-level=high
 
 ### Creating a Windows release
 
-The end-user installer is built only from a version tag. It stages the built application, production dependencies, and a pinned portable Node.js runtime, then packages them with Inno Setup.
+The end-user installer is built only from a version tag. It stages the built application, production dependencies, and a pinned portable Node.js runtime, then packages them with Inno Setup. The optional Ollama task has a separately pinned WinGet version set through `OLLAMA_VERSION`.
 
 1. Update `package.json` with the release version and push a matching `v<version>` tag.
 2. The **Windows release** workflow verifies the project and runtime checksum, builds the unsigned installer, writes its SHA-256 sidecar, and publishes both files to the GitHub Release.

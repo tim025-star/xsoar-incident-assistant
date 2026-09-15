@@ -19,6 +19,7 @@ let uiConfig = resolveAppConfig({
 let sessionRunning = false;
 let starts = 0;
 let setupOpens = 0;
+const pulledModels = [];
 const sessions = {
   status: () => ({ running: sessionRunning }),
   openSetup: () => { setupOpens += 1; },
@@ -40,6 +41,21 @@ const app = createAssistantServer({
         uiConfig = resolveAppConfig(input, options);
         return uiConfig;
       }
+    },
+    localAi: {
+      status: async () => ({ available: true, models: ["qwen3.5:9b"], detail: "Local Ollama is available." }),
+      pull: async (model, { signal } = {}) => {
+        pulledModels.push(model);
+        if (model !== "slow-model") return [model];
+        await new Promise((resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("Local Ollama model download was cancelled.")), { once: true });
+        });
+      },
+      enrich: async () => ({})
+    },
+    generateDraft: async ({ onProgress }) => {
+      await onProgress("Enriching the draft locally.");
+      return { draft: "Locally enriched example draft", warning: "", reviewed: 0, aiEnriched: true };
     }
   }
 });
@@ -60,12 +76,30 @@ try {
   assert.equal(await page.locator("#mode").count(), 0);
   assert.equal(await page.locator("#profileDirectory").count(), 0);
   assert.equal("session" in uiConfig, false);
+  assert.equal(await page.locator("#localAiEnabled").isChecked(), false);
+  assert.equal(await page.locator("#localAiModel").inputValue(), "qwen3.5:9b");
+  await page.locator("#localAiEnabled").check();
+  await page.locator("#pullModel").click();
+  await page.getByText("Local Ollama is available.").waitFor();
+  assert.deepEqual(pulledModels, ["qwen3.5:9b"]);
+
+  await page.locator("#localAiModel").fill("slow-model");
+  await page.locator("#pullModel").click();
+  await page.locator("#cancelPull").waitFor();
+  await page.reload();
+  await page.locator("#cancelPull").waitFor();
+  await page.locator("#cancelPull").click();
+  await page.getByText("Local Ollama model download was cancelled.").waitFor({ timeout: 3000 });
+  await page.locator("#cancelPull").waitFor({ state: "detached", timeout: 3000 });
+  assert.deepEqual(pulledModels, ["qwen3.5:9b", "slow-model"]);
+  await page.locator("#localAiEnabled").check();
 
   await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
   await page.locator("#open").click();
   await page.locator("#stop:not([disabled])").waitFor({ timeout: 2000 });
   assert.equal(starts, 1);
   assert.equal(uiConfig.xsoar.allowedOrigin, "https://xsoar.example.test");
+  assert.equal(uiConfig.localAi.enabled, true);
   await page.getByText("Connected to the current Chrome window.").waitFor({ timeout: 2000 });
   assert.equal(await page.locator("#allowedOrigin").isDisabled(), true);
   assert.equal(await page.locator("#analystName").isDisabled(), true);
@@ -89,6 +123,20 @@ try {
   await page.getByText("Settings saved.").waitFor();
   assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
+
+  await page.locator("#run").click();
+  await page.locator("#aiDraftAcknowledgement").waitFor();
+  assert.equal(await page.locator("#copy").isDisabled(), true);
+  await page.locator("#aiDraftAcknowledgement").check();
+  assert.equal(await page.locator("#copy").isDisabled(), false);
+  const secondPage = await browser.newPage();
+  await secondPage.goto(url);
+  await secondPage.getByRole("heading", { name: "XSOAR Incident Assistant" }).waitFor();
+  await secondPage.locator("#run").click();
+  await secondPage.locator("#aiDraftAcknowledgement").waitFor();
+  await page.waitForFunction(() => !document.querySelector("#aiDraftAcknowledgement")?.checked, undefined, { timeout: 3000 });
+  assert.equal(await page.locator("#copy").isDisabled(), true);
+  await secondPage.close();
 
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);

@@ -270,7 +270,7 @@ function selectHistoricalRecommendation(item = {}) {
   );
 }
 
-export function buildDraft(output, templateInput = {}) {
+export function buildDraft(output, templateInput = {}, enrichment = {}) {
   const template = { ...DEFAULT_SETTINGS.template, ...templateInput };
   const historical = (output.historical || []).filter((item) => item && !item.error);
   const pastRatings = historical.map((item) => cleanText(item.classification)).filter(isAvailable);
@@ -286,6 +286,13 @@ export function buildDraft(output, templateInput = {}) {
     .map((item) => ({ ticketId: item.ticketId, recommendation: selectHistoricalRecommendation(item) }))
     .filter((item) => item.recommendation)
     .map((item, index) => `${index + 1}. #${item.ticketId || "unknown"}: ${item.recommendation}`);
+  const localRecommendations = Array.isArray(enrichment.recommendations)
+    ? enrichment.recommendations.map(cleanText).filter(isAvailable).slice(0, 5)
+    : [];
+  const allRecommendations = [...recommendations, ...localRecommendations.map((item, index) => `${recommendations.length + index + 1}. ${item}`)];
+  const investigationSummary = firstAvailable(enrichment.investigationSummary) || "x x x";
+  const relatedActivity = firstAvailable(enrichment.relatedActivity) || "x x x";
+  const vendorGuidance = firstAvailable(enrichment.vendorGuidance) || "x x x";
   const signature = [
     template.signOff,
     template.analystName,
@@ -309,19 +316,19 @@ Error / Service Message: ${firstAvailable(output.serviceMessage, output.eventInf
 ----------------------------------------------------------
 
 Investigation Summary
-x x x
+${investigationSummary}
 -----
 
 Related Activity
-x x x
+${relatedActivity}
 -----
 
 ${template.recommendationsHeading}
-${recommendations.length ? recommendations.join("\n") : "x x x"}
+${allRecommendations.length ? allRecommendations.join("\n") : "x x x"}
 -----------------------------------------------
 
 Vendor Guidance
-x x x
+${vendorGuidance}
 -----
 
 ${template.contactText}${signature ? `\n\n${signature}` : ""}`;

@@ -6,6 +6,7 @@ import "./styles.css";
 
 type AppConfig = Awaited<ReturnType<typeof rpc.config.get>>;
 type Status = Awaited<ReturnType<typeof rpc.status>>;
+type LocalAiStatus = Awaited<ReturnType<typeof rpc.localAi.status>>;
 type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentsPath" | "searchQueryParameter" | "lookbackQuery";
 type NumberSetting = "maxHistoricalIncidents" | "pageReadyTimeoutMs";
 
@@ -16,10 +17,14 @@ function errorMessage(error: unknown) {
 function App() {
   const [config, setConfig] = createSignal<AppConfig>();
   const [status, setStatus] = createSignal<Status>();
+  const [localAiStatus, setLocalAiStatus] = createSignal<LocalAiStatus>();
+  const [pullingModel, setPullingModel] = createSignal(false);
+  const [acknowledgedDraftVersion, setAcknowledgedDraftVersion] = createSignal<number>();
   const [message, setMessage] = createSignal(sessionToken
     ? "Loading local status…"
     : "Start the assistant again to open an authorised local control page.");
   const [busy, setBusy] = createSignal(false);
+  const modelDownloadRunning = () => pullingModel() || status()?.operation === "model download";
 
   const updateTextSetting = (key: TextSetting, value: string) => {
     setConfig((current) => {
@@ -47,12 +52,23 @@ function App() {
       return next;
     });
   };
+  const updateLocalAi = (key: "enabled" | "model", value: boolean | string) => {
+    setConfig((current) => {
+      if (!current) return current;
+      const next = structuredClone(current);
+      if (key === "enabled") next.localAi.enabled = Boolean(value);
+      else next.localAi.model = String(value);
+      return next;
+    });
+  };
 
   const refresh = async () => {
     const next = await rpc.status();
+    if (!next.aiDraft || next.draftVersion !== acknowledgedDraftVersion()) setAcknowledgedDraftVersion(undefined);
     setStatus(next);
     setMessage(next.detail);
   };
+  const refreshLocalAi = async () => setLocalAiStatus(await rpc.localAi.status());
 
   const runAction = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -85,13 +101,37 @@ function App() {
   });
 
   const generateDraft = () => runAction(async () => {
+    setAcknowledgedDraftVersion(undefined);
     if (!status()?.session.running) await persistSettings();
     await rpc.draft.generate();
   });
+  const pullSelectedModel = async () => {
+    const current = config();
+    if (!current) return;
+    setPullingModel(true);
+    setMessage(`Downloading ${current.localAi.model} locally…`);
+    try {
+      await rpc.localAi.pull({ model: current.localAi.model });
+      await Promise.all([refreshLocalAi(), refresh()]);
+    } catch (error) {
+      setMessage(errorMessage(error));
+    } finally {
+      setPullingModel(false);
+    }
+  };
+  const cancelModelPull = async () => {
+    try {
+      await rpc.localAi.cancelPull();
+      setMessage("Cancelling local model download…");
+    } catch (error) { setMessage(errorMessage(error)); }
+  };
 
   const copyDraft = async () => {
     const draft = status()?.draft || "";
     if (!draft) return setMessage("Generate a draft before copying it.");
+    if (status()?.aiDraft && acknowledgedDraftVersion() !== status()?.draftVersion) {
+      return setMessage("Review the local-AI draft and confirm the acknowledgement before copying it.");
+    }
     try {
       await navigator.clipboard.writeText(draft);
       setMessage("Draft copied.");
@@ -110,6 +150,7 @@ function App() {
     } catch (error) {
       setMessage(errorMessage(error));
     }
+    refreshLocalAi().catch((error) => setLocalAiStatus({ available: false, models: [], detail: errorMessage(error) }));
     const interval = window.setInterval(() => refresh().catch(() => {}), 1500);
     onCleanup(() => window.clearInterval(interval));
   });
@@ -192,11 +233,35 @@ function App() {
                 <button id="save" class="button button-secondary mt-5" type="button" onClick={() => runAction(persistSettings)}>Save settings</button>
                 </fieldset>
               </section>
+
+              <section class="panel">
+                <fieldset class="contents" disabled={busy() || modelDownloadRunning() || status()?.session.running}>
+                <div class="mb-5">
+                  <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">03 · Optional local AI</p>
+                  <h2 class="m-0 text-xl font-bold">Ollama draft enrichment</h2>
+                </div>
+                <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-slate-50 p-4">
+                  <input id="localAiEnabled" class="mt-1 h-4 w-4" type="checkbox" checked={settings().localAi.enabled} onChange={(event) => updateLocalAi("enabled", event.currentTarget.checked)} />
+                  <span><span class="block font-bold">Use local AI for this draft</span><span class="helper mt-1 block">Optional. Incident content is sent only to Ollama running on this computer after you enable this setting.</span></span>
+                </label>
+                <label class="field mt-4">Local Ollama model
+                  <input id="localAiModel" class="control font-mono text-sm" list="localAiModels" autocomplete="off" value={settings().localAi.model} onInput={(event) => updateLocalAi("model", event.currentTarget.value)} />
+                  <datalist id="localAiModels"><option value="qwen3.5:9b" />{localAiStatus()?.models.map((model) => <option value={model} />)}</datalist>
+                </label>
+                </fieldset>
+                <div class="mt-3 flex flex-wrap items-center gap-2.5">
+                  <button id="pullModel" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning() || status()?.session.running} onClick={pullSelectedModel}>Download selected model</button>
+                  <Show when={modelDownloadRunning()}><button id="cancelPull" class="button button-secondary" type="button" onClick={cancelModelPull}>Cancel download</button></Show>
+                  <button id="refreshLocalAi" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning()} onClick={() => runAction(refreshLocalAi)}>Refresh local AI status</button>
+                </div>
+                <p id="localAiStatus" class="helper mb-0 mt-4" aria-live="polite">{localAiStatus()?.detail || "Check whether local Ollama is available."}</p>
+                <p class="helper mb-0">The default is <code>qwen3.5:9b</code>. A model must be installed locally before it can receive incident data. If local AI is unavailable, the deterministic draft is still generated.</p>
+              </section>
             </div>
 
             <section class="panel self-start lg:sticky lg:top-6">
               <div class="mb-5">
-                <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">03 · Workflow</p>
+                <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">04 · Workflow</p>
                 <h2 class="m-0 text-xl font-bold">Run assistant</h2>
               </div>
               <div class="rounded-xl border border-line bg-slate-50 p-4">
@@ -212,7 +277,13 @@ function App() {
               <label class="field">Draft
                 <textarea id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The generated draft appears here." value={status()?.draft || ""} />
               </label>
-              <button id="copy" class="button button-secondary mt-4" type="button" disabled={busy() || !status()?.draft} onClick={copyDraft}>Copy draft</button>
+              <Show when={status()?.aiDraft}>
+                <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+                  <input id="aiDraftAcknowledgement" class="mt-1 h-4 w-4" type="checkbox" checked={acknowledgedDraftVersion() === status()?.draftVersion} onChange={(event) => setAcknowledgedDraftVersion(event.currentTarget.checked ? status()?.draftVersion : undefined)} />
+                  <span><span class="block font-bold">I reviewed this local-AI-enriched draft.</span><span class="helper mt-1 block">Confirm its accuracy and suitability before copying it into XSOAR or another system.</span></span>
+                </label>
+              </Show>
+              <button id="copy" class="button button-secondary mt-4" type="button" disabled={busy() || !status()?.draft || (status()?.aiDraft && acknowledgedDraftVersion() !== status()?.draftVersion)} onClick={copyDraft}>Copy draft</button>
             </section>
           </div>
         )}
