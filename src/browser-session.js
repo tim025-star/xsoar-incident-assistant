@@ -1,64 +1,41 @@
 import { existsSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { chromium } from "playwright-core";
 
 import { assertIncidentUrl, assertTrustedUrl } from "./domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "./page-adapter.js";
-import {
-  prepareBrowserProfileDirectory,
-  standardUserDataDirectoryForBrowser
-} from "./browser-profiles.js";
-import { activationHotkeySpec } from "./hotkey.js";
 
-function installShortcutListener({ bindingName, hotkey }) {
-  const markerName = `${bindingName}_installed`;
-  if (window.top !== window || window[markerName]) return;
-  Object.defineProperty(window, markerName, { value: true });
-  const modifiersFor = (event) => (event.altKey ? 1 : 0)
-    | (event.ctrlKey ? 2 : 0)
-    | (event.shiftKey ? 4 : 0)
-    | (event.metaKey ? 8 : 0);
-  window.addEventListener("keydown", (event) => {
-    if (event.repeat || event.code !== hotkey.code || modifiersFor(event) !== hotkey.modifiers) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    void window[bindingName]().catch(() => {});
-  }, true);
-}
+export const CHROME_SETUP_URL = "chrome://inspect/#remote-debugging";
 
-export async function attachBrowserActivationShortcut(context, config, onActivationShortcut) {
-  if (typeof onActivationShortcut !== "function") throw new Error("The browser activation shortcut requires a handler.");
-  const hotkey = activationHotkeySpec(config.session.activationHotkey);
-  const bindingName = `__xsoarAssistantActivate_${randomBytes(16).toString("hex")}`;
-  await context.exposeBinding(bindingName, async ({ page, frame }) => {
-    if (!page || frame !== page.mainFrame()) return;
-    assertIncidentUrl(page.url(), config.xsoar, "Shortcut page");
-    if (!await page.evaluate(() => document.hasFocus()).catch(() => false)) return;
-    await onActivationShortcut();
-  });
-  const payload = { bindingName, hotkey };
-  await context.addInitScript(installShortcutListener, payload);
-  await Promise.all(context.pages()
-    .filter((page) => !page.url().startsWith("devtools://"))
-    .map((page) => page.evaluate(installShortcutListener, payload).catch(() => {})));
-}
-
-function browserExecutableCandidates(browser) {
+function chromeExecutableCandidates() {
   const roots = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA]
     .filter(Boolean);
-  const suffix = browser === "edge"
-    ? ["Microsoft", "Edge", "Application", "msedge.exe"]
-    : ["Google", "Chrome", "Application", "chrome.exe"];
+  const suffix = ["Google", "Chrome", "Application", "chrome.exe"];
   return roots.map((root) => path.join(root, ...suffix));
 }
 
-export function findBrowserExecutable(browser) {
-  const executable = browserExecutableCandidates(browser).find(existsSync);
-  if (!executable) throw new Error(`${browser === "edge" ? "Microsoft Edge" : "Google Chrome"} was not found.`);
+export function findChromeExecutable() {
+  const executable = chromeExecutableCandidates().find(existsSync);
+  if (!executable) throw new Error("Google Chrome was not found.");
   return executable;
+}
+
+export function openNormalChromePage(url, { spawnProcess = spawn } = {}) {
+  const child = spawnProcess(findChromeExecutable(), [url], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true
+  });
+  child.unref();
+}
+
+export function standardChromeUserDataDirectory() {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+  return path.join(localAppData, "Google", "Chrome", "User Data");
 }
 
 const DEVTOOLS_BROWSER_PATH = /^\/devtools\/browser\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -101,7 +78,7 @@ class PlaywrightBrowserAdapter {
         return false;
       }
     });
-    if (!candidates.length) throw new Error("Open an XSOAR incident in the automation browser before generating a draft.");
+    if (!candidates.length) throw new Error("Open an XSOAR incident in the connected Chrome window before generating a draft.");
     const focused = [];
     for (const page of candidates) {
       if (await page.evaluate(() => document.hasFocus()).catch(() => false)) focused.push(page);
@@ -161,89 +138,62 @@ class PlaywrightBrowserAdapter {
 export class BrowserSessionManager {
   constructor({
     chromiumApi = chromium,
-    currentChromeEndpoint = () => readDevToolsWebSocketEndpoint(standardUserDataDirectoryForBrowser("chrome"))
+    currentChromeEndpoint = () => readDevToolsWebSocketEndpoint(standardChromeUserDataDirectory()),
+    openChromePage = openNormalChromePage
   } = {}) {
     this.chromium = chromiumApi;
     this.currentChromeEndpoint = currentChromeEndpoint;
+    this.openChromePage = openChromePage;
     this.context = null;
     this.browser = null;
-    this.mode = null;
   }
 
   status() {
-    return { running: Boolean(this.context), mode: this.mode };
+    return { running: Boolean(this.context) };
   }
 
-  async start(config, { onActivationShortcut } = {}) {
-    if (this.context) return this.context;
-    if (config.session.mode === "current") {
-      const endpoint = await this.currentChromeEndpoint();
-      let browser;
-      try {
-        browser = await this.chromium.connectOverCDP(endpoint);
-      } catch (error) {
-        throw new Error(
-          "Could not connect to the current Chrome window. Confirm remote debugging is enabled at chrome://inspect/#remote-debugging and accept Chrome's connection prompt.",
-          { cause: error }
-        );
-      }
-      const contexts = browser.contexts();
-      if (!contexts.length) {
-        await browser.close().catch(() => {});
-        throw new Error("The current Chrome window did not expose a browser context.");
-      }
-      this.browser = browser;
-      this.context = contexts[0];
-      this.mode = "current";
-      browser.once("disconnected", () => {
-        if (this.browser !== browser) return;
-        this.context = null;
-        this.browser = null;
-        this.mode = null;
-      });
-      return this.context;
-    }
+  openSetup() {
+    this.openChromePage(CHROME_SETUP_URL);
+  }
 
-    const profileDirectory = await prepareBrowserProfileDirectory(config.session.profileDirectory);
-    const diagnostics = config.session.mode === "diagnostics";
-    const context = await this.chromium.launchPersistentContext(profileDirectory, {
-      executablePath: findBrowserExecutable(config.session.browser),
-      headless: false,
-      viewport: null,
-      acceptDownloads: false,
-      args: diagnostics ? ["--auto-open-devtools-for-tabs"] : []
-    });
-    this.context = context;
-    if (onActivationShortcut) {
-      await attachBrowserActivationShortcut(context, config, onActivationShortcut);
+  async start() {
+    if (this.context) return this.context;
+    const endpoint = await this.currentChromeEndpoint();
+    let browser;
+    try {
+      browser = await this.chromium.connectOverCDP(endpoint);
+    } catch (error) {
+      throw new Error(
+        "Could not connect to the current Chrome window. Open Chrome setup, enable remote debugging, and accept Chrome's connection prompt.",
+        { cause: error }
+      );
     }
-    this.mode = config.session.mode;
-    const pages = context.pages();
-    const page = pages.find((candidate) => !candidate.url().startsWith("devtools://")) || await context.newPage();
-    if (!page.url() || page.url() === "about:blank") {
-      await page.goto(config.xsoar.allowedOrigin, { waitUntil: "domcontentloaded" });
+    const contexts = browser.contexts();
+    if (!contexts.length) {
+      await browser.close().catch(() => {});
+      throw new Error("The current Chrome window did not expose a browser context.");
     }
-    context.once("close", () => {
-      if (this.context !== context) return;
+    this.browser = browser;
+    this.context = contexts[0];
+    browser.once("disconnected", () => {
+      if (this.browser !== browser) return;
       this.context = null;
-      this.mode = null;
+      this.browser = null;
     });
     return this.context;
   }
 
   adapter(settings) {
-    if (!this.context) throw new Error("Open the automation browser first.");
+    if (!this.context) throw new Error("Connect the current Chrome window first.");
     return new PlaywrightBrowserAdapter(this.context, settings);
   }
 
   async stop() {
     const context = this.context;
     const browser = this.browser;
-    if (browser) await browser.close();
-    else await context?.close();
+    await browser?.close();
     if (this.context !== context) return;
     this.context = null;
     this.browser = null;
-    this.mode = null;
   }
 }

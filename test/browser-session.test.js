@@ -6,9 +6,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 
 import {
   BrowserSessionManager,
+  CHROME_SETUP_URL,
   readDevToolsWebSocketEndpoint
 } from "../src/browser-session.js";
-import { resolveAppConfig } from "../src/config.js";
 
 test("reads only a loopback browser WebSocket endpoint from Chrome's approval file", async (t) => {
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), "xsoar-current-chrome-"));
@@ -25,11 +25,10 @@ test("reads only a loopback browser WebSocket endpoint from Chrome's approval fi
   await assert.rejects(readDevToolsWebSocketEndpoint(userDataDirectory), /valid browser endpoint/);
 });
 
-test("current Chrome mode connects to normal Chrome and disconnects without closing its context", async () => {
+test("connects to normal Chrome and disconnects without closing its context", async () => {
   const context = { pages: () => [] };
   let disconnectedHandler;
   let browserCloseCalls = 0;
-  let launched = false;
   const browser = {
     contexts: () => [context],
     once: (event, handler) => {
@@ -42,28 +41,25 @@ test("current Chrome mode connects to normal Chrome and disconnects without clos
     connectOverCDP: async (endpoint) => {
       assert.equal(endpoint, "ws://127.0.0.1:43127/devtools/browser/01234567-89ab-cdef-0123-456789abcdef");
       return browser;
-    },
-    launchPersistentContext: async () => {
-      launched = true;
-      throw new Error("current Chrome mode must not launch another browser");
     }
   };
   const manager = new BrowserSessionManager({
     chromiumApi,
     currentChromeEndpoint: async () => "ws://127.0.0.1:43127/devtools/browser/01234567-89ab-cdef-0123-456789abcdef"
   });
-  const config = resolveAppConfig({
-    session: { mode: "current", browser: "chrome" },
-    xsoar: { allowedOrigin: "https://xsoar.example.test" }
-  });
-
-  assert.equal(await manager.start(config), context);
-  assert.deepEqual(manager.status(), { running: true, mode: "current" });
-  assert.equal(launched, false);
+  assert.equal(await manager.start(), context);
+  assert.deepEqual(manager.status(), { running: true });
 
   await manager.stop();
   assert.equal(browserCloseCalls, 1);
-  assert.deepEqual(manager.status(), { running: false, mode: null });
+  assert.deepEqual(manager.status(), { running: false });
   disconnectedHandler?.();
-  assert.deepEqual(manager.status(), { running: false, mode: null });
+  assert.deepEqual(manager.status(), { running: false });
+});
+
+test("opens Chrome's approved remote-debugging setup in the normal browser", () => {
+  let openedUrl = "";
+  const manager = new BrowserSessionManager({ openChromePage: (url) => { openedUrl = url; } });
+  manager.openSetup();
+  assert.equal(openedUrl, CHROME_SETUP_URL);
 });

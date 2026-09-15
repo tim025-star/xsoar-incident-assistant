@@ -1,12 +1,6 @@
 import { ORPCError, os } from "@orpc/server";
 
 import { BrowserSessionManager } from "./browser-session.js";
-import {
-  browserProfileImportSchema,
-  browserProfileSchema,
-  detectBrowserProfiles,
-  importBrowserProfile
-} from "./browser-profiles.js";
 import { appConfigInputSchema, loadConfig, resolvedAppConfigSchema, saveConfig } from "./config.js";
 import { runIncidentDraft } from "./workflow.js";
 
@@ -17,24 +11,16 @@ function messageFor(error) {
 export function createAssistantRouter({
   sessions = new BrowserSessionManager(),
   configStore = { load: loadConfig, save: saveConfig },
-  profileStore = { list: detectBrowserProfiles, import: importBrowserProfile },
   generateDraft = runIncidentDraft
 } = {}) {
   let activity = {
     phase: "idle",
-    detail: "Configure the assistant, then open a browser session.",
+    detail: "Configure the assistant, then connect your current Chrome window.",
     draft: ""
   };
   let runningWorkflow = false;
 
-  const status = () => {
-    const session = sessions.status();
-    return {
-      ...activity,
-      session,
-      hotkey: { active: session.running && session.mode !== "current", error: "" }
-    };
-  };
+  const status = () => ({ ...activity, session: sessions.status() });
   const fail = (error, code = "BAD_REQUEST") => {
     activity = { phase: "error", detail: messageFor(error), draft: activity.draft };
     throw new ORPCError(code, { message: activity.detail });
@@ -46,7 +32,7 @@ export function createAssistantRouter({
     runningWorkflow = true;
     try {
       const config = await configStore.load({ requireTenant: true });
-      await sessions.start(config, { onActivationShortcut: generate });
+      await sessions.start();
       const result = await generateDraft({
         adapter: sessions.adapter(config.xsoar),
         settings: config.xsoar,
@@ -72,7 +58,7 @@ export function createAssistantRouter({
       get: os.output(resolvedAppConfigSchema).handler(async () => configStore.load()),
       save: os.input(appConfigInputSchema).output(resolvedAppConfigSchema).handler(async ({ input }) => {
         if (sessions.status().running) {
-          throw new ORPCError("CONFLICT", { message: "Close the current browser session before changing settings." });
+          throw new ORPCError("CONFLICT", { message: "Disconnect Chrome before changing settings." });
         }
         try {
           const config = await configStore.save(input);
@@ -85,53 +71,28 @@ export function createAssistantRouter({
     },
     status: os.handler(() => status()),
     browser: {
-      profiles: os.output(browserProfileSchema.array()).handler(async () => {
+      setup: os.handler(async () => {
         try {
-          return await profileStore.list();
-        } catch (error) {
-          throw new ORPCError("BAD_REQUEST", { message: messageFor(error) });
-        }
-      }),
-      importProfile: os.input(browserProfileImportSchema).output(resolvedAppConfigSchema).handler(async ({ input }) => {
-        if (sessions.status().running) {
-          throw new ORPCError("CONFLICT", { message: "Close the current browser session before importing a profile." });
-        }
-        try {
-          const current = await configStore.load();
-          const imported = await profileStore.import(input.id);
-          const config = await configStore.save({
-            ...current,
-            session: {
-              ...current.session,
-              browser: imported.browser,
-              profileDirectory: imported.profileDirectory
-            }
-          }, { requireTenant: false });
+          sessions.openSetup();
           activity = {
             ...activity,
             phase: "ready",
-            detail: imported.reused
-              ? "The previously imported browser profile is selected."
-              : "Browser sign-in data was imported into a dedicated assistant profile."
+            detail: "Chrome setup opened. Enable remote debugging, accept Chrome's prompt, then return here and connect."
           };
-          return config;
+          return status();
         } catch (error) {
           return fail(error);
         }
       }),
       open: os.handler(async () => {
         try {
-          const config = await configStore.load({ requireTenant: true });
-          activity = { ...activity, phase: "opening", detail: "Opening the configured browser session." };
-          await sessions.start(config, { onActivationShortcut: generate });
+          await configStore.load({ requireTenant: true });
+          activity = { ...activity, phase: "opening", detail: "Connecting to your current Chrome window." };
+          await sessions.start();
           activity = {
             ...activity,
             phase: "ready",
-            detail: config.session.mode === "current"
-              ? "Connected to the current Chrome window. Open one XSOAR incident, then generate a draft from this tab."
-              : config.session.mode === "diagnostics"
-                ? "Diagnostics browser ready with DevTools open. Sign in to XSOAR if prompted, then open an incident."
-                : "Managed browser ready. Sign in to XSOAR if prompted, then open an incident."
+            detail: "Connected to the current Chrome window. Open one XSOAR incident, then generate a draft from this tab."
           };
           return status();
         } catch (error) {
@@ -140,16 +101,11 @@ export function createAssistantRouter({
       }),
       stop: os.handler(async () => {
         try {
-          const previousMode = sessions.status().mode;
           await sessions.stop();
           activity = {
             ...activity,
             phase: "idle",
-            detail: previousMode === "current"
-              ? "Disconnected from current Chrome. Chrome and its tabs remain open."
-              : previousMode === "diagnostics"
-                ? "Diagnostics browser closed. Its dedicated sign-in profile was retained."
-                : "Managed browser closed. Its dedicated sign-in profile was retained."
+            detail: "Disconnected from current Chrome. Chrome and its tabs remain open."
           };
           return status();
         } catch (error) {
@@ -157,9 +113,7 @@ export function createAssistantRouter({
         }
       })
     },
-    draft: {
-      generate: os.handler(generate)
-    }
+    draft: { generate: os.handler(generate) }
   };
 
   return { router, sessions, status, generate };
