@@ -76,6 +76,7 @@ test("the published Windows installer is per-user, self-contained, and releases 
   assert.match(installer, /^Name: "\{autodesktop\}\\\{#AppName\}";.*Tasks: desktopicon$/m);
   assert.match(installer, /^Name: "installollama";.*Flags: unchecked$/m);
   assert.match(installer, /OllamaVersion "0\.34\.0"/);
+  assert.match(installer, /Tasks: installollama; Flags: postinstall skipifsilent$/m);
   assert.match(launcher, /runtime\\node\.exe/);
   assert.doesNotMatch(launcher, /npm(?:\.cmd)?/i);
   assert.match(packager, /npmCliPath, "ci", "--omit=dev", "--ignore-scripts"/);

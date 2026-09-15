@@ -42,5 +42,5 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{sys}\wscript.exe"; Parameters: ""
 Name: "{autodesktop}\{#AppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\XSOAR Incident Assistant.vbs"""; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-ollama.ps1"" -Version ""{#OllamaVersion}"""; WorkingDir: "{app}"; Description: "Install Ollama and download the default local model"; Tasks: installollama; Flags: postinstall skipifsilent ignoreerrors
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-ollama.ps1"" -Version ""{#OllamaVersion}"""; WorkingDir: "{app}"; Description: "Install Ollama and download the default local model"; Tasks: installollama; Flags: postinstall skipifsilent
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\XSOAR Incident Assistant.vbs"""; WorkingDir: "{app}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
