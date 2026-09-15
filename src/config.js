@@ -4,14 +4,16 @@ import path from "node:path";
 import { z } from "zod";
 
 import { DEFAULT_SETTINGS, FIELD_LABELS, resolveSettings } from "./domain.js";
+import { DEFAULT_OLLAMA_MODEL, localAiSettingsSchema } from "./local-ai.js";
 
 const localAppDataDirectory = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
 const APP_DATA_DIRECTORY = path.join(localAppDataDirectory, "XSOAR Incident Assistant");
 const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 9,
-  xsoar: DEFAULT_SETTINGS
+  configVersion: 10,
+  xsoar: DEFAULT_SETTINGS,
+  localAi: { enabled: false, model: DEFAULT_OLLAMA_MODEL }
 });
 
 const templateShape = {
@@ -65,9 +67,10 @@ const legacySessionSchema = z.object({
 }).strict();
 
 export const appConfigInputSchema = z.object({
-  configVersion: z.number().int().min(3).max(9).optional(),
+  configVersion: z.number().int().min(3).max(10).optional(),
   session: legacySessionSchema.optional(),
-  xsoar: xsoarInputSchema.optional()
+  xsoar: xsoarInputSchema.optional(),
+  localAi: localAiSettingsSchema.optional()
 }).strict().superRefine((input, context) => {
   const isLegacy = input.configVersion === undefined
     ? input.session !== undefined
@@ -91,13 +94,14 @@ export const appConfigInputSchema = z.object({
 });
 
 export const resolvedAppConfigSchema = z.object({
-  configVersion: z.literal(9),
+  configVersion: z.literal(10),
   xsoar: z.object({
     ...xsoarShape,
     configVersion: z.literal(2),
     fieldLabels: z.object(fieldLabelsShape).strict(),
     template: z.object(templateShape).strict()
-  }).strict()
+  }).strict(),
+  localAi: localAiSettingsSchema
 }).strict();
 
 function parseConfigInput(input) {
@@ -113,13 +117,14 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
   const suppliedFieldLabels = { ...(input.xsoar?.fieldLabels || {}) };
   for (const key of retiredFieldLabels) delete suppliedFieldLabels[key];
   const merged = {
-    configVersion: 9,
+    configVersion: 10,
     xsoar: {
       ...structuredClone(DEFAULT_SETTINGS),
       ...(input.xsoar || {}),
       fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...suppliedFieldLabels },
       template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
-    }
+    },
+    localAi: { ...DEFAULT_APP_CONFIG.localAi, ...(input.localAi || {}) }
   };
   if (!requireTenant && !String(merged.xsoar.allowedOrigin || "").trim()) return merged;
   merged.xsoar = resolveSettings(merged.xsoar);

@@ -9,6 +9,7 @@ const stageDirectory = path.join(rootDirectory, "release-stage");
 const applicationDirectory = path.join(stageDirectory, "app");
 const outputDirectory = path.join(rootDirectory, "artifacts");
 const nodeRuntimePath = process.env.NODE_RUNTIME_PATH;
+const ollamaVersion = process.env.OLLAMA_VERSION || "0.34.0";
 
 function run(command, arguments_, options = {}) {
   return new Promise((resolve, reject) => {
@@ -40,6 +41,12 @@ function appVersion() {
     throw new Error(`APP_VERSION must be a semantic version, optionally prefixed with v: ${version}`);
   }
   return version;
+}
+function requiredOllamaVersion() {
+  if (!/^\d+\.\d+\.\d+$/.test(ollamaVersion)) {
+    throw new Error(`OLLAMA_VERSION must be an exact WinGet package version: ${ollamaVersion}`);
+  }
+  return ollamaVersion;
 }
 
 async function stageRelease() {
@@ -75,6 +82,7 @@ async function main() {
   await run(compiler, [
     "/Qp",
     `/DAppVersion=${appVersion()}`,
+    `/DOllamaVersion=${requiredOllamaVersion()}`,
     `/DStageDir=${applicationDirectory}`,
     `/O${outputDirectory}`,
     path.join(rootDirectory, "installer", "XSOARIncidentAssistant.iss")

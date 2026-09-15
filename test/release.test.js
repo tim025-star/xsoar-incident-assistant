@@ -19,11 +19,13 @@ async function closeServer(server) {
   server.closeAllConnections?.();
   await new Promise((resolve) => server.close(resolve));
 }
+function deferred() { let resolve; const promise = new Promise((next) => { resolve = next; }); return { promise, resolve }; }
 
 test("current Chrome is the only browser interface", () => {
-  assert.equal(DEFAULT_APP_CONFIG.configVersion, 9);
+  assert.equal(DEFAULT_APP_CONFIG.configVersion, 10);
   assert.equal("session" in DEFAULT_APP_CONFIG, false);
   assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "");
+  assert.deepEqual(DEFAULT_APP_CONFIG.localAi, { enabled: false, model: "qwen3.5:9b" });
 });
 
 test("XSOAR settings persist without browser-mode settings", async () => {
@@ -56,11 +58,12 @@ test("XSOAR settings persist without browser-mode settings", async () => {
 
 test("the published Windows installer is per-user, self-contained, and releases without signing credentials", async () => {
   const root = new URL("../", import.meta.url);
-  const [installer, launcher, packager, runtimeDownloader, releaseWorkflow, ciWorkflow] = await Promise.all([
+  const [installer, launcher, packager, runtimeDownloader, ollamaInstaller, releaseWorkflow, ciWorkflow] = await Promise.all([
     readFile(new URL("installer/XSOARIncidentAssistant.iss", root), "utf8"),
     readFile(new URL("installer/launcher.vbs", root), "utf8"),
     readFile(new URL("scripts/package-windows.mjs", root), "utf8"),
     readFile(new URL("installer/download-node-runtime.ps1", root), "utf8"),
+    readFile(new URL("installer/install-ollama.ps1", root), "utf8"),
     readFile(new URL(".github/workflows/release.yml", root), "utf8"),
     readFile(new URL(".github/workflows/ci.yml", root), "utf8")
   ]);
@@ -71,13 +74,22 @@ test("the published Windows installer is per-user, self-contained, and releases 
   assert.match(installer, /^ArchitecturesAllowed=x64$/m);
   assert.match(installer, /^Source: "\{#StageDir\}\\\*"; DestDir: "\{app\}"; Flags: recursesubdirs createallsubdirs$/m);
   assert.match(installer, /^Name: "\{autodesktop\}\\\{#AppName\}";.*Tasks: desktopicon$/m);
+  assert.match(installer, /^Name: "installollama";.*Flags: unchecked$/m);
+  assert.match(installer, /OllamaVersion "0\.34\.0"/);
+  assert.match(installer, /Tasks: installollama; Flags: postinstall skipifsilent$/m);
   assert.match(launcher, /runtime\\node\.exe/);
   assert.doesNotMatch(launcher, /npm(?:\.cmd)?/i);
   assert.match(packager, /npmCliPath, "ci", "--omit=dev", "--ignore-scripts"/);
   assert.match(packager, /Portable Node\.js runtime/);
+  assert.match(packager, /OLLAMA_VERSION must be an exact WinGet package version/);
   assert.doesNotMatch(packager, /keyboard-trigger\.(?:ps1|exe)/);
   assert.match(runtimeDownloader, /dist\/v24\.14\.0\/win-x64\/node\.exe/);
   assert.match(runtimeDownloader, /63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088/);
+  assert.ok(ollamaInstaller.indexOf("Get-Command ollama.exe") < ollamaInstaller.indexOf("Get-Command winget.exe"));
+  assert.match(ollamaInstaller, /if \(\[version\]\$Matches\[1\] -ge \[version\]\$Version\) \{ \$installAction = \$null \}/);
+  assert.match(ollamaInstaller, /\$installAction = "upgrade"/);
+  assert.match(ollamaInstaller, /if \(\$installAction\) \{\s+\$winget = Get-Command winget\.exe/s);
+  assert.match(ollamaInstaller, /& \$ollama pull qwen3\.5:9b/);
   assert.match(releaseWorkflow, /download-node-runtime\.ps1/);
   assert.match(releaseWorkflow, /choco install innosetup --version=6\.7\.1/);
   assert.doesNotMatch(releaseWorkflow, /WINDOWS_SIGNING_CERTIFICATE_BASE64/);
@@ -110,11 +122,58 @@ test("legacy settings migrate by discarding retired fields", () => {
       template: { analystName: "" }
     }
   }, { requireTenant: false });
-  assert.equal(migrated.configVersion, 9);
+  assert.equal(migrated.configVersion, 10);
   assert.equal("session" in migrated, false);
   for (const key of ["customerShortName", "owner", "phase", "description"]) {
     assert.equal(key in migrated.xsoar.fieldLabels, false);
   }
+  assert.deepEqual(migrated.localAi, { enabled: false, model: "qwen3.5:9b" });
+});
+
+test("cloud aliases cannot be saved as local AI models", () => {
+  assert.throws(
+    () => resolveAppConfig({ localAi: { enabled: true, model: "qwen3.5:cloud" } }, { requireTenant: false }),
+    /Cloud and remote model aliases/
+  );
+});
+
+test("shared operation locking and draft versions survive identical AI draft text", async () => {
+  const stored = resolveAppConfig({ xsoar: { allowedOrigin: "https://xsoar.example.test" }, localAi: { enabled: true, model: "qwen3.5:9b" } });
+  const draftStarted = deferred();
+  const draftDone = deferred();
+  const pullStarted = deferred();
+  const pullDone = deferred();
+  const app = createAssistantServer({
+    token: "operation-token",
+    routerOptions: {
+      sessions: { status: () => ({ running: false }), start: async () => {}, adapter: () => ({}) },
+      configStore: { load: async () => stored, save: async () => stored },
+      generateDraft: async () => { draftStarted.resolve(); await draftDone.promise; return { draft: "same AI draft", reviewed: 0, aiEnriched: true }; },
+      localAi: {
+        status: async () => ({ available: true, models: ["qwen3.5:9b"], detail: "ready" }),
+        pull: async () => { pullStarted.resolve(); await pullDone.promise; return ["qwen3.5:9b"]; },
+        enrich: async () => ({})
+      }
+    }
+  });
+  const origin = new URL(await app.listen(0)).origin;
+  const client = createORPCClient(new RPCLink({ url: `${origin}/rpc`, headers: { "X-Assistant-Token": "operation-token", Origin: origin } }));
+  try {
+    const first = client.draft.generate();
+    await draftStarted.promise;
+    await assert.rejects(() => client.localAi.pull({ model: "qwen3.5:9b" }), /Cannot start model download while draft generation is running/);
+    draftDone.resolve();
+    const firstResult = await first;
+    const secondResult = await client.draft.generate();
+    assert.equal(firstResult.draft, secondResult.draft);
+    assert.equal(firstResult.draftVersion, 1);
+    assert.equal(secondResult.draftVersion, 2);
+    const pull = client.localAi.pull({ model: "qwen3.5:9b" });
+    await pullStarted.promise;
+    await assert.rejects(() => client.draft.generate(), /Cannot start draft generation while model download is running/);
+    pullDone.resolve();
+    await pull;
+  } finally { await closeServer(app.server); }
 });
 
 test("runtime version check matches the Vite-supported Node ranges", () => {

@@ -92,3 +92,28 @@ test("workflow fails closed when XSOAR removes or changes the URL query", async 
   assert.deepEqual(adapter.focused, [1]);
   assert.equal(adapter.closed.length, 1);
 });
+
+test("workflow retains the deterministic draft if local enrichment fails", async () => {
+  const result = await runIncidentDraft({
+    adapter: createAdapter(), settings,
+    enrichDraft: async () => { throw new Error("Ollama offline"); }
+  });
+  assert.match(result.draft, /Investigation Summary\nx x x/);
+  assert.match(result.warning, /deterministic draft was provided/);
+  assert.equal(result.aiEnriched, false);
+});
+
+test("workflow inserts injected local enrichment without changing browser concurrency", async () => {
+  const result = await runIncidentDraft({
+    adapter: createAdapter(), settings,
+    enrichDraft: async () => ({
+      investigationSummary: "Review the event with the asset owner.",
+      relatedActivity: "Compare supplied matching incidents.",
+      vendorGuidance: "Use applicable vendor documentation.",
+      recommendations: ["Confirm containment requirements."]
+    })
+  });
+  assert.match(result.draft, /Review the event with the asset owner/);
+  assert.match(result.draft, /Confirm containment requirements/);
+  assert.equal(result.aiEnriched, true);
+});

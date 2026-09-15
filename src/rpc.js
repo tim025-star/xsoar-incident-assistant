@@ -1,7 +1,9 @@
 import { ORPCError, os } from "@orpc/server";
+import { z } from "zod";
 
 import { BrowserSessionManager } from "./browser-session.js";
 import { appConfigInputSchema, loadConfig, resolvedAppConfigSchema, saveConfig } from "./config.js";
+import { createOllamaClient, localAiSettingsSchema } from "./local-ai.js";
 import { runIncidentDraft } from "./workflow.js";
 
 function messageFor(error) {
@@ -11,17 +13,27 @@ function messageFor(error) {
 export function createAssistantRouter({
   sessions = new BrowserSessionManager(),
   configStore = { load: loadConfig, save: saveConfig },
-  generateDraft = runIncidentDraft
+  generateDraft = runIncidentDraft,
+  localAi = createOllamaClient()
 } = {}) {
   let activity = {
     detail: "Configure the assistant, then connect your current Chrome window.",
-    draft: ""
+    draft: "",
+    aiDraft: false,
+    draftVersion: 0
   };
   let runningWorkflow = false;
+  let activeOperation = "";
+  let pullAbortController;
 
-  const status = () => ({ ...activity, session: sessions.status() });
+  const status = () => ({ ...activity, session: sessions.status(), operation: activeOperation || undefined });
+  const withOperationLock = async (operation, action) => {
+    if (activeOperation) throw new ORPCError("CONFLICT", { message: `Cannot start ${operation} while ${activeOperation} is running.` });
+    activeOperation = operation;
+    try { return await action(); } finally { activeOperation = ""; }
+  };
   const fail = (error, code = "BAD_REQUEST") => {
-    activity = { detail: messageFor(error), draft: activity.draft };
+    activity = { detail: messageFor(error), draft: activity.draft, aiDraft: activity.aiDraft, draftVersion: activity.draftVersion };
     throw new ORPCError(code, { message: activity.detail });
   };
   const generate = async () => {
@@ -30,21 +42,27 @@ export function createAssistantRouter({
     }
     runningWorkflow = true;
     try {
-      const config = await configStore.load({ requireTenant: true });
-      await sessions.start();
-      const result = await generateDraft({
-        adapter: sessions.adapter(config.xsoar),
-        settings: config.xsoar,
-        onProgress: async (detail) => {
-          activity = { detail, draft: activity.draft };
-        }
+      return await withOperationLock("draft generation", async () => {
+        const draftVersion = activity.draftVersion + 1;
+        activity = { detail: "Preparing a new deterministic draft.", draft: "", aiDraft: false, draftVersion };
+        const config = await configStore.load({ requireTenant: true });
+        await sessions.start();
+        const result = await generateDraft({
+          adapter: sessions.adapter(config.xsoar),
+          settings: config.xsoar,
+          enrichDraft: config.localAi.enabled ? (input) => localAi.enrich({ ...input, model: config.localAi.model }) : undefined,
+          onProgress: async (detail) => { activity = { detail, draft: activity.draft, aiDraft: false, draftVersion }; }
+        });
+        activity = {
+          detail: result.warning || `Draft ready. Reviewed ${result.reviewed} historical incident(s).`,
+          draft: result.draft,
+          aiDraft: result.aiEnriched,
+          draftVersion
+        };
+        return { ...result, draftVersion };
       });
-      activity = {
-        detail: result.warning || `Draft ready. Reviewed ${result.reviewed} historical incident(s).`,
-        draft: result.draft
-      };
-      return result;
     } catch (error) {
+      if (error instanceof ORPCError) throw error;
       return fail(error);
     } finally {
       runningWorkflow = false;
@@ -68,6 +86,37 @@ export function createAssistantRouter({
       })
     },
     status: os.handler(() => status()),
+    localAi: {
+      status: os.handler(async () => localAi.status()),
+      pull: os.input(z.object({ model: localAiSettingsSchema.shape.model }).strict())
+        .output(z.object({ models: z.array(z.string()) }).strict())
+        .handler(async ({ input }) => withOperationLock("model download", async () => {
+          pullAbortController = new AbortController();
+          activity = { ...activity, detail: `Downloading local model ${input.model}.` };
+          try {
+            const models = await localAi.pull(input.model, {
+              signal: pullAbortController.signal,
+              onProgress: ({ status: progress, completed, total }) => {
+                const percent = total > 0 ? ` (${Math.min(100, Math.round((completed / total) * 100))}%)` : "";
+                activity = { ...activity, detail: `${progress}${percent}` };
+              }
+            });
+            activity = { ...activity, detail: `Local model ${input.model} is ready.` };
+            return { models };
+          } catch (error) {
+            return fail(error);
+          } finally {
+            pullAbortController = undefined;
+          }
+        })),
+      cancelPull: os.handler(() => {
+        if (activeOperation !== "model download" || !pullAbortController) {
+          throw new ORPCError("CONFLICT", { message: "No local model download is running." });
+        }
+        pullAbortController.abort();
+        return status();
+      })
+    },
     browser: {
       setup: os.handler(async () => {
         try {
