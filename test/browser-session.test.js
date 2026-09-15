@@ -6,7 +6,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 
 import {
   BrowserSessionManager,
-  CHROME_SETUP_URL,
   readDevToolsWebSocketEndpoint
 } from "../src/browser-session.js";
 
@@ -61,5 +60,5 @@ test("opens Chrome's approved remote-debugging setup in the normal browser", () 
   let openedUrl = "";
   const manager = new BrowserSessionManager({ openChromePage: (url) => { openedUrl = url; } });
   manager.openSetup();
-  assert.equal(openedUrl, CHROME_SETUP_URL);
+  assert.equal(openedUrl, "chrome://inspect/#remote-debugging");
 });

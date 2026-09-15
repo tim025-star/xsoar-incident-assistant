@@ -9,6 +9,25 @@ import {
   resolveSettings
 } from "./domain.js";
 
+const HISTORICAL_READ_CONCURRENCY = 2;
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const runWorker = async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index]);
+    }
+  };
+  await Promise.all(Array.from(
+    { length: Math.min(limit, items.length) },
+    () => runWorker()
+  ));
+  return results;
+}
+
 function uniqueTrustedTabUrls(details, settings) {
   const urls = new Set();
   for (const value of details?.tabUrls || []) {
@@ -31,33 +50,30 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, onPro
   const settings = resolveSettings(inputSettings);
   const originalTab = await adapter.getActiveTab();
   assertIncidentUrl(originalTab.url, settings, "The active tab");
-  let searchTab;
-  const temporaryTabs = [];
+  const temporaryTabs = new Set();
 
   try {
-    await onProgress("reading_incident", "Reading the active XSOAR incident.");
+    await onProgress("Reading the active XSOAR incident.");
     const initial = await adapter.extractIncident(originalTab.id, settings);
     const views = [initial];
     for (const url of uniqueTrustedTabUrls(initial, settings)) {
       if (url === originalTab.url) continue;
-      await onProgress("reading_incident", "Reading an additional incident view.");
-      const tab = await adapter.openTab(url, { active: true });
-      temporaryTabs.push(tab);
-      await adapter.waitUntilReady(tab.id, settings.pageReadyTimeoutMs);
+      await onProgress("Reading an additional incident view.");
+      const tab = await adapter.openTab(url);
+      temporaryTabs.add(tab);
       const finalUrl = await adapter.getTabUrl(tab.id);
       assertIncidentUrl(finalUrl, settings, "Incident view navigation");
       views.push(await adapter.extractIncident(tab.id, settings));
       await adapter.closeTab(tab.id);
-      temporaryTabs.splice(temporaryTabs.indexOf(tab), 1);
+      temporaryTabs.delete(tab);
     }
 
     const incident = mergeIncidentDetails(...views);
     const query = buildSearchQuery(incident.ruleName, incident.caseType, settings.lookbackQuery);
     const searchUrl = buildIncidentSearchUrl(settings, query);
-    await onProgress("searching", "Opening the matching-incidents query URL.");
-    searchTab = await adapter.openTab(searchUrl, { active: true });
-    temporaryTabs.push(searchTab);
-    await adapter.waitUntilReady(searchTab.id, settings.pageReadyTimeoutMs);
+    await onProgress("Opening the matching-incidents query URL.");
+    const searchTab = await adapter.openTab(searchUrl);
+    temporaryTabs.add(searchTab);
     const finalSearchUrl = await adapter.getTabUrl(searchTab.id);
     assertSearchUrl(finalSearchUrl, settings, query);
     const searchResult = await adapter.extractSearchResults(searchTab.id, {
@@ -68,49 +84,49 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, onPro
       timeoutMs: settings.pageReadyTimeoutMs
     });
 
-    const historical = [];
-    for (const ticket of searchResult.tickets
-      .filter((item) => String(item.ticketId) !== String(incident.ticketId))
-      .slice(0, settings.maxHistoricalIncidents)) {
-      let historyTab;
-      try {
-        await onProgress("reading_history", "Reading a matching historical incident.");
-        const historicalUrl = buildHistoricalIncidentUrl(originalTab.url, ticket.ticketId, settings);
-        historyTab = await adapter.openTab(historicalUrl, { active: true });
-        temporaryTabs.push(historyTab);
-        await adapter.waitUntilReady(historyTab.id, settings.pageReadyTimeoutMs);
-        const finalUrl = await adapter.getTabUrl(historyTab.id);
-        assertIncidentUrl(finalUrl, settings, "Historical incident navigation");
-        const detail = await adapter.extractIncident(historyTab.id, settings);
-        if (String(detail.ticketId) !== String(ticket.ticketId)) {
-          throw new Error("XSOAR opened a different historical incident than requested.");
-        }
-        historical.push(detail);
-      } catch (error) {
-        historical.push({
-          ticketId: String(ticket.ticketId),
-          error: error instanceof Error ? error.message : String(error)
-        });
-      } finally {
-        if (historyTab) {
-          await adapter.closeTab(historyTab.id).catch(() => {});
-          const index = temporaryTabs.indexOf(historyTab);
-          if (index >= 0) temporaryTabs.splice(index, 1);
+    const historicalTicketIds = searchResult.ticketIds
+      .filter((ticketId) => String(ticketId) !== String(incident.ticketId))
+      .slice(0, settings.maxHistoricalIncidents);
+    const historical = await mapWithConcurrency(
+      historicalTicketIds,
+      HISTORICAL_READ_CONCURRENCY,
+      async (ticketId) => {
+        let historyTab;
+        try {
+          await onProgress("Reading a matching historical incident.");
+          const historicalUrl = buildHistoricalIncidentUrl(originalTab.url, ticketId, settings);
+          historyTab = await adapter.openTab(historicalUrl);
+          temporaryTabs.add(historyTab);
+          const finalUrl = await adapter.getTabUrl(historyTab.id);
+          assertIncidentUrl(finalUrl, settings, "Historical incident navigation");
+          const detail = await adapter.extractIncident(historyTab.id, settings);
+          if (String(detail.ticketId) !== String(ticketId)) {
+            throw new Error("XSOAR opened a different historical incident than requested.");
+          }
+          return detail;
+        } catch (error) {
+          return {
+            ticketId: String(ticketId),
+            error: error instanceof Error ? error.message : String(error)
+          };
+        } finally {
+          if (historyTab) {
+            await adapter.closeTab(historyTab.id).catch(() => {});
+            temporaryTabs.delete(historyTab);
+          }
         }
       }
-    }
+    );
 
-    const output = { ...incident, searchQuery: query, historical };
-    await onProgress("building_draft", "Preparing the incident-response draft.");
+    const output = { ...incident, historical };
+    await onProgress("Preparing the incident-response draft.");
     return {
-      ok: true,
       draft: buildDraft(output, settings.template),
       warning: historicalWarning(historical),
-      matches: searchResult.total,
       reviewed: historical.filter((item) => !item.error).length
     };
   } finally {
-    for (const tab of temporaryTabs.reverse()) {
+    for (const tab of [...temporaryTabs].reverse()) {
       await adapter.closeTab(tab.id).catch(() => {});
     }
     await adapter.focusTab(originalTab.id).catch(() => {});

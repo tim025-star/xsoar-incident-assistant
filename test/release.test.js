@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import http from "node:http";
-import { readFile, readdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 
@@ -10,13 +13,15 @@ import { DEFAULT_APP_CONFIG, resolveAppConfig } from "../src/config.js";
 import { createAssistantServer } from "../src/server.js";
 import { isSupportedNodeVersion } from "../scripts/check-node-version.mjs";
 
+const execFileAsync = promisify(execFile);
+
 async function closeServer(server) {
   server.closeAllConnections?.();
   await new Promise((resolve) => server.close(resolve));
 }
 
 test("current Chrome is the only browser interface", () => {
-  assert.equal(DEFAULT_APP_CONFIG.configVersion, 8);
+  assert.equal(DEFAULT_APP_CONFIG.configVersion, 9);
   assert.equal("session" in DEFAULT_APP_CONFIG, false);
   assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "");
 });
@@ -46,15 +51,6 @@ test("XSOAR settings persist without browser-mode settings", async () => {
     assert.deepEqual((await client.status()).session, { running: false });
   } finally {
     await closeServer(app.server);
-  }
-});
-
-test("runtime version check matches the Vite-supported Node ranges", () => {
-  for (const version of ["20.19.0", "20.20.1", "22.12.0", "23.0.0", "24.1.0"]) {
-    assert.equal(isSupportedNodeVersion(version), true, `${version} should be accepted`);
-  }
-  for (const version of ["20.18.9", "21.7.3", "22.0.0", "22.11.9", "invalid"]) {
-    assert.equal(isSupportedNodeVersion(version), false, `${version} should be rejected`);
   }
 });
 
@@ -95,28 +91,61 @@ test("the published Windows installer is per-user, self-contained, and releases 
   assert.match(ciWorkflow, /npm run package:windows/);
 });
 
-test("legacy browser settings migrate by being discarded", () => {
+test("legacy settings migrate by discarding retired fields", () => {
   const migrated = resolveAppConfig({
-    configVersion: 7,
+    configVersion: 8,
     session: {
       mode: "managed",
       browser: "edge",
       activationHotkey: { label: "Ctrl + K", modifiers: 2, code: "KeyK" },
       profileDirectory: "C:\\Legacy Browser Profile"
     },
-    xsoar: { template: { analystName: "" } }
+    xsoar: {
+      fieldLabels: {
+        customerShortName: ["Customer Short Name"],
+        owner: ["Owner"],
+        phase: ["Phase"],
+        description: ["Description"]
+      },
+      template: { analystName: "" }
+    }
   }, { requireTenant: false });
-  assert.equal(migrated.configVersion, 8);
+  assert.equal(migrated.configVersion, 9);
   assert.equal("session" in migrated, false);
+  for (const key of ["customerShortName", "owner", "phase", "description"]) {
+    assert.equal(key in migrated.xsoar.fieldLabels, false);
+  }
+});
+
+test("runtime version check matches the Vite-supported Node ranges", () => {
+  for (const version of ["20.19.0", "20.20.1", "22.12.0", "23.0.0", "24.1.0"]) {
+    assert.equal(isSupportedNodeVersion(version), true, `${version} should be accepted`);
+  }
+  for (const version of ["20.18.9", "21.7.3", "22.0.0", "22.11.9", "invalid"]) {
+    assert.equal(isSupportedNodeVersion(version), false, `${version} should be rejected`);
+  }
+});
+
+test("config migration rejects future versions and retired fields in current configs", () => {
+  assert.throws(
+    () => resolveAppConfig({ configVersion: 999 }, { requireTenant: false }),
+    /configVersion/
+  );
+  assert.throws(
+    () => resolveAppConfig({
+      configVersion: 9,
+      xsoar: { fieldLabels: { owner: ["Owner"] } }
+    }, { requireTenant: false }),
+    /fieldLabels\.owner/
+  );
 });
 
 test("public runtime and documentation contain no extension, legacy remote-port launcher, or organisation-specific implementation", async () => {
   const root = new URL("../", import.meta.url);
-  const entries = await readdir(root, { recursive: true, withFileTypes: true });
-  const files = entries
-    .filter((entry) => entry.isFile() && entry.name !== ".git" && !entry.parentPath.includes("node_modules") && !entry.parentPath.includes(".git"))
-    .filter((entry) => !entry.name.endsWith("release.test.js"));
-  const publicText = (await Promise.all(files.map((entry) => readFile(path.join(entry.parentPath, entry.name), "utf8")))).join("\n").toLowerCase();
+  const rootPath = fileURLToPath(root);
+  const { stdout } = await execFileAsync("git", ["ls-files", "-z"], { cwd: rootPath, encoding: "utf8" });
+  const files = stdout.split("\0").filter((file) => file && !file.endsWith("release.test.js"));
+  const publicText = (await Promise.all(files.map((file) => readFile(path.join(rootPath, file), "utf8")))).join("\n").toLowerCase();
   const forbiddenValues = [
     ["tel", "stra"].join(""),
     ["tim", "025"].join(""),
@@ -146,7 +175,7 @@ test("local oRPC API requires the process token and exact origin", async () => {
       headers: { "X-Assistant-Token": "test-token", Origin: origin }
     }));
     const authorised = await client.status();
-    assert.equal(authorised.phase, "idle");
+    assert.match(authorised.detail, /Configure the assistant/);
     const invalidHostStatus = await new Promise((resolve, reject) => {
       const request = http.request({
         hostname: launchUrl.hostname,

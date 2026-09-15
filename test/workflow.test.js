@@ -9,11 +9,14 @@ function createAdapter({ searchRedirect } = {}) {
   const opened = [];
   const closed = [];
   let nextId = 2;
+  let activeHistoricalReads = 0;
+  let maxHistoricalConcurrency = 0;
   return {
     opened,
     closed,
     focused: [],
     searchOptions: null,
+    get maxHistoricalConcurrency() { return maxHistoricalConcurrency; },
     async getActiveTab() { return { id: 1, url: tabs.get(1) }; },
     async openTab(url) {
       const tab = { id: nextId++, url };
@@ -21,7 +24,6 @@ function createAdapter({ searchRedirect } = {}) {
       opened.push(url);
       return tab;
     },
-    async waitUntilReady() {},
     async getTabUrl(id) {
       const url = tabs.get(id);
       return url.includes("/incidents?") && searchRedirect ? searchRedirect : url;
@@ -38,17 +40,16 @@ function createAdapter({ searchRedirect } = {}) {
           tabUrls: []
         };
       }
+      activeHistoricalReads += 1;
+      maxHistoricalConcurrency = Math.max(maxHistoricalConcurrency, activeHistoricalReads);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      activeHistoricalReads -= 1;
       return { ticketId, classification: "Benign", closeNotes: `Reviewed incident ${ticketId}` };
     },
     async extractSearchResults(id, options) {
       this.searchOptions = options;
       return {
-        total: 3,
-        tickets: [
-          { ticketId: "4200" },
-          { ticketId: "4199" },
-          { ticketId: "4198" }
-        ]
+        ticketIds: ["4200", "4199", "4198", "4197"]
       };
     },
     async closeTab(id) { closed.push(id); tabs.delete(id); },
@@ -59,7 +60,7 @@ function createAdapter({ searchRedirect } = {}) {
 const settings = resolveSettings({
   allowedOrigin: "https://xsoar.example.test",
   incidentUrlPattern: "\\/Custom\\/GenericLayout\\/\\d+\\/?(?:[?#].*)?$",
-  maxHistoricalIncidents: 2
+  maxHistoricalIncidents: 3
 });
 
 test("workflow searches through the URL, excludes the current incident, and restores the tab", async () => {
@@ -69,15 +70,19 @@ test("workflow searches through the URL, excludes the current incident, and rest
   const searchUrl = new URL(adapter.opened[0]);
   assert.equal(searchUrl.pathname, "/incidents");
   assert.match(searchUrl.searchParams.get("query"), /name:"Example Rule" and type:"Endpoint"/);
-  assert.equal(adapter.searchOptions.maxResults, 3);
-  assert.deepEqual(adapter.opened.slice(1), [
+  assert.equal(adapter.searchOptions.maxResults, 4);
+  assert.deepEqual(adapter.opened.slice(1).sort(), [
     "https://xsoar.example.test/Custom/GenericLayout/4199",
-    "https://xsoar.example.test/Custom/GenericLayout/4198"
-  ]);
-  assert.equal(result.reviewed, 2);
+    "https://xsoar.example.test/Custom/GenericLayout/4198",
+    "https://xsoar.example.test/Custom/GenericLayout/4197"
+  ].sort());
+  assert.equal(adapter.maxHistoricalConcurrency, 2);
+  assert.equal(result.reviewed, 3);
   assert.match(result.draft, /#4199: Reviewed incident 4199/);
+  assert.ok(result.draft.indexOf("#4199") < result.draft.indexOf("#4198"));
+  assert.ok(result.draft.indexOf("#4198") < result.draft.indexOf("#4197"));
   assert.deepEqual(adapter.focused, [1]);
-  assert.equal(adapter.closed.length, 3);
+  assert.equal(adapter.closed.length, 4);
 });
 
 test("workflow fails closed when XSOAR removes or changes the URL query", async () => {

@@ -39,9 +39,7 @@ export function createAssistantServer({
   const app = new Hono();
   let localOrigin = "";
 
-  const assistant = createAssistantRouter({
-    ...routerOptions
-  });
+  const assistant = createAssistantRouter(routerOptions ?? {});
   const rpcHandler = new RPCHandler(assistant.router, {
     plugins: [new BodyLimitPlugin({ maxBodySize: 65536 })]
   });

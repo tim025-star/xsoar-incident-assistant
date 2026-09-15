@@ -14,7 +14,6 @@ export function createAssistantRouter({
   generateDraft = runIncidentDraft
 } = {}) {
   let activity = {
-    phase: "idle",
     detail: "Configure the assistant, then connect your current Chrome window.",
     draft: ""
   };
@@ -22,7 +21,7 @@ export function createAssistantRouter({
 
   const status = () => ({ ...activity, session: sessions.status() });
   const fail = (error, code = "BAD_REQUEST") => {
-    activity = { phase: "error", detail: messageFor(error), draft: activity.draft };
+    activity = { detail: messageFor(error), draft: activity.draft };
     throw new ORPCError(code, { message: activity.detail });
   };
   const generate = async () => {
@@ -36,12 +35,11 @@ export function createAssistantRouter({
       const result = await generateDraft({
         adapter: sessions.adapter(config.xsoar),
         settings: config.xsoar,
-        onProgress: async (phase, detail) => {
-          activity = { phase, detail, draft: activity.draft };
+        onProgress: async (detail) => {
+          activity = { detail, draft: activity.draft };
         }
       });
       activity = {
-        phase: "complete",
         detail: result.warning || `Draft ready. Reviewed ${result.reviewed} historical incident(s).`,
         draft: result.draft
       };
@@ -62,7 +60,7 @@ export function createAssistantRouter({
         }
         try {
           const config = await configStore.save(input);
-          activity = { ...activity, phase: "ready", detail: "Settings saved." };
+          activity = { ...activity, detail: "Settings saved." };
           return config;
         } catch (error) {
           return fail(error);
@@ -76,7 +74,6 @@ export function createAssistantRouter({
           sessions.openSetup();
           activity = {
             ...activity,
-            phase: "ready",
             detail: "Chrome setup opened. Enable remote debugging, accept Chrome's prompt, then return here and connect."
           };
           return status();
@@ -87,11 +84,10 @@ export function createAssistantRouter({
       open: os.handler(async () => {
         try {
           await configStore.load({ requireTenant: true });
-          activity = { ...activity, phase: "opening", detail: "Connecting to your current Chrome window." };
+          activity = { ...activity, detail: "Connecting to your current Chrome window." };
           await sessions.start();
           activity = {
             ...activity,
-            phase: "ready",
             detail: "Connected to the current Chrome window. Open one XSOAR incident, then generate a draft from this tab."
           };
           return status();
@@ -104,7 +100,6 @@ export function createAssistantRouter({
           await sessions.stop();
           activity = {
             ...activity,
-            phase: "idle",
             detail: "Disconnected from current Chrome. Chrome and its tabs remain open."
           };
           return status();

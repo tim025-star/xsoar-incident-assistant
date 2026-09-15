@@ -58,9 +58,7 @@ async function stageRelease() {
     copyFile(path.join(rootDirectory, "package-lock.json"), path.join(applicationDirectory, "package-lock.json")),
     copyFile(path.join(rootDirectory, "installer", "launcher.vbs"), path.join(applicationDirectory, "XSOAR Incident Assistant.vbs"))
   ]);
-  await Promise.all([
-    mkdir(path.join(applicationDirectory, "runtime"), { recursive: true })
-  ]);
+  await mkdir(path.join(applicationDirectory, "runtime"), { recursive: true });
   await copyFile(nodeRuntimePath, path.join(applicationDirectory, "runtime", "node.exe"));
 
   const npmCliPath = process.env.npm_execpath;

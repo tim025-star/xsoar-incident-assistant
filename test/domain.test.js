@@ -8,7 +8,6 @@ import {
   buildHistoricalIncidentUrl,
   buildIncidentSearchUrl,
   buildSearchQuery,
-  permissionPatternForOrigin,
   resolveSettings
 } from "../src/domain.js";
 
@@ -21,7 +20,6 @@ test("settings accept one exact HTTPS origin and keep the analyst name configura
   const resolved = settings();
   assert.equal(resolved.allowedOrigin, "https://xsoar.example.test");
   assert.equal(resolved.template.analystName, "");
-  assert.equal(permissionPatternForOrigin(resolved.allowedOrigin), "https://xsoar.example.test/*");
 
   for (const origin of [
     "http://xsoar.example.test",

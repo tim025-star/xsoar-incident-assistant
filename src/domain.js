@@ -1,15 +1,11 @@
 export const FIELD_LABELS = Object.freeze({
   customerName: ["Customer Name"],
-  customerShortName: ["Customer Short Name"],
   classification: ["Classification"],
-  owner: ["Owner"],
-  phase: ["Phase"],
   occurred: ["Occurred"],
   incidentOutcome: ["Incident Outcome"],
   closeNotes: ["Close Notes"],
   ruleName: ["Rule Name"],
   caseType: ["Type", "Case Type"],
-  description: ["Description"],
   clientIp: ["Client IP"],
   clientHostname: ["Client Hostname", "Client Host Hostname"],
   clientUserName: ["Client User Name"],
@@ -67,7 +63,7 @@ export function firstAvailable(...values) {
   return values.map(cleanText).find(isAvailable) || "";
 }
 
-export function normalizeOrigin(value) {
+function normalizeOrigin(value) {
   let url;
   try {
     url = new URL(cleanText(value));
@@ -180,10 +176,6 @@ export function resolveSettings(input = {}) {
     throw new Error("The greeting and recommendations heading must not be empty.");
   }
   return settings;
-}
-
-export function permissionPatternForOrigin(origin) {
-  return `${normalizeOrigin(origin)}/*`;
 }
 
 export function assertTrustedUrl(value, settings, operation = "Navigation") {
