@@ -6,11 +6,11 @@ import { z } from "zod";
 import { DEFAULT_SETTINGS, FIELD_LABELS, resolveSettings } from "./domain.js";
 
 const localAppDataDirectory = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
-export const APP_DATA_DIRECTORY = path.join(localAppDataDirectory, "XSOAR Incident Assistant");
-export const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
+const APP_DATA_DIRECTORY = path.join(localAppDataDirectory, "XSOAR Incident Assistant");
+const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 8,
+  configVersion: 9,
   xsoar: DEFAULT_SETTINGS
 });
 
@@ -28,6 +28,11 @@ const fieldLabelsShape = Object.fromEntries(
   Object.keys(FIELD_LABELS).map((key) => [key, z.array(z.string())])
 );
 const fieldLabelsSchema = z.object(fieldLabelsShape).partial().strict();
+const retiredFieldLabels = ["customerShortName", "owner", "phase", "description"];
+const legacyFieldLabelsSchema = z.object({
+  ...fieldLabelsShape,
+  ...Object.fromEntries(retiredFieldLabels.map((key) => [key, z.array(z.string())]))
+}).partial().strict();
 
 const xsoarShape = {
   configVersion: z.number().int(),
@@ -45,10 +50,10 @@ const xsoarShape = {
   fieldLabels: fieldLabelsSchema,
   template: templateSchema
 };
-const xsoarSchema = z.object(xsoarShape).partial().strict();
+const xsoarInputSchema = z.object({ ...xsoarShape, fieldLabels: legacyFieldLabelsSchema }).partial().strict();
 
-// Accept the known legacy session shape so existing installations migrate
-// cleanly. Browser modes and profile settings are intentionally discarded.
+// Accept known legacy settings so existing installations migrate cleanly.
+// Browser modes, profile settings, and retired field labels are discarded.
 const legacySessionSchema = z.object({
   mode: z.enum(["current", "managed", "diagnostics", "cdp"]).optional(),
   browser: z.enum(["edge", "chrome"]).optional(),
@@ -60,13 +65,33 @@ const legacySessionSchema = z.object({
 }).strict();
 
 export const appConfigInputSchema = z.object({
-  configVersion: z.number().int().optional(),
+  configVersion: z.number().int().min(3).max(9).optional(),
   session: legacySessionSchema.optional(),
-  xsoar: xsoarSchema.optional()
-}).strict();
+  xsoar: xsoarInputSchema.optional()
+}).strict().superRefine((input, context) => {
+  const isLegacy = input.configVersion === undefined
+    ? input.session !== undefined
+    : input.configVersion < 9;
+  if (isLegacy) return;
+  if (input.session !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["session"],
+      message: "Current configurations must not contain retired browser settings."
+    });
+  }
+  for (const key of retiredFieldLabels) {
+    if (!Object.hasOwn(input.xsoar?.fieldLabels || {}, key)) continue;
+    context.addIssue({
+      code: "custom",
+      path: ["xsoar", "fieldLabels", key],
+      message: `Unsupported field label: ${key}.`
+    });
+  }
+});
 
 export const resolvedAppConfigSchema = z.object({
-  configVersion: z.literal(8),
+  configVersion: z.literal(9),
   xsoar: z.object({
     ...xsoarShape,
     configVersion: z.literal(2),
@@ -85,12 +110,14 @@ function parseConfigInput(input) {
 
 export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
   input = parseConfigInput(input);
+  const suppliedFieldLabels = { ...(input.xsoar?.fieldLabels || {}) };
+  for (const key of retiredFieldLabels) delete suppliedFieldLabels[key];
   const merged = {
-    configVersion: 8,
+    configVersion: 9,
     xsoar: {
       ...structuredClone(DEFAULT_SETTINGS),
       ...(input.xsoar || {}),
-      fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...(input.xsoar?.fieldLabels || {}) },
+      fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...suppliedFieldLabels },
       template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
     }
   };

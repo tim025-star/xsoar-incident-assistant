@@ -9,7 +9,7 @@ import { chromium } from "playwright-core";
 import { assertIncidentUrl, assertTrustedUrl } from "./domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "./page-adapter.js";
 
-export const CHROME_SETUP_URL = "chrome://inspect/#remote-debugging";
+const CHROME_SETUP_URL = "chrome://inspect/#remote-debugging";
 
 function chromeExecutableCandidates() {
   const roots = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA]
@@ -18,7 +18,7 @@ function chromeExecutableCandidates() {
   return roots.map((root) => path.join(root, ...suffix));
 }
 
-export function findChromeExecutable() {
+function findChromeExecutable() {
   const executable = chromeExecutableCandidates().find(existsSync);
   if (!executable) throw new Error("Google Chrome was not found.");
   return executable;
@@ -33,7 +33,7 @@ export function openNormalChromePage(url, { spawnProcess = spawn } = {}) {
   child.unref();
 }
 
-export function standardChromeUserDataDirectory() {
+function standardChromeUserDataDirectory() {
   const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
   return path.join(localAppData, "Google", "Chrome", "User Data");
 }
@@ -103,10 +103,6 @@ class PlaywrightBrowserAdapter {
     });
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.settings.pageReadyTimeoutMs });
     return { id: page, url: page.url() };
-  }
-
-  async waitUntilReady(page, timeoutMs) {
-    await page.waitForLoadState("domcontentloaded", { timeout: timeoutMs });
   }
 
   async getTabUrl(page) {

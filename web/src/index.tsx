@@ -146,6 +146,7 @@ function App() {
               </section>
 
               <section class="panel">
+                <fieldset class="contents" disabled={busy() || status()?.session.running}>
                 <div class="mb-5">
                   <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">02 · Tenant</p>
                   <h2 class="m-0 text-xl font-bold">XSOAR settings</h2>
@@ -188,7 +189,8 @@ function App() {
                     </div>
                   </div>
                 </details>
-                <button id="save" class="button button-secondary mt-5" type="button" disabled={busy() || status()?.session.running} onClick={() => runAction(persistSettings)}>Save settings</button>
+                <button id="save" class="button button-secondary mt-5" type="button" onClick={() => runAction(persistSettings)}>Save settings</button>
+                </fieldset>
               </section>
             </div>
 

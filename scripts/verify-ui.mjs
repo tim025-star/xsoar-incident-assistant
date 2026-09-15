@@ -67,9 +67,13 @@ try {
   assert.equal(starts, 1);
   assert.equal(uiConfig.xsoar.allowedOrigin, "https://xsoar.example.test");
   await page.getByText("Connected to the current Chrome window.").waitFor({ timeout: 2000 });
+  assert.equal(await page.locator("#allowedOrigin").isDisabled(), true);
+  assert.equal(await page.locator("#analystName").isDisabled(), true);
+  assert.equal(await page.locator("#maxHistoricalIncidents").isDisabled(), true);
   await page.locator("#stop").click();
   await page.getByText("Chrome and its tabs remain open.").waitFor();
   assert.equal(sessionRunning, false);
+  assert.equal(await page.locator("#allowedOrigin").isDisabled(), false);
 
   await page.locator("#setup").click();
   await page.getByText("Chrome setup opened.").waitFor();
@@ -115,7 +119,36 @@ try {
     maxResults: 2,
     timeoutMs: 1000
   });
-  assert.deepEqual(results.tickets.map((item) => item.ticketId), ["4199"]);
+  assert.deepEqual(results.ticketIds, ["4199"]);
+
+  const delayedIncidentPage = await browser.newPage();
+  await delayedIncidentPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<div id="root"></div><script>setTimeout(() => { document.querySelector("#root").innerHTML = '<div class="header-inv-id">#4201</div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper">Delayed Rule</div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper">Endpoint</div></div>'; }, 650);</script>`
+  }));
+  await delayedIncidentPage.goto("https://xsoar.example.test/Custom/GenericLayout/4201");
+  const delayedIncident = await delayedIncidentPage.evaluate(extractIncidentFromPage, {
+    ...settings,
+    pageReadyTimeoutMs: 2000
+  });
+  assert.equal(delayedIncident.ruleName, "Delayed Rule");
+  assert.equal(delayedIncident.caseType, "Endpoint");
+
+  const delayedSearchPage = await browser.newPage();
+  await delayedSearchPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<div class="no-results" style="display:none">Hidden empty state</div><div id="incidents-page" role="grid"></div><script>setTimeout(() => { document.querySelector("#incidents-page").innerHTML = '<a href="/incident/4198">4198</a>'; }, 900);</script>`
+  }));
+  await delayedSearchPage.goto(`https://xsoar.example.test/incidents?query=${encodeURIComponent(query)}`);
+  const delayedResults = await delayedSearchPage.evaluate(extractSearchResultsFromPage, {
+    expectedOrigin: settings.allowedOrigin,
+    expectedPath: "/incidents",
+    queryParameter: "query",
+    expectedQuery: query,
+    maxResults: 2,
+    timeoutMs: 2500
+  });
+  assert.deepEqual(delayedResults.ticketIds, ["4198"]);
   console.log("Current-Chrome-only UI, upgrade migration, and URL-based extraction verification passed.");
 } finally {
   await browser?.close();

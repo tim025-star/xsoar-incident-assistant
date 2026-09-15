@@ -175,7 +175,7 @@ export async function extractIncidentFromPage(settings) {
       previous = signature;
       stableSince = Date.now();
     } else if (Date.now() - stableSince >= 500
-      && (result.ruleName || result.caseType || result.ticketId)) {
+      && result.ruleName && result.caseType) {
       break;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -203,7 +203,7 @@ export async function extractSearchResultsFromPage(options) {
       && Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
   };
   const ticketPattern = /\/(?:incident|investigation)\/(\d+)\/?(?:[?#].*)?$/i;
-  const tickets = new Map();
+  const ticketIds = new Set();
   const collect = () => {
     assertCurrentUrl();
     const root = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page")
@@ -217,14 +217,14 @@ export async function extractSearchResultsFromPage(options) {
         continue;
       }
       const ticketId = url.pathname.match(ticketPattern)?.[1];
-      if (ticketId && url.origin === location.origin) tickets.set(ticketId, url.toString());
+      if (ticketId && url.origin === location.origin) ticketIds.add(ticketId);
     }
     const paging = normalize(document.querySelector(".table-paging-message")?.textContent);
-    const total = Number(paging.match(/out of\s+([\d,]+)/i)?.[1]?.replace(/,/g, "") || 0);
-    const empty = Boolean(document.querySelector(".no-data,.empty-table,.no-results"));
+    const empty = Array.from(document.querySelectorAll(".no-data,.empty-table,.no-results"))
+      .some(isVisible);
     const busy = Array.from(root.querySelectorAll("[aria-busy='true'],.loading,.spinner"))
       .some(isVisible);
-    return { root, paging, total, empty, busy };
+    return { root, paging, empty, busy };
   };
 
   const deadline = Date.now() + Math.min(Number(options.timeoutMs) || 20000, 120000);
@@ -232,11 +232,11 @@ export async function extractSearchResultsFromPage(options) {
   let stableSince = Date.now();
   let state = collect();
   while (Date.now() < deadline) {
-    const signature = `${state.paging}|${state.total}|${state.empty}|${[...tickets.keys()].join(",")}`;
+    const signature = `${state.paging}|${state.empty}|${[...ticketIds].join(",")}`;
     if (signature !== previous) {
       previous = signature;
       stableSince = Date.now();
-    } else if (!state.busy && (state.empty || tickets.size > 0 || state.paging)
+    } else if (!state.busy && (state.empty || ticketIds.size > 0 || state.paging)
       && Date.now() - stableSince >= 750) {
       break;
     }
@@ -245,13 +245,12 @@ export async function extractSearchResultsFromPage(options) {
     await new Promise((resolve) => setTimeout(resolve, 150));
     state = collect();
   }
-  if (!state.empty && !tickets.size && !state.paging) {
+  if (!state.empty && !ticketIds.size && !state.paging) {
     throw new Error("XSOAR search results did not become ready before the timeout.");
   }
-  const sorted = [...tickets.entries()]
-    .sort(([left], [right]) => Number(right) - Number(left))
-    .slice(0, Math.max(1, Number(options.maxResults) || 5))
-    .map(([ticketId, href]) => ({ ticketId, href }));
+  const sortedTicketIds = [...ticketIds]
+    .sort((left, right) => Number(right) - Number(left))
+    .slice(0, Math.max(1, Number(options.maxResults) || 5));
   assertCurrentUrl();
-  return { total: state.total || sorted.length, tickets: sorted };
+  return { ticketIds: sortedTicketIds };
 }
