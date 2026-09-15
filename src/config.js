@@ -15,9 +15,9 @@ export { APP_DATA_DIRECTORY };
 export const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 6,
+  configVersion: 7,
   session: {
-    mode: "managed",
+    mode: "current",
     browser: "chrome",
     activationHotkey: { ...DEFAULT_ACTIVATION_HOTKEY },
     profileDirectory: legacyProfileDirectoryForBrowser("chrome")
@@ -66,7 +66,7 @@ const activationHotkeySchema = z.object({
 export const appConfigInputSchema = z.object({
   configVersion: z.number().int().optional(),
   session: z.object({
-    mode: z.enum(["managed", "diagnostics", "cdp"]),
+    mode: z.enum(["current", "managed", "diagnostics", "cdp"]),
     browser: z.enum(["edge", "chrome"]),
     activationHotkey: z.union([z.string(), activationHotkeySchema]),
     profileDirectory: z.string()
@@ -75,9 +75,9 @@ export const appConfigInputSchema = z.object({
 }).strict();
 
 export const resolvedAppConfigSchema = z.object({
-  configVersion: z.literal(6),
+  configVersion: z.literal(7),
   session: z.object({
-    mode: z.enum(["managed", "diagnostics"]),
+    mode: z.enum(["current", "managed", "diagnostics"]),
     browser: z.enum(["edge", "chrome"]),
     activationHotkey: activationHotkeySchema,
     profileDirectory: z.string()
@@ -109,7 +109,7 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
     fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...(input.xsoar?.fieldLabels || {}) },
     template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
   };
-  merged.configVersion = 6;
+  merged.configVersion = 7;
 
   // Version 3 stored debug-mode sessions in a sibling profile. Keep that
   // authenticated profile while migrating away from its TCP control endpoint.
@@ -122,11 +122,14 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
     }
   }
 
-  if (!["managed", "diagnostics"].includes(merged.session.mode)) {
-    throw new Error("Session mode must be managed or diagnostics.");
+  if (!["current", "managed", "diagnostics"].includes(merged.session.mode)) {
+    throw new Error("Session mode must be current, managed, or diagnostics.");
   }
   if (!["edge", "chrome"].includes(merged.session.browser)) {
     throw new Error("Browser must be edge or chrome.");
+  }
+  if (merged.session.mode === "current" && merged.session.browser !== "chrome") {
+    throw new Error("Current browser mode requires Google Chrome.");
   }
   merged.session.activationHotkey = activationHotkeySpec(merged.session.activationHotkey);
   if (typeof merged.session.profileDirectory !== "string" || !path.isAbsolute(merged.session.profileDirectory)) {

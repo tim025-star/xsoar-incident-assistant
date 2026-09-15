@@ -54,6 +54,12 @@ function userDataDirectory(browser, localAppData) {
   return path.join(localAppData, ...BROWSERS[browser].userDataParts);
 }
 
+export function standardUserDataDirectoryForBrowser(browser, { localAppData = localAppDataDirectory() } = {}) {
+  const definition = BROWSERS[browser];
+  if (!definition) throw new Error("Browser must be edge or chrome.");
+  return userDataDirectory(browser, path.resolve(localAppData));
+}
+
 export function legacyProfileDirectoryForBrowser(browser, { localAppData = localAppDataDirectory() } = {}) {
   const definition = BROWSERS[browser];
   if (!definition) throw new Error("Browser must be edge or chrome.");

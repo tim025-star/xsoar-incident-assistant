@@ -27,11 +27,14 @@ export function createAssistantRouter({
   };
   let runningWorkflow = false;
 
-  const status = () => ({
-    ...activity,
-    session: sessions.status(),
-    hotkey: { active: sessions.status().running, error: "" }
-  });
+  const status = () => {
+    const session = sessions.status();
+    return {
+      ...activity,
+      session,
+      hotkey: { active: session.running && session.mode !== "current", error: "" }
+    };
+  };
   const fail = (error, code = "BAD_REQUEST") => {
     activity = { phase: "error", detail: messageFor(error), draft: activity.draft };
     throw new ORPCError(code, { message: activity.detail });
@@ -124,9 +127,11 @@ export function createAssistantRouter({
           activity = {
             ...activity,
             phase: "ready",
-            detail: config.session.mode === "diagnostics"
-              ? "Diagnostics browser ready with DevTools open. Sign in to XSOAR if prompted, then open an incident."
-              : "Managed browser ready. Sign in to XSOAR if prompted, then open an incident."
+            detail: config.session.mode === "current"
+              ? "Connected to the current Chrome window. Open one XSOAR incident, then generate a draft from this tab."
+              : config.session.mode === "diagnostics"
+                ? "Diagnostics browser ready with DevTools open. Sign in to XSOAR if prompted, then open an incident."
+                : "Managed browser ready. Sign in to XSOAR if prompted, then open an incident."
           };
           return status();
         } catch (error) {
@@ -140,9 +145,11 @@ export function createAssistantRouter({
           activity = {
             ...activity,
             phase: "idle",
-            detail: previousMode === "diagnostics"
-              ? "Diagnostics browser closed. Its dedicated sign-in profile was retained."
-              : "Managed browser closed. Its dedicated sign-in profile was retained."
+            detail: previousMode === "current"
+              ? "Disconnected from current Chrome. Chrome and its tabs remain open."
+              : previousMode === "diagnostics"
+                ? "Diagnostics browser closed. Its dedicated sign-in profile was retained."
+                : "Managed browser closed. Its dedicated sign-in profile was retained."
           };
           return status();
         } catch (error) {

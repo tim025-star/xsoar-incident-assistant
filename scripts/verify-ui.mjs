@@ -56,8 +56,15 @@ try {
   const page = await browser.newPage();
   await page.goto(url);
   await page.getByRole("heading", { name: "XSOAR Incident Assistant" }).waitFor();
-  assert.equal(await page.locator("#mode").inputValue(), "managed");
+  assert.equal(await page.locator("#mode").inputValue(), "current");
   assert.equal(await page.locator("#browser").inputValue(), "chrome");
+  assert.equal(await page.locator("#browser").isDisabled(), true);
+  await page.getByText("chrome://inspect/#remote-debugging").waitFor();
+  await page.locator("#mode").selectOption("managed");
+  assert.equal(await page.locator("#browser").isDisabled(), false);
+  await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
+  await page.locator("#save").click();
+  await page.getByText("Settings saved.").waitFor();
   assert.equal(await page.locator("#analystName").inputValue(), "");
   assert.match(await page.locator("#existingProfile").textContent(), /Google Chrome.*Default profile.*Default/);
   await page.locator("#importProfile").click();
@@ -90,7 +97,7 @@ try {
   await page.locator("#recordHotkey").click();
   await page.getByText("No shortcut was detected within five seconds. Settings unchanged.").waitFor({ timeout: 6000 });
   assert.equal(await page.locator("#activationHotkey").inputValue(), "Ctrl + Alt + K");
-  assert.deepEqual(await page.locator("#mode option").evaluateAll((options) => options.map((option) => option.value)), ["managed", "diagnostics"]);
+  assert.deepEqual(await page.locator("#mode option").evaluateAll((options) => options.map((option) => option.value)), ["current", "managed", "diagnostics"]);
   await page.locator("#mode").selectOption("diagnostics");
   assert.equal(await page.locator("#launchDebug").count(), 0);
   await page.getByText("does not expose a remote-debugging network port").waitFor();

@@ -16,8 +16,8 @@ async function closeServer(server) {
   await new Promise((resolve) => server.close(resolve));
 }
 
-test("managed mode defaults to the legacy Chrome profile, with Numpad+ activation and an empty analyst identity", () => {
-  assert.equal(DEFAULT_APP_CONFIG.session.mode, "managed");
+test("current Chrome mode is the default, with the legacy managed profile retained as fallback", () => {
+  assert.equal(DEFAULT_APP_CONFIG.session.mode, "current");
   assert.equal(DEFAULT_APP_CONFIG.session.browser, "chrome");
   assert.equal(
     DEFAULT_APP_CONFIG.session.profileDirectory,
@@ -25,6 +25,10 @@ test("managed mode defaults to the legacy Chrome profile, with Numpad+ activatio
   );
   assert.deepEqual(DEFAULT_APP_CONFIG.session.activationHotkey, { label: "Numpad +", modifiers: 0, code: "NumpadAdd" });
   assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "");
+  assert.throws(
+    () => resolveAppConfig({ session: { mode: "current", browser: "edge" } }, { requireTenant: false }),
+    /requires Google Chrome/
+  );
 });
 test("activation shortcuts are validated before being saved", () => {
   assert.deepEqual(
@@ -205,15 +209,15 @@ test("the published Windows installer is per-user, self-contained, and releases 
   assert.match(ciWorkflow, /npm run package:windows/);
 });
 
-test("legacy cdp settings migrate to diagnostics and endpoints remain unsupported", () => {
+test("legacy custom cdp settings migrate to diagnostics and configurable endpoints remain unsupported", () => {
   const migrated = resolveAppConfig({ configVersion: 3, session: { mode: "cdp" } }, { requireTenant: false });
-  assert.equal(migrated.configVersion, 6);
+  assert.equal(migrated.configVersion, 7);
   assert.equal(migrated.session.mode, "diagnostics");
   assert.ok(migrated.session.profileDirectory.endsWith("browser-profile-debug"));
   assert.equal(resolveAppConfig({ session: { mode: "diagnostics" } }, { requireTenant: false }).session.mode, "diagnostics");
   assert.throws(
     () => resolveAppConfig({ configVersion: 4, session: { mode: "cdp" } }, { requireTenant: false }),
-    /managed or diagnostics/
+    /current, managed, or diagnostics/
   );
   assert.throws(
     () => resolveAppConfig({ session: { mode: "cdp", cdpEndpoint: "http://127.0.0.1:9222" } }, { requireTenant: false }),
@@ -236,7 +240,7 @@ test("a custom dedicated Chromium user-data directory can be selected", () => {
   );
 });
 
-test("public runtime and documentation contain no extension or organisation-specific implementation", async () => {
+test("public runtime and documentation contain no extension, legacy remote-port launcher, or organisation-specific implementation", async () => {
   const root = new URL("../", import.meta.url);
   const entries = await readdir(root, { recursive: true, withFileTypes: true });
   const files = entries
@@ -252,7 +256,6 @@ test("public runtime and documentation contain no extension or organisation-spec
     "example employee",
     "chrome.storage",
     "manifest v3",
-    "connectovercdp",
     "--remote-debugging-port",
     "/api/debug/launch"
   ];
