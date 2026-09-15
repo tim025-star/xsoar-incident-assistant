@@ -13,11 +13,11 @@ export const APP_DATA_DIRECTORY = path.join(
 export const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 5,
+  configVersion: 6,
   session: {
     mode: "managed",
     browser: "edge",
-    activationHotkey: DEFAULT_ACTIVATION_HOTKEY,
+    activationHotkey: { ...DEFAULT_ACTIVATION_HOTKEY },
     profileDirectory: path.join(APP_DATA_DIRECTORY, "browser-profile")
   },
   xsoar: DEFAULT_SETTINGS
@@ -55,24 +55,29 @@ const xsoarShape = {
   template: templateSchema
 };
 const xsoarSchema = z.object(xsoarShape).partial().strict();
+const activationHotkeySchema = z.object({
+  label: z.string(),
+  modifiers: z.number().int(),
+  code: z.string()
+}).strict();
 
 export const appConfigInputSchema = z.object({
   configVersion: z.number().int().optional(),
   session: z.object({
     mode: z.enum(["managed", "diagnostics", "cdp"]),
     browser: z.enum(["edge", "chrome"]),
-    activationHotkey: z.string(),
+    activationHotkey: z.union([z.string(), activationHotkeySchema]),
     profileDirectory: z.string()
   }).partial().strict().optional(),
   xsoar: xsoarSchema.optional()
 }).strict();
 
 export const resolvedAppConfigSchema = z.object({
-  configVersion: z.literal(5),
+  configVersion: z.literal(6),
   session: z.object({
     mode: z.enum(["managed", "diagnostics"]),
     browser: z.enum(["edge", "chrome"]),
-    activationHotkey: z.string(),
+    activationHotkey: activationHotkeySchema,
     profileDirectory: z.string()
   }).strict(),
   xsoar: z.object({
@@ -102,7 +107,7 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
     fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...(input.xsoar?.fieldLabels || {}) },
     template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
   };
-  merged.configVersion = 5;
+  merged.configVersion = 6;
 
   // Version 3 stored debug-mode sessions in a sibling profile. Keep that
   // authenticated profile while migrating away from its TCP control endpoint.
@@ -117,7 +122,7 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
   if (!["edge", "chrome"].includes(merged.session.browser)) {
     throw new Error("Browser must be edge or chrome.");
   }
-  merged.session.activationHotkey = activationHotkeySpec(merged.session.activationHotkey).id;
+  merged.session.activationHotkey = activationHotkeySpec(merged.session.activationHotkey);
   if (typeof merged.session.profileDirectory !== "string" || !path.isAbsolute(merged.session.profileDirectory)) {
     throw new Error("The dedicated profile directory must be an absolute path.");
   }

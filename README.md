@@ -30,12 +30,12 @@ Requirements: Windows 11 x64 and a current Microsoft Edge or Google Chrome insta
 
 1. Select **Open browser**.
 2. Sign in if your organisation requires it and open one XSOAR incident.
-3. Press the configured global activation shortcut (default: **Numpad+**), or select **Generate draft**.
+3. While the assistant browser is focused on an incident, press the configured activation shortcut (default: **Numpad+**), or select **Generate draft**.
 4. Review the draft, then explicitly select **Copy draft** if needed.
 
 Temporary search and historical tabs are closed, and the original incident is brought back to the front. If multiple incident tabs are open, the assistant asks you to bring the intended one to the front.
 
-The local server starts a Windows-only global activation-shortcut listener alongside the control page. Choose Numpad+, Ctrl+Alt+G, Ctrl+Shift+G, or Ctrl+Alt+I in Settings. The listener sends an authenticated loopback request to the same local server; it does not connect directly to XSOAR, hold browser credentials, or write drafts to disk. If another application has already registered the selected shortcut, the assistant keeps the previous one.
+Select **Record shortcut** in Settings, then press the key or key combination you want during the five-second recording window. Recording stops after the first supported shortcut or when the window expires. When the managed XSOAR browser opens, Playwright adds an in-memory key listener to its pages. A match can invoke the existing draft workflow only from the focused top-level page after its URL passes the configured XSOAR incident checks. It is not global, installs no browser extension or plugin, runs no PowerShell hotkey script, and stops with the browser session.
 
 If the Start-menu launch reports a startup error, reinstall the current release. The launcher displays an error instead of failing silently.
 
@@ -63,7 +63,7 @@ An organisation must review and approve the tool against its own browser, identi
 - `src/workflow.js`: browser-independent incident/search/history orchestration.
 - `src/page-adapter.js`: XSOAR DOM extraction.
 - `src/browser-session.js`: Playwright-owned managed and diagnostics browser sessions.
-- `src/hotkey.js`, `src/keyboard-trigger.js`, and `scripts/keyboard-trigger.ps1`: the configurable Windows activation shortcut and its authenticated loopback hand-off.
+- `src/hotkey.js` and `src/browser-session.js`: shortcut recording, validation, and the focused assistant-browser listener.
 - `src/rpc.js`: typed oRPC operations and local application state.
 - `src/server.js`: Hono loopback server, request security checks, and static delivery.
 - `web/`: Solid and Tailwind configuration/status interface, built by Vite into ignored `dist/` output.

@@ -59,19 +59,14 @@ async function stageRelease() {
     copyFile(path.join(rootDirectory, "installer", "launcher.vbs"), path.join(applicationDirectory, "XSOAR Incident Assistant.vbs"))
   ]);
   await Promise.all([
-    mkdir(path.join(applicationDirectory, "runtime"), { recursive: true }),
-    mkdir(path.join(applicationDirectory, "scripts"), { recursive: true })
+    mkdir(path.join(applicationDirectory, "runtime"), { recursive: true })
   ]);
-  await Promise.all([
-    copyFile(nodeRuntimePath, path.join(applicationDirectory, "runtime", "node.exe")),
-    copyFile(path.join(rootDirectory, "scripts", "keyboard-trigger.ps1"), path.join(applicationDirectory, "scripts", "keyboard-trigger.ps1"))
-  ]);
+  await copyFile(nodeRuntimePath, path.join(applicationDirectory, "runtime", "node.exe"));
 
   const npmCliPath = process.env.npm_execpath;
   if (!npmCliPath) throw new Error("Run packaging through npm so its locked dependency installer is available.");
   await run(process.execPath, [npmCliPath, "ci", "--omit=dev", "--ignore-scripts"], { cwd: applicationDirectory });
   await requireFile(path.join(applicationDirectory, "node_modules", "playwright-core", "package.json"), "Staged Playwright dependency");
-  await requireFile(path.join(applicationDirectory, "scripts", "keyboard-trigger.ps1"), "Staged keyboard trigger");
 }
 
 async function main() {

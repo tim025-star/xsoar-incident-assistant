@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright-core";
 
+import { attachBrowserActivationShortcut } from "../src/browser-session.js";
 import { createAssistantServer } from "../src/server.js";
 import { resolveAppConfig } from "../src/config.js";
 import { resolveSettings } from "../src/domain.js";
@@ -13,7 +14,6 @@ import { extractIncidentFromPage, extractSearchResultsFromPage } from "../src/pa
 let uiConfig = resolveAppConfig({}, { requireTenant: false });
 const app = createAssistantServer({
   token: "browser-verification-token",
-  keyboardTriggerStarter: async () => ({ stop: async () => {} }),
   routerOptions: {
     configStore: {
       load: async () => uiConfig,
@@ -52,13 +52,19 @@ try {
   assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "10");
   await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
   await page.locator("#analystName").fill("Example Analyst");
-  await page.locator("#activationHotkey").selectOption("ctrl_alt_g");
+  await page.locator("#recordHotkey").click();
+  await page.getByRole("button", { name: /Cancel \(5s\)/ }).waitFor();
+  await page.keyboard.press("Control+Alt+K");
+  assert.equal(await page.locator("#activationHotkey").inputValue(), "Ctrl + Alt + K");
+  await page.getByText("Ctrl + Alt + K recorded. Save settings to activate it.").waitFor();
   await page.locator("#save").click();
   await page.getByText("Settings saved.").waitFor();
   assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
-  assert.equal(uiConfig.session.activationHotkey, "ctrl_alt_g");
-  assert.deepEqual(await page.locator("#activationHotkey option").evaluateAll((options) => options.map((option) => option.value)), ["numpad_plus", "ctrl_alt_g", "ctrl_shift_g", "ctrl_alt_i"]);
+  assert.deepEqual(uiConfig.session.activationHotkey, { label: "Ctrl + Alt + K", modifiers: 3, code: "KeyK" });
+  await page.locator("#recordHotkey").click();
+  await page.getByText("No shortcut was detected within five seconds. Settings unchanged.").waitFor({ timeout: 6000 });
+  assert.equal(await page.locator("#activationHotkey").inputValue(), "Ctrl + Alt + K");
   assert.deepEqual(await page.locator("#mode option").evaluateAll((options) => options.map((option) => option.value)), ["managed", "diagnostics"]);
   await page.locator("#mode").selectOption("diagnostics");
   assert.equal(await page.locator("#launchDebug").count(), 0);
@@ -76,12 +82,27 @@ try {
   });
   persistentContext = await chromium.launchPersistentContext(profileDirectory, { executablePath, headless: true });
   const incidentPage = persistentContext.pages()[0] || await persistentContext.newPage();
+  let shortcutActivations = 0;
+  await attachBrowserActivationShortcut(persistentContext, {
+    session: { activationHotkey: { label: "Ctrl + Alt + K", modifiers: 3, code: "KeyK" } },
+    xsoar: settings
+  }, async () => {
+    shortcutActivations += 1;
+  });
   await incidentPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
     contentType: "text/html",
     body: route.request().url().includes("/incidents?")
       ? '<div id="incidents-page" role="grid"><a href="/incident/4199">4199</a></div><div class="table-paging-message">1 out of 1</div>'
       : '<div class="header-inv-id">#4200</div><div class="header-inv-title">Example detection</div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper">Example Rule</div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper">Endpoint</div></div>'
   }));
+  await incidentPage.goto("https://xsoar.example.test/Custom/GenericLayout/4200");
+  await incidentPage.keyboard.press("Control+Alt+K");
+  await incidentPage.waitForTimeout(50);
+  assert.equal(shortcutActivations, 1);
+  await incidentPage.goto("https://xsoar.example.test/incidents");
+  await incidentPage.keyboard.press("Control+Alt+K");
+  await incidentPage.waitForTimeout(50);
+  assert.equal(shortcutActivations, 1);
   await incidentPage.goto("https://xsoar.example.test/Custom/GenericLayout/4200");
   const incident = await incidentPage.evaluate(extractIncidentFromPage, settings);
   assert.equal(incident.ruleName, "Example Rule");
