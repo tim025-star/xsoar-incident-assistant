@@ -29,11 +29,12 @@ function App() {
   let recordingTimeout: number | undefined;
 
   const updateMode = (value: string) => {
-    if (value !== "managed" && value !== "diagnostics") return;
+    if (value !== "current" && value !== "managed" && value !== "diagnostics") return;
     setConfig((current) => {
       if (!current) return current;
       const next = structuredClone(current);
       next.session.mode = value;
+      if (value === "current") next.session.browser = "chrome";
       return next;
     });
   };
@@ -220,11 +221,11 @@ function App() {
         <div>
           <p class="mb-2 text-xs font-bold tracking-[0.18em] text-brand">LOCAL PLAYWRIGHT TOOL</p>
           <h1 class="m-0 text-3xl font-bold tracking-tight sm:text-5xl">XSOAR Incident Assistant</h1>
-          <p class="helper mt-3 max-w-3xl">Prepare a response draft from the incident currently open in the assistant browser.</p>
+          <p class="helper mt-3 max-w-3xl">Prepare a response draft from an incident in your current Chrome window or an isolated assistant browser.</p>
         </div>
         <div class="flex items-center gap-2 rounded-full border border-line bg-white px-3 py-2 text-sm font-semibold">
           <span class={`h-2.5 w-2.5 rounded-full ${status()?.session.running ? "bg-emerald-500" : "bg-slate-400"}`} aria-hidden="true" />
-          {status()?.session.running ? "Browser connected" : "Browser closed"}
+          {status()?.session.running ? "Browser connected" : config()?.session.mode === "current" ? "Chrome disconnected" : "Browser closed"}
         </div>
       </header>
 
@@ -240,17 +241,18 @@ function App() {
                 <div class="grid gap-4 sm:grid-cols-2">
                   <label class="field">Browser mode
                     <select id="mode" class="control" value={settings().session.mode} onInput={(event) => updateMode(event.currentTarget.value)}>
-                      <option value="managed">Managed profile (recommended)</option>
+                      <option value="current">Current Chrome window (recommended)</option>
+                      <option value="managed">Managed profile</option>
                       <option value="diagnostics">Diagnostics with DevTools</option>
                     </select>
                   </label>
                   <label class="field">Browser
-                    <select id="browser" class="control" value={settings().session.browser} onInput={(event) => updateBrowser(event.currentTarget.value)}>
+                    <select id="browser" class="control" disabled={settings().session.mode === "current"} value={settings().session.browser} onInput={(event) => updateBrowser(event.currentTarget.value)}>
                       <option value="edge">Microsoft Edge</option>
                       <option value="chrome">Google Chrome</option>
                     </select>
                   </label>
-                  <div class="field sm:col-span-2">
+                  <div class="field sm:col-span-2" hidden={settings().session.mode === "current"}>
                     <span>Activation shortcut</span>
                     <div class="flex gap-2">
                       <input id="activationHotkey" class="control min-w-0" value={settings().session.activationHotkey.label} readOnly />
@@ -267,18 +269,19 @@ function App() {
                     </div>
                   </div>
                 </div>
-                <label class="field mt-4">Dedicated browser profile directory
-                  <input
-                    id="profileDirectory"
-                    class="control font-mono text-sm"
-                    autocomplete="off"
-                    spellcheck={false}
-                    value={settings().session.profileDirectory}
-                    onInput={(event) => updateProfileDirectory(event.currentTarget.value)}
-                  />
-                </label>
-                <p class="helper mb-0">The default is the legacy Chrome <span class="font-mono">TSOC-Copilot</span> profile. You may enter another dedicated Chromium user-data directory, but normal Chrome and Edge profiles are blocked. Close any browser using the selected directory before opening it here.</p>
-                <div class="mt-4 rounded-xl border border-line bg-slate-50 p-4">
+                <Show when={settings().session.mode === "current"} fallback={<>
+                  <label class="field mt-4">Dedicated browser profile directory
+                    <input
+                      id="profileDirectory"
+                      class="control font-mono text-sm"
+                      autocomplete="off"
+                      spellcheck={false}
+                      value={settings().session.profileDirectory}
+                      onInput={(event) => updateProfileDirectory(event.currentTarget.value)}
+                    />
+                  </label>
+                  <p class="helper mb-0">The default is the legacy Chrome <span class="font-mono">TSOC-Copilot</span> profile. You may enter another dedicated Chromium user-data directory, but normal Chrome and Edge profiles are blocked. Close any browser using the selected directory before opening it here.</p>
+                  <div class="mt-4 rounded-xl border border-line bg-slate-50 p-4">
                   <p class="mb-3 font-bold">Use an existing browser sign-in</p>
                   <Show
                     when={browserProfiles().length}
@@ -311,10 +314,19 @@ function App() {
                     </div>
                     <p class="helper mb-0">Close the selected browser completely before importing. The assistant copies sign-in storage into its own isolated profile; it does not modify or control the original profile.</p>
                   </Show>
-                </div>
-                <p class="helper mb-0">Diagnostics mode opens Chromium DevTools in the Playwright-owned browser. It does not expose a remote-debugging network port.</p>
-                <p class="helper mb-0">Select Record shortcut and press any supported key combination within five seconds. Recording stops as soon as a shortcut is detected or when the five-second window expires. Save settings before opening the assistant browser. The shortcut works only while that browser is focused; no extension or plugin is installed.</p>
-                <p class="helper mb-0">The dedicated profile retains browser session data between runs, while your identity-provider policy controls reauthentication. Imported sign-in state may still require MFA or a fresh login.</p>
+                  </div>
+                  <p class="helper mb-0">Diagnostics mode opens Chromium DevTools in the Playwright-owned browser. It does not expose a remote-debugging network port.</p>
+                  <p class="helper mb-0">Select Record shortcut and press any supported key combination within five seconds. Recording stops as soon as a shortcut is detected or when the five-second window expires. Save settings before opening the assistant browser. The shortcut works only while that browser is focused; no extension or plugin is installed.</p>
+                </>}>
+                  <div class="mt-4 rounded-xl border border-line bg-slate-50 p-4">
+                    <p class="mb-2 font-bold">One-time Chrome setup</p>
+                    <p class="helper my-0">Chrome 144 or newer is required. Open <span class="font-mono">chrome://inspect/#remote-debugging</span>, enable remote debugging, and accept Chrome's connection prompt. The assistant then uses this normal Chrome window and never launches another instance.</p>
+                  </div>
+                  <p class="helper mb-0">Current Chrome mode does not inject the activation shortcut into your everyday browser. Keep this assistant tab open and use Generate draft.</p>
+                </Show>
+                <Show when={settings().session.mode !== "current"}>
+                  <p class="helper mb-0">The dedicated profile retains browser session data between runs, while your identity-provider policy controls reauthentication. Imported sign-in state may still require MFA or a fresh login.</p>
+                </Show>
               </section>
 
               <section class="panel">
@@ -374,11 +386,11 @@ function App() {
                 <p id="status" class="m-0 leading-6" role="status" aria-live="polite">{message()}</p>
               </div>
               <div class="my-5 flex flex-wrap gap-2.5">
-                <button id="open" class="button" type="button" disabled={busy()} onClick={() => runAction(() => rpc.browser.open())}>Open browser</button>
+                <button id="open" class="button" type="button" disabled={busy() || status()?.session.running} onClick={() => runAction(() => rpc.browser.open())}>{settings().session.mode === "current" ? "Connect current Chrome" : "Open browser"}</button>
                 <button id="run" class="button" type="button" disabled={busy()} onClick={() => runAction(() => rpc.draft.generate())}>Generate draft</button>
-                <button id="stop" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(() => rpc.browser.stop())}>Close browser</button>
+                <button id="stop" class="button button-secondary" type="button" disabled={busy() || !status()?.session.running} onClick={() => runAction(() => rpc.browser.stop())}>{settings().session.mode === "current" ? "Disconnect" : "Close browser"}</button>
               </div>
-              <p class="helper mt-0">You can also press the configured activation shortcut while the assistant browser is focused on an XSOAR incident. The draft will appear here.</p>
+              <p class="helper mt-0">{settings().session.mode === "current" ? "Keep one XSOAR incident open in this Chrome window, then generate the draft here. Temporary child tabs are closed automatically." : "You can also press the configured activation shortcut while the assistant browser is focused on an XSOAR incident. The draft will appear here."}</p>
               <label class="field">Draft
                 <textarea id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The generated draft appears here." value={status()?.draft || ""} />
               </label>

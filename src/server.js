@@ -8,6 +8,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { BodyLimitPlugin, RPCHandler } from "@orpc/server/fetch";
 import { Hono } from "hono";
 
+import { findBrowserExecutable } from "./browser-session.js";
 import { loadConfig } from "./config.js";
 import { activationHotkeySpec } from "./hotkey.js";
 import { createAssistantRouter } from "./rpc.js";
@@ -112,13 +113,27 @@ function openDefaultBrowser(url) {
   child.unref();
 }
 
+function openNormalChrome(url) {
+  const child = spawn(findBrowserExecutable("chrome"), [url], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true
+  });
+  child.unref();
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const app = createAssistantServer();
   const url = await app.listen(Number(process.env.XSOAR_ASSISTANT_PORT || 0));
   const config = await loadConfig();
   console.log("XSOAR Incident Assistant is running on this computer.");
-  console.log(`Open the assistant browser, then press ${activationHotkeySpec(config.session.activationHotkey).label} on an XSOAR incident to generate a draft in this local page.`);
-  if (process.env.XSOAR_ASSISTANT_NO_OPEN !== "1") openDefaultBrowser(url);
+  console.log(config.session.mode === "current"
+    ? "Enable Chrome remote debugging at chrome://inspect/#remote-debugging, connect from the assistant tab, then generate a draft."
+    : `Open the assistant browser, then press ${activationHotkeySpec(config.session.activationHotkey).label} on an XSOAR incident to generate a draft in this local page.`);
+  if (process.env.XSOAR_ASSISTANT_NO_OPEN !== "1") {
+    if (config.session.mode === "current") openNormalChrome(url);
+    else openDefaultBrowser(url);
+  }
   const shutdown = async () => {
     await app.sessions.stop().catch(() => {});
     app.server.close(() => process.exit(0));

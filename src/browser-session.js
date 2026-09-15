@@ -1,12 +1,16 @@
 import { existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { chromium } from "playwright-core";
 
 import { assertIncidentUrl, assertTrustedUrl } from "./domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "./page-adapter.js";
-import { prepareBrowserProfileDirectory } from "./browser-profiles.js";
+import {
+  prepareBrowserProfileDirectory,
+  standardUserDataDirectoryForBrowser
+} from "./browser-profiles.js";
 import { activationHotkeySpec } from "./hotkey.js";
 
 function installShortcutListener({ bindingName, hotkey }) {
@@ -51,10 +55,35 @@ function browserExecutableCandidates(browser) {
   return roots.map((root) => path.join(root, ...suffix));
 }
 
-function findBrowserExecutable(browser) {
+export function findBrowserExecutable(browser) {
   const executable = browserExecutableCandidates(browser).find(existsSync);
   if (!executable) throw new Error(`${browser === "edge" ? "Microsoft Edge" : "Google Chrome"} was not found.`);
   return executable;
+}
+
+const DEVTOOLS_BROWSER_PATH = /^\/devtools\/browser\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function readDevToolsWebSocketEndpoint(userDataDirectory, { read = readFile } = {}) {
+  let value;
+  try {
+    value = await read(path.join(path.resolve(userDataDirectory), "DevToolsActivePort"), "utf8");
+  } catch (error) {
+    if (["ENOENT", "ENOTDIR"].includes(error?.code)) {
+      throw new Error(
+        "Enable remote debugging in Chrome at chrome://inspect/#remote-debugging, accept Chrome's prompt, then try again. Chrome 144 or newer is required."
+      );
+    }
+    throw error;
+  }
+  const [rawPort, browserPath, ...extra] = String(value)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const port = Number(rawPort);
+  if (extra.length || !/^\d+$/.test(rawPort || "") || !Number.isInteger(port) || port < 1 || port > 65535 || !DEVTOOLS_BROWSER_PATH.test(browserPath || "")) {
+    throw new Error("Chrome did not provide a valid browser endpoint. Disable and re-enable remote debugging, then try again.");
+  }
+  return `ws://127.0.0.1:${port}${browserPath}`;
 }
 
 class PlaywrightBrowserAdapter {
@@ -130,8 +159,14 @@ class PlaywrightBrowserAdapter {
 }
 
 export class BrowserSessionManager {
-  constructor() {
+  constructor({
+    chromiumApi = chromium,
+    currentChromeEndpoint = () => readDevToolsWebSocketEndpoint(standardUserDataDirectoryForBrowser("chrome"))
+  } = {}) {
+    this.chromium = chromiumApi;
+    this.currentChromeEndpoint = currentChromeEndpoint;
     this.context = null;
+    this.browser = null;
     this.mode = null;
   }
 
@@ -141,25 +176,55 @@ export class BrowserSessionManager {
 
   async start(config, { onActivationShortcut } = {}) {
     if (this.context) return this.context;
+    if (config.session.mode === "current") {
+      const endpoint = await this.currentChromeEndpoint();
+      let browser;
+      try {
+        browser = await this.chromium.connectOverCDP(endpoint);
+      } catch (error) {
+        throw new Error(
+          "Could not connect to the current Chrome window. Confirm remote debugging is enabled at chrome://inspect/#remote-debugging and accept Chrome's connection prompt.",
+          { cause: error }
+        );
+      }
+      const contexts = browser.contexts();
+      if (!contexts.length) {
+        await browser.close().catch(() => {});
+        throw new Error("The current Chrome window did not expose a browser context.");
+      }
+      this.browser = browser;
+      this.context = contexts[0];
+      this.mode = "current";
+      browser.once("disconnected", () => {
+        if (this.browser !== browser) return;
+        this.context = null;
+        this.browser = null;
+        this.mode = null;
+      });
+      return this.context;
+    }
+
     const profileDirectory = await prepareBrowserProfileDirectory(config.session.profileDirectory);
     const diagnostics = config.session.mode === "diagnostics";
-    this.context = await chromium.launchPersistentContext(profileDirectory, {
+    const context = await this.chromium.launchPersistentContext(profileDirectory, {
       executablePath: findBrowserExecutable(config.session.browser),
       headless: false,
       viewport: null,
       acceptDownloads: false,
       args: diagnostics ? ["--auto-open-devtools-for-tabs"] : []
     });
+    this.context = context;
     if (onActivationShortcut) {
-      await attachBrowserActivationShortcut(this.context, config, onActivationShortcut);
+      await attachBrowserActivationShortcut(context, config, onActivationShortcut);
     }
     this.mode = config.session.mode;
-    const pages = this.context.pages();
-    const page = pages.find((candidate) => !candidate.url().startsWith("devtools://")) || await this.context.newPage();
+    const pages = context.pages();
+    const page = pages.find((candidate) => !candidate.url().startsWith("devtools://")) || await context.newPage();
     if (!page.url() || page.url() === "about:blank") {
       await page.goto(config.xsoar.allowedOrigin, { waitUntil: "domcontentloaded" });
     }
-    this.context.once("close", () => {
+    context.once("close", () => {
+      if (this.context !== context) return;
       this.context = null;
       this.mode = null;
     });
@@ -172,8 +237,13 @@ export class BrowserSessionManager {
   }
 
   async stop() {
-    await this.context?.close();
+    const context = this.context;
+    const browser = this.browser;
+    if (browser) await browser.close();
+    else await context?.close();
+    if (this.context !== context) return;
     this.context = null;
+    this.browser = null;
     this.mode = null;
   }
 }
