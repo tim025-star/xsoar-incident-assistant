@@ -109,7 +109,9 @@ function App() {
     const current = config();
     if (!current) return;
     setPullingModel(true);
-    setMessage(`Downloading ${current.localAi.model} locally…`);
+    setMessage(current.localAi.model === "qwen3.5:9b"
+      ? "Installing the default local model from GitHub…"
+      : `Downloading ${current.localAi.model} from the Ollama registry…`);
     try {
       await rpc.localAi.pull({ model: current.localAi.model });
       await Promise.all([refreshLocalAi(), refresh()]);
@@ -250,12 +252,12 @@ function App() {
                 </label>
                 </fieldset>
                 <div class="mt-3 flex flex-wrap items-center gap-2.5">
-                  <button id="pullModel" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning() || status()?.session.running} onClick={pullSelectedModel}>Download selected model</button>
+                  <button id="pullModel" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning() || status()?.session.running} onClick={pullSelectedModel}>{settings().localAi.model === "qwen3.5:9b" ? "Install default from GitHub" : "Download from Ollama registry"}</button>
                   <Show when={modelDownloadRunning()}><button id="cancelPull" class="button button-secondary" type="button" onClick={cancelModelPull}>Cancel download</button></Show>
                   <button id="refreshLocalAi" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning()} onClick={() => runAction(refreshLocalAi)}>Refresh local AI status</button>
                 </div>
                 <p id="localAiStatus" class="helper mb-0 mt-4" aria-live="polite">{localAiStatus()?.detail || "Check whether local Ollama is available."}</p>
-                <p class="helper mb-0">The default is <code>qwen3.5:9b</code>. A model must be installed locally before it can receive incident data. If local AI is unavailable, the deterministic draft is still generated.</p>
+                <p class="helper mb-0">The default <code>qwen3.5:9b</code> installer downloads verified Ollama and model assets from GitHub. Other model names use the Ollama registry, which may be blocked on some networks. A model must be installed locally before it can receive incident data. If local AI is unavailable, the deterministic draft is still generated.</p>
               </section>
             </div>
 

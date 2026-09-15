@@ -44,14 +44,16 @@ const app = createAssistantServer({
     },
     localAi: {
       status: async () => ({ available: true, models: ["qwen3.5:9b"], detail: "Local Ollama is available." }),
-      pull: async (model, { signal } = {}) => {
+      enrich: async () => ({})
+    },
+    localAiInstaller: {
+      installModel: async (model, { signal } = {}) => {
         pulledModels.push(model);
         if (model !== "slow-model") return [model];
         await new Promise((resolve, reject) => {
           signal.addEventListener("abort", () => reject(new Error("Local Ollama model download was cancelled.")), { once: true });
         });
-      },
-      enrich: async () => ({})
+      }
     },
     generateDraft: async ({ onProgress }) => {
       await onProgress("Enriching the draft locally.");
@@ -78,12 +80,14 @@ try {
   assert.equal("session" in uiConfig, false);
   assert.equal(await page.locator("#localAiEnabled").isChecked(), false);
   assert.equal(await page.locator("#localAiModel").inputValue(), "qwen3.5:9b");
+  assert.equal(await page.locator("#pullModel").textContent(), "Install default from GitHub");
   await page.locator("#localAiEnabled").check();
   await page.locator("#pullModel").click();
   await page.getByText("Local Ollama is available.").waitFor();
   assert.deepEqual(pulledModels, ["qwen3.5:9b"]);
 
   await page.locator("#localAiModel").fill("slow-model");
+  assert.equal(await page.locator("#pullModel").textContent(), "Download from Ollama registry");
   await page.locator("#pullModel").click();
   await page.locator("#cancelPull").waitFor();
   await page.reload();

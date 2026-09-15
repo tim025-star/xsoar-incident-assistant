@@ -9,7 +9,6 @@ const stageDirectory = path.join(rootDirectory, "release-stage");
 const applicationDirectory = path.join(stageDirectory, "app");
 const outputDirectory = path.join(rootDirectory, "artifacts");
 const nodeRuntimePath = process.env.NODE_RUNTIME_PATH;
-const ollamaVersion = process.env.OLLAMA_VERSION || "0.34.0";
 
 function run(command, arguments_, options = {}) {
   return new Promise((resolve, reject) => {
@@ -42,13 +41,6 @@ function appVersion() {
   }
   return version;
 }
-function requiredOllamaVersion() {
-  if (!/^\d+\.\d+\.\d+$/.test(ollamaVersion)) {
-    throw new Error(`OLLAMA_VERSION must be an exact WinGet package version: ${ollamaVersion}`);
-  }
-  return ollamaVersion;
-}
-
 async function stageRelease() {
   if (!nodeRuntimePath) {
     throw new Error("NODE_RUNTIME_PATH must point to the portable node.exe included with this release.");
@@ -58,9 +50,11 @@ async function stageRelease() {
 
   await rm(stageDirectory, { recursive: true, force: true });
   await mkdir(applicationDirectory, { recursive: true });
+  await mkdir(path.join(applicationDirectory, "scripts"), { recursive: true });
   await Promise.all([
     cp(path.join(rootDirectory, "src"), path.join(applicationDirectory, "src"), { recursive: true }),
     cp(path.join(rootDirectory, "dist"), path.join(applicationDirectory, "dist"), { recursive: true }),
+    copyFile(path.join(rootDirectory, "scripts", "install-local-ai.mjs"), path.join(applicationDirectory, "scripts", "install-local-ai.mjs")),
     copyFile(path.join(rootDirectory, "package.json"), path.join(applicationDirectory, "package.json")),
     copyFile(path.join(rootDirectory, "package-lock.json"), path.join(applicationDirectory, "package-lock.json")),
     copyFile(path.join(rootDirectory, "installer", "launcher.vbs"), path.join(applicationDirectory, "XSOAR Incident Assistant.vbs"))
@@ -82,7 +76,6 @@ async function main() {
   await run(compiler, [
     "/Qp",
     `/DAppVersion=${appVersion()}`,
-    `/DOllamaVersion=${requiredOllamaVersion()}`,
     `/DStageDir=${applicationDirectory}`,
     `/O${outputDirectory}`,
     path.join(rootDirectory, "installer", "XSOARIncidentAssistant.iss")

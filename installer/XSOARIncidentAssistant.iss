@@ -6,10 +6,6 @@
 #ifndef StageDir
   #define StageDir "..\\release-stage\\app"
 #endif
-#ifndef OllamaVersion
-  #define OllamaVersion "0.34.0"
-#endif
-
 [Setup]
 AppId={{60EBD23D-706E-4D31-AC14-431621E99316}
 AppName={#AppName}
@@ -31,16 +27,15 @@ UninstallDisplayIcon={sys}\wscript.exe
 
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
-Source: "install-ollama.ps1"; DestDir: "{app}"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: checkedonce
-Name: "installollama"; Description: "Install local &Ollama and download qwen3.5:9b (about 6.6 GB)"; GroupDescription: "Optional local AI:"; Flags: unchecked
+Name: "installollama"; Description: "Install local &Ollama and qwen3.5:9b from GitHub (about 8.2 GB)"; GroupDescription: "Optional local AI:"; Flags: unchecked
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\XSOAR Incident Assistant.vbs"""; WorkingDir: "{app}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\XSOAR Incident Assistant.vbs"""; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install-ollama.ps1"" -Version ""{#OllamaVersion}"""; WorkingDir: "{app}"; Description: "Install Ollama and download the default local model"; Tasks: installollama; Flags: postinstall skipifsilent
+Filename: "{app}\runtime\node.exe"; Parameters: """{app}\scripts\install-local-ai.mjs"""; WorkingDir: "{app}"; Description: "Install Ollama and the default local model from GitHub"; Tasks: installollama; Flags: postinstall skipifsilent
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\XSOAR Incident Assistant.vbs"""; WorkingDir: "{app}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
