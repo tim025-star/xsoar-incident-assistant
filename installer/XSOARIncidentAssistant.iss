@@ -29,8 +29,12 @@ UninstallDisplayIcon={sys}\wscript.exe
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
+[Tasks]
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: checkedonce
+
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\XSOAR Incident Assistant.vbs"""; WorkingDir: "{app}"
+Name: "{autodesktop}\{#AppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\XSOAR Incident Assistant.vbs"""; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\XSOAR Incident Assistant.vbs"""; WorkingDir: "{app}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent

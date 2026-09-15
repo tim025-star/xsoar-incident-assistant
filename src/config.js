@@ -3,25 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
-import {
-  APP_DATA_DIRECTORY,
-  legacyProfileDirectoryForBrowser,
-  LOCAL_APP_DATA_DIRECTORY
-} from "./browser-profiles.js";
 import { DEFAULT_SETTINGS, FIELD_LABELS, resolveSettings } from "./domain.js";
-import { DEFAULT_ACTIVATION_HOTKEY, activationHotkeySpec } from "./hotkey.js";
 
-export { APP_DATA_DIRECTORY };
+const localAppDataDirectory = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+export const APP_DATA_DIRECTORY = path.join(localAppDataDirectory, "XSOAR Incident Assistant");
 export const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 7,
-  session: {
-    mode: "current",
-    browser: "chrome",
-    activationHotkey: { ...DEFAULT_ACTIVATION_HOTKEY },
-    profileDirectory: legacyProfileDirectoryForBrowser("chrome")
-  },
+  configVersion: 8,
   xsoar: DEFAULT_SETTINGS
 });
 
@@ -57,31 +46,27 @@ const xsoarShape = {
   template: templateSchema
 };
 const xsoarSchema = z.object(xsoarShape).partial().strict();
-const activationHotkeySchema = z.object({
-  label: z.string(),
-  modifiers: z.number().int(),
-  code: z.string()
+
+// Accept the known legacy session shape so existing installations migrate
+// cleanly. Browser modes and profile settings are intentionally discarded.
+const legacySessionSchema = z.object({
+  mode: z.enum(["current", "managed", "diagnostics", "cdp"]).optional(),
+  browser: z.enum(["edge", "chrome"]).optional(),
+  activationHotkey: z.union([
+    z.string(),
+    z.object({ label: z.string(), modifiers: z.number().int(), code: z.string() }).strict()
+  ]).optional(),
+  profileDirectory: z.string().optional()
 }).strict();
 
 export const appConfigInputSchema = z.object({
   configVersion: z.number().int().optional(),
-  session: z.object({
-    mode: z.enum(["current", "managed", "diagnostics", "cdp"]),
-    browser: z.enum(["edge", "chrome"]),
-    activationHotkey: z.union([z.string(), activationHotkeySchema]),
-    profileDirectory: z.string()
-  }).partial().strict().optional(),
+  session: legacySessionSchema.optional(),
   xsoar: xsoarSchema.optional()
 }).strict();
 
 export const resolvedAppConfigSchema = z.object({
-  configVersion: z.literal(7),
-  session: z.object({
-    mode: z.enum(["current", "managed", "diagnostics"]),
-    browser: z.enum(["edge", "chrome"]),
-    activationHotkey: activationHotkeySchema,
-    profileDirectory: z.string()
-  }).strict(),
+  configVersion: z.literal(8),
   xsoar: z.object({
     ...xsoarShape,
     configVersion: z.literal(2),
@@ -100,56 +85,15 @@ function parseConfigInput(input) {
 
 export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
   input = parseConfigInput(input);
-  const merged = structuredClone(DEFAULT_APP_CONFIG);
-  Object.assign(merged, input);
-  merged.session = { ...DEFAULT_APP_CONFIG.session, ...(input.session || {}) };
-  merged.xsoar = {
-    ...structuredClone(DEFAULT_SETTINGS),
-    ...(input.xsoar || {}),
-    fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...(input.xsoar?.fieldLabels || {}) },
-    template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
-  };
-  merged.configVersion = 7;
-
-  // Version 3 stored debug-mode sessions in a sibling profile. Keep that
-  // authenticated profile while migrating away from its TCP control endpoint.
-  if (merged.session.mode === "cdp" && (input.configVersion === undefined || input.configVersion === 3)) {
-    merged.session.mode = "diagnostics";
-    if (!input.session?.profileDirectory) {
-      merged.session.profileDirectory = path.join(APP_DATA_DIRECTORY, "browser-profile-debug");
-    } else if (!merged.session.profileDirectory.endsWith("-debug")) {
-      merged.session.profileDirectory += "-debug";
+  const merged = {
+    configVersion: 8,
+    xsoar: {
+      ...structuredClone(DEFAULT_SETTINGS),
+      ...(input.xsoar || {}),
+      fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...(input.xsoar?.fieldLabels || {}) },
+      template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
     }
-  }
-
-  if (!["current", "managed", "diagnostics"].includes(merged.session.mode)) {
-    throw new Error("Session mode must be current, managed, or diagnostics.");
-  }
-  if (!["edge", "chrome"].includes(merged.session.browser)) {
-    throw new Error("Browser must be edge or chrome.");
-  }
-  if (merged.session.mode === "current" && merged.session.browser !== "chrome") {
-    throw new Error("Current browser mode requires Google Chrome.");
-  }
-  merged.session.activationHotkey = activationHotkeySpec(merged.session.activationHotkey);
-  if (typeof merged.session.profileDirectory !== "string" || !path.isAbsolute(merged.session.profileDirectory)) {
-    throw new Error("The dedicated profile directory must be an absolute path.");
-  }
-  const resolvedProfile = path.resolve(merged.session.profileDirectory);
-  const defaultChromeData = path.resolve(LOCAL_APP_DATA_DIRECTORY, "Google", "Chrome", "User Data");
-  const defaultEdgeData = path.resolve(LOCAL_APP_DATA_DIRECTORY, "Microsoft", "Edge", "User Data");
-  if ([defaultChromeData, defaultEdgeData].some((candidate) => {
-    const relative = path.relative(candidate, resolvedProfile);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-  })) {
-    throw new Error("The normal Chrome or Edge user-data directory cannot be used for automation.");
-  }
-  const protectedRoots = [path.parse(resolvedProfile).root, os.homedir(), LOCAL_APP_DATA_DIRECTORY]
-    .map((candidate) => path.resolve(candidate));
-  if (protectedRoots.some((candidate) => path.relative(candidate, resolvedProfile) === "")) {
-    throw new Error("Choose a dedicated Chromium profile directory, not a filesystem or Windows data root.");
-  }
-  merged.session.profileDirectory = resolvedProfile;
+  };
   if (!requireTenant && !String(merged.xsoar.allowedOrigin || "").trim()) return merged;
   merged.xsoar = resolveSettings(merged.xsoar);
   return merged;

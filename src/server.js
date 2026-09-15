@@ -1,5 +1,4 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,9 +7,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { BodyLimitPlugin, RPCHandler } from "@orpc/server/fetch";
 import { Hono } from "hono";
 
-import { findBrowserExecutable } from "./browser-session.js";
-import { loadConfig } from "./config.js";
-import { activationHotkeySpec } from "./hotkey.js";
+import { openNormalChromePage } from "./browser-session.js";
 import { createAssistantRouter } from "./rpc.js";
 
 const STATIC_DIRECTORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "web");
@@ -104,35 +101,13 @@ export function createAssistantServer({
   };
 }
 
-function openDefaultBrowser(url) {
-  const child = spawn("rundll32.exe", ["url.dll,FileProtocolHandler", url], {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true
-  });
-  child.unref();
-}
-
-function openNormalChrome(url) {
-  const child = spawn(findBrowserExecutable("chrome"), [url], {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true
-  });
-  child.unref();
-}
-
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const app = createAssistantServer();
   const url = await app.listen(Number(process.env.XSOAR_ASSISTANT_PORT || 0));
-  const config = await loadConfig();
   console.log("XSOAR Incident Assistant is running on this computer.");
-  console.log(config.session.mode === "current"
-    ? "Enable Chrome remote debugging at chrome://inspect/#remote-debugging, connect from the assistant tab, then generate a draft."
-    : `Open the assistant browser, then press ${activationHotkeySpec(config.session.activationHotkey).label} on an XSOAR incident to generate a draft in this local page.`);
+  console.log("Enable Chrome remote debugging at chrome://inspect/#remote-debugging, connect from the assistant tab, then generate a draft.");
   if (process.env.XSOAR_ASSISTANT_NO_OPEN !== "1") {
-    if (config.session.mode === "current") openNormalChrome(url);
-    else openDefaultBrowser(url);
+    openNormalChromePage(url);
   }
   const shutdown = async () => {
     await app.sessions.stop().catch(() => {});
