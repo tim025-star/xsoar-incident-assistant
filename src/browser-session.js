@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { lstat, mkdir, realpath } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 
@@ -7,7 +6,7 @@ import { chromium } from "playwright-core";
 
 import { assertIncidentUrl, assertTrustedUrl } from "./domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "./page-adapter.js";
-import { APP_DATA_DIRECTORY } from "./config.js";
+import { prepareBrowserProfileDirectory } from "./browser-profiles.js";
 import { activationHotkeySpec } from "./hotkey.js";
 
 function installShortcutListener({ bindingName, hotkey }) {
@@ -56,21 +55,6 @@ function findBrowserExecutable(browser) {
   const executable = browserExecutableCandidates(browser).find(existsSync);
   if (!executable) throw new Error(`${browser === "edge" ? "Microsoft Edge" : "Google Chrome"} was not found.`);
   return executable;
-}
-
-async function ensureIsolatedProfile(profileDirectory) {
-  await mkdir(APP_DATA_DIRECTORY, { recursive: true });
-  await mkdir(profileDirectory, { recursive: true });
-  const [root, profile, stat] = await Promise.all([
-    realpath(APP_DATA_DIRECTORY),
-    realpath(profileDirectory),
-    lstat(profileDirectory)
-  ]);
-  const relative = path.relative(root, profile);
-  if (stat.isSymbolicLink() || relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error("The browser profile must be a real directory inside the assistant application-data directory.");
-  }
-  return profile;
 }
 
 class PlaywrightBrowserAdapter {
@@ -157,7 +141,7 @@ export class BrowserSessionManager {
 
   async start(config, { onActivationShortcut } = {}) {
     if (this.context) return this.context;
-    const profileDirectory = await ensureIsolatedProfile(config.session.profileDirectory);
+    const profileDirectory = await prepareBrowserProfileDirectory(config.session.profileDirectory);
     const diagnostics = config.session.mode === "diagnostics";
     this.context = await chromium.launchPersistentContext(profileDirectory, {
       executablePath: findBrowserExecutable(config.session.browser),

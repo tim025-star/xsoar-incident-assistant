@@ -3,22 +3,24 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
+import {
+  APP_DATA_DIRECTORY,
+  legacyProfileDirectoryForBrowser,
+  LOCAL_APP_DATA_DIRECTORY
+} from "./browser-profiles.js";
 import { DEFAULT_SETTINGS, FIELD_LABELS, resolveSettings } from "./domain.js";
 import { DEFAULT_ACTIVATION_HOTKEY, activationHotkeySpec } from "./hotkey.js";
 
-export const APP_DATA_DIRECTORY = path.join(
-  process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
-  "XSOAR Incident Assistant"
-);
+export { APP_DATA_DIRECTORY };
 export const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
   configVersion: 6,
   session: {
     mode: "managed",
-    browser: "edge",
+    browser: "chrome",
     activationHotkey: { ...DEFAULT_ACTIVATION_HOTKEY },
-    profileDirectory: path.join(APP_DATA_DIRECTORY, "browser-profile")
+    profileDirectory: legacyProfileDirectoryForBrowser("chrome")
   },
   xsoar: DEFAULT_SETTINGS
 });
@@ -113,7 +115,11 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
   // authenticated profile while migrating away from its TCP control endpoint.
   if (merged.session.mode === "cdp" && (input.configVersion === undefined || input.configVersion === 3)) {
     merged.session.mode = "diagnostics";
-    if (!merged.session.profileDirectory.endsWith("-debug")) merged.session.profileDirectory += "-debug";
+    if (!input.session?.profileDirectory) {
+      merged.session.profileDirectory = path.join(APP_DATA_DIRECTORY, "browser-profile-debug");
+    } else if (!merged.session.profileDirectory.endsWith("-debug")) {
+      merged.session.profileDirectory += "-debug";
+    }
   }
 
   if (!["managed", "diagnostics"].includes(merged.session.mode)) {
@@ -127,17 +133,18 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
     throw new Error("The dedicated profile directory must be an absolute path.");
   }
   const resolvedProfile = path.resolve(merged.session.profileDirectory);
-  const defaultChromeData = path.resolve(process.env.LOCALAPPDATA || "C:\\", "Google", "Chrome", "User Data");
-  const defaultEdgeData = path.resolve(process.env.LOCALAPPDATA || "C:\\", "Microsoft", "Edge", "User Data");
+  const defaultChromeData = path.resolve(LOCAL_APP_DATA_DIRECTORY, "Google", "Chrome", "User Data");
+  const defaultEdgeData = path.resolve(LOCAL_APP_DATA_DIRECTORY, "Microsoft", "Edge", "User Data");
   if ([defaultChromeData, defaultEdgeData].some((candidate) => {
     const relative = path.relative(candidate, resolvedProfile);
     return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
   })) {
     throw new Error("The normal Chrome or Edge user-data directory cannot be used for automation.");
   }
-  const relativeToAppData = path.relative(path.resolve(APP_DATA_DIRECTORY), resolvedProfile);
-  if (relativeToAppData.startsWith("..") || path.isAbsolute(relativeToAppData)) {
-    throw new Error("The browser profile must stay inside the XSOAR Incident Assistant application-data directory.");
+  const protectedRoots = [path.parse(resolvedProfile).root, os.homedir(), LOCAL_APP_DATA_DIRECTORY]
+    .map((candidate) => path.resolve(candidate));
+  if (protectedRoots.some((candidate) => path.relative(candidate, resolvedProfile) === "")) {
+    throw new Error("Choose a dedicated Chromium profile directory, not a filesystem or Windows data root.");
   }
   merged.session.profileDirectory = resolvedProfile;
   if (!requireTenant && !String(merged.xsoar.allowedOrigin || "").trim()) return merged;

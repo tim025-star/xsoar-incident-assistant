@@ -1,4 +1,4 @@
-import { Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 
 import { activationHotkeyFromKeyboardEvent } from "../../src/hotkey.js";
@@ -7,6 +7,7 @@ import "./styles.css";
 
 type AppConfig = Awaited<ReturnType<typeof rpc.config.get>>;
 type Status = Awaited<ReturnType<typeof rpc.status>>;
+type BrowserProfile = Awaited<ReturnType<typeof rpc.browser.profiles>>[number];
 type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentsPath" | "searchQueryParameter" | "lookbackQuery";
 type NumberSetting = "maxHistoricalIncidents" | "pageReadyTimeoutMs";
 
@@ -21,6 +22,8 @@ function App() {
     ? "Loading local status…"
     : "Start the assistant again to open an authorised local control page.");
   const [busy, setBusy] = createSignal(false);
+  const [browserProfiles, setBrowserProfiles] = createSignal<BrowserProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = createSignal("");
   const [recordingSeconds, setRecordingSeconds] = createSignal(0);
   let recordingInterval: number | undefined;
   let recordingTimeout: number | undefined;
@@ -43,6 +46,9 @@ function App() {
       next.session.browser = value;
       return next;
     });
+    const preferred = browserProfiles().find((profile) => profile.browser === value && profile.isDefault)
+      || browserProfiles().find((profile) => profile.browser === value);
+    setSelectedProfileId(preferred?.id || "");
   };
 
   const updateActivationHotkey = (value: AppConfig["session"]["activationHotkey"]) => {
@@ -50,6 +56,15 @@ function App() {
       if (!current) return current;
       const next = structuredClone(current);
       next.session.activationHotkey = value;
+      return next;
+    });
+  };
+
+  const updateProfileDirectory = (value: string) => {
+    setConfig((current) => {
+      if (!current) return current;
+      const next = structuredClone(current);
+      next.session.profileDirectory = value;
       return next;
     });
   };
@@ -156,6 +171,12 @@ function App() {
     }
   });
 
+  const importSelectedProfile = () => runAction(async () => {
+    const id = selectedProfileId();
+    if (!id) throw new Error("Select an existing browser profile to import.");
+    setConfig(await rpc.browser.importProfile({ id }));
+  });
+
   const copyDraft = async () => {
     const draft = status()?.draft || "";
     if (!draft) return setMessage("Generate a draft before copying it.");
@@ -170,9 +191,20 @@ function App() {
   onMount(async () => {
     if (!sessionToken) return;
     try {
-      const [loadedConfig, loadedStatus] = await Promise.all([rpc.config.get(), rpc.status()]);
+      const [loadedConfig, loadedStatus, detectedProfiles] = await Promise.all([
+        rpc.config.get(),
+        rpc.status(),
+        rpc.browser.profiles().catch(() => [] as BrowserProfile[])
+      ]);
       setConfig(loadedConfig);
       setStatus(loadedStatus);
+      setBrowserProfiles(detectedProfiles);
+      const preferredProfile = detectedProfiles.find((profile) => (
+        profile.browser === loadedConfig.session.browser && profile.isDefault
+      )) || detectedProfiles.find((profile) => profile.browser === loadedConfig.session.browser)
+        || detectedProfiles.find((profile) => profile.isDefault)
+        || detectedProfiles[0];
+      setSelectedProfileId(preferredProfile?.id || "");
       setMessage(loadedStatus.detail);
     } catch (error) {
       setMessage(errorMessage(error));
@@ -235,12 +267,54 @@ function App() {
                     </div>
                   </div>
                 </div>
-                <label class="field mt-4">Dedicated profile directory
-                  <input id="profileDirectory" class="control bg-slate-50 text-slate-600" value={settings().session.profileDirectory} readOnly />
+                <label class="field mt-4">Dedicated browser profile directory
+                  <input
+                    id="profileDirectory"
+                    class="control font-mono text-sm"
+                    autocomplete="off"
+                    spellcheck={false}
+                    value={settings().session.profileDirectory}
+                    onInput={(event) => updateProfileDirectory(event.currentTarget.value)}
+                  />
                 </label>
+                <p class="helper mb-0">The default is the legacy Chrome <span class="font-mono">TSOC-Copilot</span> profile. You may enter another dedicated Chromium user-data directory, but normal Chrome and Edge profiles are blocked. Close any browser using the selected directory before opening it here.</p>
+                <div class="mt-4 rounded-xl border border-line bg-slate-50 p-4">
+                  <p class="mb-3 font-bold">Use an existing browser sign-in</p>
+                  <Show
+                    when={browserProfiles().length}
+                    fallback={<p class="helper m-0">No standard Edge or Chrome profiles were detected for this Windows account.</p>}
+                  >
+                    <div class="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                      <label class="field">Existing profile
+                        <select
+                          id="existingProfile"
+                          class="control"
+                          value={selectedProfileId()}
+                          onInput={(event) => setSelectedProfileId(event.currentTarget.value)}
+                        >
+                          <For each={browserProfiles()}>{(profile) => (
+                            <option value={profile.id}>
+                              {profile.browserName} — {profile.name}{profile.isDefault ? " (Default)" : ""}
+                            </option>
+                          )}</For>
+                        </select>
+                      </label>
+                      <button
+                        id="importProfile"
+                        class="button button-secondary"
+                        type="button"
+                        disabled={busy() || status()?.session.running || !selectedProfileId()}
+                        onClick={importSelectedProfile}
+                      >
+                        Import profile
+                      </button>
+                    </div>
+                    <p class="helper mb-0">Close the selected browser completely before importing. The assistant copies sign-in storage into its own isolated profile; it does not modify or control the original profile.</p>
+                  </Show>
+                </div>
                 <p class="helper mb-0">Diagnostics mode opens Chromium DevTools in the Playwright-owned browser. It does not expose a remote-debugging network port.</p>
                 <p class="helper mb-0">Select Record shortcut and press any supported key combination within five seconds. Recording stops as soon as a shortcut is detected or when the five-second window expires. Save settings before opening the assistant browser. The shortcut works only while that browser is focused; no extension or plugin is installed.</p>
-                <p class="helper mb-0">The dedicated profile retains browser session data between runs, while your identity-provider policy controls reauthentication. Your everyday browser profile is never copied or reused.</p>
+                <p class="helper mb-0">The dedicated profile retains browser session data between runs, while your identity-provider policy controls reauthentication. Imported sign-in state may still require MFA or a fresh login.</p>
               </section>
 
               <section class="panel">

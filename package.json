@@ -1,6 +1,6 @@
 {
   "name": "xsoar-incident-assistant",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": false,
   "description": "A local Playwright assistant for preparing incident-response drafts in Cortex XSOAR.",
   "type": "module",
@@ -12,7 +12,7 @@
     "test": "npm run build && node --test",
     "prestart": "npm run build",
     "start": "node src/server.js",
-    "check": "node --check src/domain.js && node --check src/workflow.js && node --check src/page-adapter.js && node --check src/browser-session.js && node --check src/hotkey.js && node --check src/config.js && node --check src/rpc.js && node --check src/server.js && node --check scripts/check-node-version.mjs && node --check scripts/package-windows.mjs && tsc --noEmit",
+    "check": "node --check src/domain.js && node --check src/workflow.js && node --check src/page-adapter.js && node --check src/browser-session.js && node --check src/browser-profiles.js && node --check src/hotkey.js && node --check src/config.js && node --check src/rpc.js && node --check src/server.js && node --check scripts/check-node-version.mjs && node --check scripts/package-windows.mjs && tsc --noEmit",
     "verify:browser": "npm run build && node scripts/verify-ui.mjs",
     "package:windows": "node scripts/package-windows.mjs"
   },

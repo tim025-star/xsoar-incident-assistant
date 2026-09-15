@@ -1,6 +1,12 @@
 import { ORPCError, os } from "@orpc/server";
 
 import { BrowserSessionManager } from "./browser-session.js";
+import {
+  browserProfileImportSchema,
+  browserProfileSchema,
+  detectBrowserProfiles,
+  importBrowserProfile
+} from "./browser-profiles.js";
 import { appConfigInputSchema, loadConfig, resolvedAppConfigSchema, saveConfig } from "./config.js";
 import { runIncidentDraft } from "./workflow.js";
 
@@ -11,6 +17,7 @@ function messageFor(error) {
 export function createAssistantRouter({
   sessions = new BrowserSessionManager(),
   configStore = { load: loadConfig, save: saveConfig },
+  profileStore = { list: detectBrowserProfiles, import: importBrowserProfile },
   generateDraft = runIncidentDraft
 } = {}) {
   let activity = {
@@ -75,6 +82,40 @@ export function createAssistantRouter({
     },
     status: os.handler(() => status()),
     browser: {
+      profiles: os.output(browserProfileSchema.array()).handler(async () => {
+        try {
+          return await profileStore.list();
+        } catch (error) {
+          throw new ORPCError("BAD_REQUEST", { message: messageFor(error) });
+        }
+      }),
+      importProfile: os.input(browserProfileImportSchema).output(resolvedAppConfigSchema).handler(async ({ input }) => {
+        if (sessions.status().running) {
+          throw new ORPCError("CONFLICT", { message: "Close the current browser session before importing a profile." });
+        }
+        try {
+          const current = await configStore.load();
+          const imported = await profileStore.import(input.id);
+          const config = await configStore.save({
+            ...current,
+            session: {
+              ...current.session,
+              browser: imported.browser,
+              profileDirectory: imported.profileDirectory
+            }
+          }, { requireTenant: false });
+          activity = {
+            ...activity,
+            phase: "ready",
+            detail: imported.reused
+              ? "The previously imported browser profile is selected."
+              : "Browser sign-in data was imported into a dedicated assistant profile."
+          };
+          return config;
+        } catch (error) {
+          return fail(error);
+        }
+      }),
       open: os.handler(async () => {
         try {
           const config = await configStore.load({ requireTenant: true });
