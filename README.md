@@ -20,7 +20,7 @@ Download `XSOAR-Incident-Assistant-Setup-<version>-x64.exe` from the project's G
 
 Each release includes a matching `.sha256` file. The installer is currently unsigned, so Windows may show an unknown-publisher warning. Compare the checksum before running it.
 
-1. Run the installer and leave **Create a desktop shortcut** and **Launch XSOAR Incident Assistant** selected. **Install local Ollama and download qwen3.5:9b** is optional and starts unchecked.
+1. Run the installer and leave **Create a desktop shortcut** and **Launch XSOAR Incident Assistant** selected. **Install local Ollama and qwen3.5:9b from GitHub** is optional and starts unchecked.
 2. Select **Open Chrome setup**, enable remote debugging, and accept Chrome's prompt.
 3. Enter the exact HTTPS origin of your XSOAR tenant and optional analyst name/title.
 4. Select **Connect Chrome**. The current settings are saved before the connection is made.
@@ -33,7 +33,11 @@ Requirements: Windows 11 x64 and Google Chrome 144 or newer.
 
 The assistant always produces its baseline draft deterministically. If enabled in the settings page, it can use a locally installed Ollama model to fill concise investigation, related-activity, vendor-guidance, and recommendation sections. The default model is `qwen3.5:9b`, a practical CPU-only option for a machine with 32 GB RAM.
 
-The optional installer task installs the pinned WinGet package `Ollama.Ollama` version `0.34.0` and downloads `qwen3.5:9b` (about 6.6 GB). It is unchecked and failure does not affect the core installation. Releases pass the exact package version through `OLLAMA_VERSION`; change it only after verifying that version in WinGet.
+The optional installer task downloads the official Ollama `0.34.0` Windows installer and the default `qwen3.5:9b` Q4_K_M model from pinned GitHub Release assets. A fresh installation downloads about 8.2 GB; the model itself is about 6.6 GB. Allow at least 16 GB of free disk space while the model is assembled and imported. The task is unchecked and failure does not affect the core installation. It launches `OllamaSetup.exe` directly and uses the application's bundled Node.js runtime for the model import, so the end-user path does not invoke PowerShell or WinGet.
+
+Every runner and model asset has a fixed byte length and SHA-256 digest in `src/local-ai-installer.js`. Downloads follow redirects only from `github.com` to approved GitHub asset hosts, resume an interrupted part when the server honours byte ranges, and are rejected before import if any part or the reassembled GGUF checksum differs. After a successful `ollama create`, the temporary GGUF is removed. Failures are recorded at `%LOCALAPPDATA%\XSOAR Incident Assistant\logs\local-ai-install.log` without signed asset URLs.
+
+In the settings page, **Install default from GitHub** uses that verified path. If the default model is already present, the application verifies it locally and makes no registry request. A user may enter another valid local Ollama model name; **Download from Ollama registry** remains available for those custom choices and therefore depends on that registry being reachable. Both actions install the pinned Ollama runner from GitHub first if it is not already present.
 
 Cloud/remote aliases are rejected. Before incident evidence is sent, the selected model must be listed by the loopback Ollama service at `127.0.0.1:11434` and pass a fresh local-model check. The application has no cloud-AI endpoint or configurable AI URL. Downloads report progress, can be cancelled, use a short connection timeout and stop after two minutes with no valid progress; continuous progress has no total elapsed-time cap. Inference has a separate three-minute limit. Invalid, unavailable, remote, or malformed AI output falls back to the deterministic draft.
 
@@ -70,6 +74,7 @@ An organisation must review and approve the tool against its own browser, identi
 - `src/page-adapter.js`: XSOAR DOM extraction.
 - `src/browser-session.js`: user-approved current-Chrome connection and the browser adapter.
 - `src/local-ai.js`: loopback-only Ollama client, bounded evidence construction, and strict enrichment validation.
+- `src/local-ai-installer.js`: pinned GitHub downloads, checksums, resumable model assembly, and local Ollama import.
 - `src/rpc.js`: typed oRPC operations and local application state.
 - `src/server.js`: Hono loopback server, request security checks, and static delivery.
 - `web/`: Solid and Tailwind configuration/status interface, built by Vite into ignored `dist/` output.
@@ -89,7 +94,7 @@ npm audit --audit-level=high
 
 ### Creating a Windows release
 
-The end-user installer is built only from a version tag. It stages the built application, production dependencies, and a pinned portable Node.js runtime, then packages them with Inno Setup. The optional Ollama task has a separately pinned WinGet version set through `OLLAMA_VERSION`.
+The end-user installer is built only from a version tag. It stages the built application, production dependencies, and a pinned portable Node.js runtime, then packages them with Inno Setup. Ollama and default-model versions, URLs, sizes, and hashes are pinned in `src/local-ai-installer.js`.
 
 1. Update `package.json` with the release version and push a matching `v<version>` tag.
 2. The **Windows release** workflow verifies the project and runtime checksum, builds the unsigned installer, writes its SHA-256 sidecar, and publishes both files to the GitHub Release.

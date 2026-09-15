@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { BrowserSessionManager } from "./browser-session.js";
 import { appConfigInputSchema, loadConfig, resolvedAppConfigSchema, saveConfig } from "./config.js";
+import { createLocalAiInstaller } from "./local-ai-installer.js";
 import { createOllamaClient, localAiSettingsSchema } from "./local-ai.js";
 import { runIncidentDraft } from "./workflow.js";
 
@@ -14,8 +15,10 @@ export function createAssistantRouter({
   sessions = new BrowserSessionManager(),
   configStore = { load: loadConfig, save: saveConfig },
   generateDraft = runIncidentDraft,
-  localAi = createOllamaClient()
+  localAi = createOllamaClient(),
+  localAiInstaller
 } = {}) {
+  localAiInstaller ||= createLocalAiInstaller({ localAi });
   let activity = {
     detail: "Configure the assistant, then connect your current Chrome window.",
     draft: "",
@@ -94,7 +97,7 @@ export function createAssistantRouter({
           pullAbortController = new AbortController();
           activity = { ...activity, detail: `Downloading local model ${input.model}.` };
           try {
-            const models = await localAi.pull(input.model, {
+            const models = await localAiInstaller.installModel(input.model, {
               signal: pullAbortController.signal,
               onProgress: ({ status: progress, completed, total }) => {
                 const percent = total > 0 ? ` (${Math.min(100, Math.round((completed / total) * 100))}%)` : "";

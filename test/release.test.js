@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import http from "node:http";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createORPCClient } from "@orpc/client";
@@ -56,14 +56,15 @@ test("XSOAR settings persist without browser-mode settings", async () => {
   }
 });
 
-test("the published Windows installer is per-user, self-contained, and releases without signing credentials", async () => {
+test("the published Windows installer is per-user, self-contained, PowerShell-free for users, and releases without signing credentials", async () => {
   const root = new URL("../", import.meta.url);
-  const [installer, launcher, packager, runtimeDownloader, ollamaInstaller, releaseWorkflow, ciWorkflow] = await Promise.all([
+  const [installer, launcher, packager, runtimeDownloader, localAiCli, localAiInstaller, releaseWorkflow, ciWorkflow] = await Promise.all([
     readFile(new URL("installer/XSOARIncidentAssistant.iss", root), "utf8"),
     readFile(new URL("installer/launcher.vbs", root), "utf8"),
     readFile(new URL("scripts/package-windows.mjs", root), "utf8"),
     readFile(new URL("installer/download-node-runtime.ps1", root), "utf8"),
-    readFile(new URL("installer/install-ollama.ps1", root), "utf8"),
+    readFile(new URL("scripts/install-local-ai.mjs", root), "utf8"),
+    readFile(new URL("src/local-ai-installer.js", root), "utf8"),
     readFile(new URL(".github/workflows/release.yml", root), "utf8"),
     readFile(new URL(".github/workflows/ci.yml", root), "utf8")
   ]);
@@ -75,21 +76,20 @@ test("the published Windows installer is per-user, self-contained, and releases 
   assert.match(installer, /^Source: "\{#StageDir\}\\\*"; DestDir: "\{app\}"; Flags: recursesubdirs createallsubdirs$/m);
   assert.match(installer, /^Name: "\{autodesktop\}\\\{#AppName\}";.*Tasks: desktopicon$/m);
   assert.match(installer, /^Name: "installollama";.*Flags: unchecked$/m);
-  assert.match(installer, /OllamaVersion "0\.34\.0"/);
   assert.match(installer, /Tasks: installollama; Flags: postinstall skipifsilent$/m);
+  assert.match(installer, /runtime\\node\.exe/);
+  assert.match(installer, /scripts\\install-local-ai\.mjs/);
+  assert.doesNotMatch(installer, /powershell|install-ollama\.ps1|winget/i);
   assert.match(launcher, /runtime\\node\.exe/);
   assert.doesNotMatch(launcher, /npm(?:\.cmd)?/i);
   assert.match(packager, /npmCliPath, "ci", "--omit=dev", "--ignore-scripts"/);
   assert.match(packager, /Portable Node\.js runtime/);
-  assert.match(packager, /OLLAMA_VERSION must be an exact WinGet package version/);
+  assert.match(packager, /scripts["'], ["']install-local-ai\.mjs/);
   assert.doesNotMatch(packager, /keyboard-trigger\.(?:ps1|exe)/);
   assert.match(runtimeDownloader, /dist\/v24\.14\.0\/win-x64\/node\.exe/);
   assert.match(runtimeDownloader, /63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088/);
-  assert.ok(ollamaInstaller.indexOf("Get-Command ollama.exe") < ollamaInstaller.indexOf("Get-Command winget.exe"));
-  assert.match(ollamaInstaller, /if \(\[version\]\$Matches\[1\] -ge \[version\]\$Version\) \{ \$installAction = \$null \}/);
-  assert.match(ollamaInstaller, /\$installAction = "upgrade"/);
-  assert.match(ollamaInstaller, /if \(\$installAction\) \{\s+\$winget = Get-Command winget\.exe/s);
-  assert.match(ollamaInstaller, /& \$ollama pull qwen3\.5:9b/);
+  assert.doesNotMatch(`${localAiCli}\n${localAiInstaller}`, /powershell|winget/i);
+  assert.match(localAiInstaller, /installDefaultModel/);
   assert.match(releaseWorkflow, /download-node-runtime\.ps1/);
   assert.match(releaseWorkflow, /choco install innosetup --version=6\.7\.1/);
   assert.doesNotMatch(releaseWorkflow, /WINDOWS_SIGNING_CERTIFICATE_BASE64/);
@@ -151,8 +151,10 @@ test("shared operation locking and draft versions survive identical AI draft tex
       generateDraft: async () => { draftStarted.resolve(); await draftDone.promise; return { draft: "same AI draft", reviewed: 0, aiEnriched: true }; },
       localAi: {
         status: async () => ({ available: true, models: ["qwen3.5:9b"], detail: "ready" }),
-        pull: async () => { pullStarted.resolve(); await pullDone.promise; return ["qwen3.5:9b"]; },
         enrich: async () => ({})
+      },
+      localAiInstaller: {
+        installModel: async () => { pullStarted.resolve(); await pullDone.promise; return ["qwen3.5:9b"]; }
       }
     }
   });
@@ -202,9 +204,15 @@ test("config migration rejects future versions and retired fields in current con
 test("public runtime and documentation contain no extension, legacy remote-port launcher, or organisation-specific implementation", async () => {
   const root = new URL("../", import.meta.url);
   const rootPath = fileURLToPath(root);
-  const { stdout } = await execFileAsync("git", ["ls-files", "-z"], { cwd: rootPath, encoding: "utf8" });
-  const files = stdout.split("\0").filter((file) => file && !file.endsWith("release.test.js"));
-  const publicText = (await Promise.all(files.map((file) => readFile(path.join(rootPath, file), "utf8")))).join("\n").toLowerCase();
+  const { stdout } = await execFileAsync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], { cwd: rootPath, encoding: "utf8" });
+  const candidates = stdout.split("\0").filter((file) => file && !file.endsWith("release.test.js"));
+  const files = [];
+  for (const file of candidates) {
+    try { await access(path.join(rootPath, file)); files.push(file); } catch {}
+  }
+  const approvedReleasePrefix = "https://github.com/tim025-star/xsoar-incident-assistant/releases/download/model-qwen3.5-9b-q4km-v1/";
+  const publicText = (await Promise.all(files.map((file) => readFile(path.join(rootPath, file), "utf8"))))
+    .join("\n").replaceAll(approvedReleasePrefix, "https://github.com/<release-repository>/releases/download/<model-release>/").toLowerCase();
   const forbiddenValues = [
     ["tel", "stra"].join(""),
     ["tim", "025"].join(""),

@@ -197,14 +197,17 @@ export function createOllamaClient({ fetchImplementation = globalThis.fetch, pul
     return response.data.models;
   };
   const listModels = async () => [...new Set((await listModelMetadata()).filter(isLocalModel).map((item) => item.name))].sort();
-  const assertInstalledLocalModel = async (model) => {
-    const installed = findInstalledModel(await listModelMetadata(), model);
+  const assertVerifiedModelMetadata = async (installed) => {
     if (!installed || !isLocalModel(installed)) throw new Error("The selected model is not installed as a local Ollama model.");
     const show = ollamaShowSchema.safeParse(await requestJson(fetchImplementation, "/api/show", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: installed.name })
     }, "model verification", { timeoutMs: OLLAMA_HEALTH_TIMEOUT_MS, maxBytes: MAX_SHOW_RESPONSE_BYTES }));
     if (!show.success || hasRemoteMetadata(show.data)) throw new Error("The selected model is not a local Ollama model.");
     return installed.name;
+  };
+  const assertInstalledLocalModel = async (model) => {
+    const installed = findInstalledModel(await listModelMetadata(), model);
+    return assertVerifiedModelMetadata(installed);
   };
   return {
     async status() {
@@ -218,6 +221,11 @@ export function createOllamaClient({ fetchImplementation = globalThis.fetch, pul
       model = assertSafeModelName(model);
       const existing = findInstalledModel(await listModelMetadata(), model);
       if (existing && !isLocalModel(existing)) throw new Error("The selected model is not a local Ollama model.");
+      if (existing) {
+        await assertVerifiedModelMetadata(existing);
+        onProgress({ status: `${existing.name} is already installed locally.`, completed: 1, total: 1 });
+        return listModels();
+      }
       const streamAbortController = new AbortController();
       const streamSignal = signal ? AbortSignal.any([streamAbortController.signal, signal]) : streamAbortController.signal;
       const body = await requestPullStream(fetchImplementation, model, streamSignal, pullConnectTimeoutMs);

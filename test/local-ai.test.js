@@ -82,6 +82,19 @@ test("streaming pull survives ongoing progress and cancels a stalled stream", as
   await assert.rejects(() => stalled.pull(DEFAULT_OLLAMA_MODEL), /stalled for 1 seconds/);
 });
 
+test("pull returns an already installed local model without contacting the registry", async () => {
+  const requests = [];
+  const client = createOllamaClient({ fetchImplementation: async (url, options = {}) => {
+    requests.push({ url, options });
+    if (url.endsWith("/api/tags")) return response({ models: [{ name: DEFAULT_OLLAMA_MODEL }] });
+    if (url.endsWith("/api/show")) return response({});
+    throw new Error("The Ollama registry must not be contacted for an installed model.");
+  } });
+
+  assert.deepEqual(await client.pull(DEFAULT_OLLAMA_MODEL), [DEFAULT_OLLAMA_MODEL]);
+  assert.deepEqual(requests.map(({ url }) => new URL(url).pathname), ["/api/tags", "/api/show", "/api/tags"]);
+});
+
 test("untagged model aliases resolve to the installed latest tag after pull and before enrichment", async () => {
   let tagRequests = 0;
   const requests = [];
