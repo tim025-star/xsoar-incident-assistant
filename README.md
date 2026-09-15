@@ -6,7 +6,11 @@ This is an independent community project. It is not affiliated with or endorsed 
 
 ## Browser modes
 
-The default **Managed profile** mode opens Edge or Chrome with a dedicated Playwright profile. Sign in to XSOAR in that window once. Cookies and local storage remain in that dedicated profile between runs, but the XSOAR and identity-provider session policies still decide when reauthentication, MFA, revocation, or expiry occurs.
+The default **Managed profile** mode opens Chrome with the legacy private-version profile at `%LOCALAPPDATA%\Google\Chrome\TSOC-Copilot`. Existing users can therefore keep the same dedicated Chrome profile and sign-in state while moving away from the old port-9222 launcher. Close the old debug Chrome completely before selecting **Open browser** in this application. Cookies and local storage remain in that profile between runs, but the XSOAR and identity-provider session policies still decide when reauthentication, MFA, revocation, or expiry occurs.
+
+The profile directory is editable in Settings. A custom path must be an absolute, dedicated Chromium user-data directory: an existing directory must be empty or contain Chromium profile markers. Symbolic links, ordinary non-browser directories, and Chrome or Edge's normal `User Data` trees are rejected. The application launches and owns the configured profile directly; it does not attach to an independently running browser.
+
+The settings page can detect standard Edge and Chrome profiles for the current Windows account. An explicit **Import profile** action copies only session-related browser storage from the selected profile into a separate assistant-owned profile. Close the selected browser before importing. The original profile is not changed or controlled, and imported authentication may still require MFA or a fresh sign-in. Browser history, extensions, saved passwords, and caches are not imported.
 
 The optional **Diagnostics with DevTools** mode launches the same Playwright-owned browser and dedicated profile while automatically opening Chromium DevTools. It does not expose a remote-debugging network endpoint or attach to an independently launched browser.
 
@@ -19,8 +23,10 @@ Download the current `XSOAR-Incident-Assistant-Setup-<version>-x64.exe` from the
 Each release includes a matching `.sha256` file. The current installer is unsigned, so Windows may show an unknown-publisher warning. Compare the checksum with the downloaded installer before running it.
 
 1. Run the downloaded installer and leave **Launch XSOAR Incident Assistant** selected.
-2. In the application, enter the exact HTTPS origin of your XSOAR tenant and your optional analyst name/title, then save.
-3. Keep **Managed profile** unless you need Chromium DevTools for troubleshooting.
+2. Existing private-version users should close the old TSOC debug Chrome and its launcher. The default profile path already points to the legacy `TSOC-Copilot` directory.
+3. In the application, enter the exact HTTPS origin of your XSOAR tenant and your optional analyst name/title, then save. Change the dedicated profile path only if your profile is stored elsewhere.
+4. Optionally select a detected standard Edge or Chrome profile and choose **Import profile** after closing that browser completely.
+5. Keep **Managed profile** unless you need Chromium DevTools for troubleshooting.
 
 The installer adds a Start-menu shortcut and includes the application's Node.js runtime and locked production dependencies. It does not add a browser extension, alter browser policy, start automatically at Windows sign-in, or overwrite configuration and browser-profile data during an upgrade.
 
@@ -51,7 +57,7 @@ XSOAR routes vary by deployment. Before operational use, run a harmless search m
 
 ## Credentials and data
 
-The application never asks for or stores a password, API token, cookie value, or exported Playwright `storageState`. Authentication is handled by the selected browser profile. The dedicated profile contains browser session data and must be protected like any signed-in browser profile; by default it is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`.
+The application never asks for or stores a password or API token, and it does not export Playwright `storageState`. Authentication is handled by the configured dedicated browser profile. The default legacy profile is stored under `%LOCALAPPDATA%\Google\Chrome\TSOC-Copilot`; imported profiles are stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. If the user explicitly imports an existing standard profile, the application copies its Chromium local-state key and an allowlisted set of session-related stores, including cookies and site storage, into a new dedicated profile. It does not copy browser history, extensions, saved passwords, or caches. The source remains unchanged. Every configured profile contains browser session data and must be protected like any signed-in browser profile.
 
 Configuration is stored locally in the same application-data directory. It may include a tenant hostname and analyst identity, but must not contain credentials or incident content. Drafts remain in process memory and reach the clipboard only after the user selects **Copy draft**. Browser history, endpoint monitoring, clipboard managers, and XSOAR audit records operate independently.
 
@@ -63,6 +69,7 @@ An organisation must review and approve the tool against its own browser, identi
 - `src/workflow.js`: browser-independent incident/search/history orchestration.
 - `src/page-adapter.js`: XSOAR DOM extraction.
 - `src/browser-session.js`: Playwright-owned managed and diagnostics browser sessions.
+- `src/browser-profiles.js`: detection and explicit isolated import of standard Edge and Chrome profiles.
 - `src/hotkey.js` and `src/browser-session.js`: shortcut recording, validation, and the focused assistant-browser listener.
 - `src/rpc.js`: typed oRPC operations and local application state.
 - `src/server.js`: Hono loopback server, request security checks, and static delivery.

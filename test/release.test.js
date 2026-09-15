@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import { readFile, readdir } from "node:fs/promises";
@@ -15,9 +16,13 @@ async function closeServer(server) {
   await new Promise((resolve) => server.close(resolve));
 }
 
-test("managed mode is the public default, with Numpad+ activation and an empty analyst identity", () => {
+test("managed mode defaults to the legacy Chrome profile, with Numpad+ activation and an empty analyst identity", () => {
   assert.equal(DEFAULT_APP_CONFIG.session.mode, "managed");
-  assert.equal(DEFAULT_APP_CONFIG.session.browser, "edge");
+  assert.equal(DEFAULT_APP_CONFIG.session.browser, "chrome");
+  assert.equal(
+    DEFAULT_APP_CONFIG.session.profileDirectory,
+    path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "Google", "Chrome", "TSOC-Copilot")
+  );
   assert.deepEqual(DEFAULT_APP_CONFIG.session.activationHotkey, { label: "Numpad +", modifiers: 0, code: "NumpadAdd" });
   assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "");
 });
@@ -62,6 +67,54 @@ test("settings persist without an external activation-shortcut helper", async ()
     assert.equal(saved.session.browser, "chrome");
     assert.equal(stored.session.browser, "chrome");
     assert.deepEqual((await client.status()).hotkey, { active: false, error: "" });
+  } finally {
+    await closeServer(app.server);
+  }
+});
+
+test("detected browser profiles can be imported and selected through the local API", async () => {
+  let stored = resolveAppConfig({ xsoar: { allowedOrigin: "https://xsoar.example.test" } });
+  const configStore = {
+    load: async () => stored,
+    save: async (input, options) => {
+      stored = resolveAppConfig(input, options);
+      return stored;
+    }
+  };
+  const detected = {
+    id: "chrome:Default",
+    browser: "chrome",
+    browserName: "Google Chrome",
+    directoryName: "Default",
+    name: "Default profile",
+    isDefault: true
+  };
+  const profileStore = {
+    list: async () => [detected],
+    import: async (id) => {
+      assert.equal(id, detected.id);
+      return {
+        browser: "chrome",
+        profileDirectory: path.join(DEFAULT_APP_CONFIG.session.profileDirectory, "..", "imported-chrome-default"),
+        reused: false
+      };
+    }
+  };
+  const app = createAssistantServer({
+    token: "profile-import-test-token",
+    routerOptions: { configStore, profileStore }
+  });
+  const origin = new URL(await app.listen(0)).origin;
+  const client = createORPCClient(new RPCLink({
+    url: `${origin}/rpc`,
+    headers: { "X-Assistant-Token": "profile-import-test-token", Origin: origin }
+  }));
+  try {
+    assert.deepEqual(await client.browser.profiles(), [detected]);
+    const imported = await client.browser.importProfile({ id: detected.id });
+    assert.equal(imported.session.browser, "chrome");
+    assert.ok(imported.session.profileDirectory.endsWith("imported-chrome-default"));
+    assert.equal(stored.session.profileDirectory, imported.session.profileDirectory);
   } finally {
     await closeServer(app.server);
   }
@@ -175,10 +228,11 @@ test("normal Chrome and Edge profile trees cannot be selected", () => {
   }
 });
 
-test("browser profiles stay inside the assistant application-data directory", () => {
-  assert.throws(
-    () => resolveAppConfig({ session: { profileDirectory: path.resolve("C:\\Users\\Public\\assistant-profile") } }, { requireTenant: false }),
-    /application-data directory/
+test("a custom dedicated Chromium user-data directory can be selected", () => {
+  const customProfile = path.resolve("C:\\Browser Profiles\\XSOAR Dedicated");
+  assert.equal(
+    resolveAppConfig({ session: { profileDirectory: customProfile } }, { requireTenant: false }).session.profileDirectory,
+    customProfile
   );
 });
 

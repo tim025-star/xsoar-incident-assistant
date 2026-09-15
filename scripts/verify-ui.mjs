@@ -12,15 +12,31 @@ import { resolveSettings } from "../src/domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "../src/page-adapter.js";
 
 let uiConfig = resolveAppConfig({}, { requireTenant: false });
+const detectedProfile = {
+  id: "chrome:Default",
+  browser: "chrome",
+  browserName: "Google Chrome",
+  directoryName: "Default",
+  name: "Default profile",
+  isDefault: true
+};
 const app = createAssistantServer({
   token: "browser-verification-token",
   routerOptions: {
     configStore: {
       load: async () => uiConfig,
-      save: async (input) => {
-        uiConfig = resolveAppConfig(input);
+      save: async (input, options) => {
+        uiConfig = resolveAppConfig(input, options);
         return uiConfig;
       }
+    },
+    profileStore: {
+      list: async () => [detectedProfile],
+      import: async () => ({
+        browser: "chrome",
+        profileDirectory: path.join(uiConfig.session.profileDirectory, "..", "imported-chrome-default"),
+        reused: false
+      })
     }
   }
 });
@@ -41,16 +57,24 @@ try {
   await page.goto(url);
   await page.getByRole("heading", { name: "XSOAR Incident Assistant" }).waitFor();
   assert.equal(await page.locator("#mode").inputValue(), "managed");
+  assert.equal(await page.locator("#browser").inputValue(), "chrome");
   assert.equal(await page.locator("#analystName").inputValue(), "");
+  assert.match(await page.locator("#existingProfile").textContent(), /Google Chrome.*Default profile.*Default/);
+  await page.locator("#importProfile").click();
+  await page.getByText("Browser sign-in data was imported into a dedicated assistant profile.").waitFor();
+  assert.equal(uiConfig.session.browser, "chrome");
+  assert.ok(uiConfig.session.profileDirectory.endsWith("imported-chrome-default"));
   await page.reload();
   await page.locator("#mode").waitFor();
-  assert.match(await page.locator("#status").textContent(), /Configure the assistant/);
+  assert.match(await page.locator("#status").textContent(), /Browser sign-in data was imported/);
   await page.getByText("Advanced query settings").click();
   await page.locator("#maxHistoricalIncidents").fill("", { timeout: 2000 });
   assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "");
   await page.locator("#maxHistoricalIncidents").fill("10", { timeout: 2000 });
   assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "10");
   await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
+  const customProfileDirectory = path.join(path.dirname(uiConfig.session.profileDirectory), "custom-xsoar-profile");
+  await page.locator("#profileDirectory").fill(customProfileDirectory);
   await page.locator("#analystName").fill("Example Analyst");
   await page.locator("#recordHotkey").click();
   await page.getByRole("button", { name: /Cancel \(5s\)/ }).waitFor();
@@ -60,6 +84,7 @@ try {
   await page.locator("#save").click();
   await page.getByText("Settings saved.").waitFor();
   assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
+  assert.equal(uiConfig.session.profileDirectory, customProfileDirectory);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
   assert.deepEqual(uiConfig.session.activationHotkey, { label: "Ctrl + Alt + K", modifiers: 3, code: "KeyK" });
   await page.locator("#recordHotkey").click();

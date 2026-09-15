@@ -8,13 +8,14 @@ Security fixes apply to the latest default-branch revision. Use GitHub private v
 
 - The controller binds only to `127.0.0.1`, authorises every oRPC request with a random per-process token, checks the exact Host, checks Origin on mutations, limits request bodies, and uses a restrictive Content Security Policy.
 - Every XSOAR navigation must remain on the configured exact HTTPS origin. Incident and search paths are independently validated, including the expected URL query.
-- Both browser modes use a dedicated persistent profile launched and owned directly by Playwright. The normal Chrome or Edge user-data tree and its descendants are rejected.
+- Both browser modes use one configured dedicated persistent profile launched and owned directly by Playwright. The default is the legacy `%LOCALAPPDATA%\Google\Chrome\TSOC-Copilot` profile. An explicit custom absolute path is allowed only when it is empty or already looks like a Chromium user-data root; symbolic links, ordinary non-browser directories, and the normal Chrome or Edge `User Data` trees are rejected.
+- Profile discovery is read-only. Profile import requires an explicit action through the authenticated local UI, rejects arbitrary paths and symbolic links, and atomically copies an allowlisted set of session-related stores into the assistant application-data directory. It does not alter or directly automate the source profile.
 - Diagnostics mode opens Chromium DevTools without exposing a TCP remote-debugging endpoint or attaching to an independently launched browser.
 - The activation shortcut is an in-memory listener in the Playwright-managed browser, not a global keyboard hook, browser extension, or plugin. Its randomly named Playwright binding accepts calls only from a focused top-level page whose URL passes the configured XSOAR incident checks.
-- No feature reads, exports, copies, logs, or serialises XSOAR passwords, API tokens, cookies, or Playwright storage state.
+- No feature asks for, logs, or serialises XSOAR passwords, API tokens, cookie values, or Playwright storage state. Explicit profile import copies encrypted Chromium cookies and site storage as files without inspecting their values; it excludes history, extensions, saved passwords, and caches.
 - Drafts are held in process memory. Clipboard access occurs only after an explicit user action in the local UI.
 
-The dedicated browser profile contains active browser-session material and must be protected by normal Windows account and endpoint controls. Removing the profile signs the assistant out but also deletes local browser state; close the assistant browser before removal.
+The configured browser profile contains active browser-session material and must be protected by normal Windows account and endpoint controls. Removing the profile signs the assistant out but also deletes local browser state; close the assistant browser before changing its path or removing it. The old CDP launcher and the new Playwright-owned session must never open the same legacy profile concurrently.
 
 ## Organisational review
 
