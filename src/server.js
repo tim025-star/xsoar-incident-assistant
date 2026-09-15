@@ -10,7 +10,6 @@ import { Hono } from "hono";
 
 import { loadConfig } from "./config.js";
 import { activationHotkeySpec } from "./hotkey.js";
-import { startKeyboardTrigger } from "./keyboard-trigger.js";
 import { createAssistantRouter } from "./rpc.js";
 
 const STATIC_DIRECTORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "web");
@@ -37,58 +36,13 @@ function withSecurityHeaders(response) {
 
 export function createAssistantServer({
   token = randomBytes(32).toString("base64url"),
-  hotkeyToken = randomBytes(32).toString("base64url"),
-  routerOptions,
-  keyboardTriggerStarter = startKeyboardTrigger
+  routerOptions
 } = {}) {
   const app = new Hono();
   let localOrigin = "";
-  let keyboardTrigger;
-  let activeHotkey;
-  let hotkeyError = "";
-
-  const applyActivationHotkey = async (activationHotkey) => {
-    if (!localOrigin) throw new Error("The local server must be listening before the keyboard trigger starts.");
-    const nextHotkey = activationHotkeySpec(activationHotkey);
-    if (keyboardTrigger && activeHotkey === nextHotkey.id) return;
-
-    const previousHotkey = activeHotkey;
-    await keyboardTrigger?.stop();
-    keyboardTrigger = undefined;
-    activeHotkey = undefined;
-    try {
-      keyboardTrigger = await keyboardTriggerStarter({
-        endpoint: `${localOrigin}/internal/keyboard-trigger`,
-        token: hotkeyToken,
-        activationHotkey: nextHotkey.id
-      });
-      activeHotkey = nextHotkey.id;
-      hotkeyError = "";
-    } catch (error) {
-      if (previousHotkey) {
-        try {
-          keyboardTrigger = await keyboardTriggerStarter({
-            endpoint: `${localOrigin}/internal/keyboard-trigger`,
-            token: hotkeyToken,
-            activationHotkey: previousHotkey
-          });
-          activeHotkey = previousHotkey;
-        } catch (restoreError) {
-          hotkeyError = `The previous activation shortcut could not be restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`;
-          throw new Error(hotkeyError);
-        }
-      }
-      throw error;
-    }
-  };
 
   const assistant = createAssistantRouter({
-    ...routerOptions,
-    activationShortcutStatus: () => ({ active: Boolean(keyboardTrigger), error: hotkeyError }),
-    onConfigSaved: async (config) => {
-      await applyActivationHotkey(config.session.activationHotkey);
-      await routerOptions?.onConfigSaved?.(config);
-    }
+    ...routerOptions
   });
   const rpcHandler = new RPCHandler(assistant.router, {
     plugins: [new BodyLimitPlugin({ maxBodySize: 65536 })]
@@ -112,22 +66,6 @@ export function createAssistantServer({
     const result = await rpcHandler.handle(context.req.raw, { prefix: "/rpc", context: {} });
     if (result.matched) return result.response;
     return next();
-  });
-
-  app.post("/internal/keyboard-trigger", async (context) => {
-    if (!tokenMatches(context.req.header("X-Assistant-Hotkey-Token"), hotkeyToken)) {
-      return context.json({ error: "Invalid keyboard trigger token." }, 403);
-    }
-    if (!localOrigin || context.req.header("Host") !== new URL(localOrigin).host) {
-      return context.json({ error: "Invalid host." }, 403);
-    }
-    try {
-      await assistant.generate();
-      return context.body(null, 204);
-    } catch (error) {
-      const status = error?.code === "CONFLICT" ? 409 : 500;
-      return context.json({ error: "The keyboard trigger could not generate a draft." }, status);
-    }
   });
 
   app.get("/", serveStatic({ root: STATIC_DIRECTORY, path: "index.html" }));
@@ -161,23 +99,6 @@ export function createAssistantServer({
       if (!address || typeof address === "string") throw new Error("The local server did not provide a TCP address.");
       localOrigin = `http://127.0.0.1:${address.port}`;
       return `${localOrigin}/#${token}`;
-    },
-    async startKeyboardTrigger() {
-      if (!keyboardTrigger) {
-        const config = await (routerOptions?.configStore?.load || loadConfig)();
-        try {
-          await applyActivationHotkey(config.session.activationHotkey);
-        } catch (error) {
-          hotkeyError = error instanceof Error ? error.message : String(error);
-          return { active: false, error: hotkeyError };
-        }
-      }
-      return { active: true, error: "" };
-    },
-    async stopKeyboardTrigger() {
-      await keyboardTrigger?.stop();
-      keyboardTrigger = undefined;
-      activeHotkey = undefined;
     }
   };
 }
@@ -194,14 +115,11 @@ function openDefaultBrowser(url) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const app = createAssistantServer();
   const url = await app.listen(Number(process.env.XSOAR_ASSISTANT_PORT || 0));
-  const hotkey = await app.startKeyboardTrigger();
   const config = await loadConfig();
   console.log("XSOAR Incident Assistant is running on this computer.");
-  if (hotkey.active) console.log(`Press ${activationHotkeySpec(config.session.activationHotkey).label} while an XSOAR incident is open to generate a draft in this local page.`);
-  else console.warn(`The activation shortcut is unavailable: ${hotkey.error} Select another shortcut in Settings.`);
+  console.log(`Open the assistant browser, then press ${activationHotkeySpec(config.session.activationHotkey).label} on an XSOAR incident to generate a draft in this local page.`);
   if (process.env.XSOAR_ASSISTANT_NO_OPEN !== "1") openDefaultBrowser(url);
   const shutdown = async () => {
-    await app.stopKeyboardTrigger().catch(() => {});
     await app.sessions.stop().catch(() => {});
     app.server.close(() => process.exit(0));
   };

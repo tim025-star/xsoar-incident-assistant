@@ -11,9 +11,7 @@ function messageFor(error) {
 export function createAssistantRouter({
   sessions = new BrowserSessionManager(),
   configStore = { load: loadConfig, save: saveConfig },
-  generateDraft = runIncidentDraft,
-  onConfigSaved = async () => {},
-  activationShortcutStatus = () => ({ active: false, error: "" })
+  generateDraft = runIncidentDraft
 } = {}) {
   let activity = {
     phase: "idle",
@@ -22,7 +20,11 @@ export function createAssistantRouter({
   };
   let runningWorkflow = false;
 
-  const status = () => ({ ...activity, session: sessions.status(), hotkey: activationShortcutStatus() });
+  const status = () => ({
+    ...activity,
+    session: sessions.status(),
+    hotkey: { active: sessions.status().running, error: "" }
+  });
   const fail = (error, code = "BAD_REQUEST") => {
     activity = { phase: "error", detail: messageFor(error), draft: activity.draft };
     throw new ORPCError(code, { message: activity.detail });
@@ -34,7 +36,7 @@ export function createAssistantRouter({
     runningWorkflow = true;
     try {
       const config = await configStore.load({ requireTenant: true });
-      await sessions.start(config);
+      await sessions.start(config, { onActivationShortcut: generate });
       const result = await generateDraft({
         adapter: sessions.adapter(config.xsoar),
         settings: config.xsoar,
@@ -63,14 +65,7 @@ export function createAssistantRouter({
           throw new ORPCError("CONFLICT", { message: "Close the current browser session before changing settings." });
         }
         try {
-          const previous = await configStore.load({ requireTenant: false });
           const config = await configStore.save(input);
-          try {
-            await onConfigSaved(config);
-          } catch (error) {
-            await configStore.save(previous, { requireTenant: false }).catch(() => {});
-            throw error;
-          }
           activity = { ...activity, phase: "ready", detail: "Settings saved." };
           return config;
         } catch (error) {
@@ -84,7 +79,7 @@ export function createAssistantRouter({
         try {
           const config = await configStore.load({ requireTenant: true });
           activity = { ...activity, phase: "opening", detail: "Opening the configured browser session." };
-          await sessions.start(config);
+          await sessions.start(config, { onActivationShortcut: generate });
           activity = {
             ...activity,
             phase: "ready",

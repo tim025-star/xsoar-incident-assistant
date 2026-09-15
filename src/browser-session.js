@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { lstat, mkdir, realpath } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 
 import { chromium } from "playwright-core";
@@ -7,6 +8,40 @@ import { chromium } from "playwright-core";
 import { assertIncidentUrl, assertTrustedUrl } from "./domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "./page-adapter.js";
 import { APP_DATA_DIRECTORY } from "./config.js";
+import { activationHotkeySpec } from "./hotkey.js";
+
+function installShortcutListener({ bindingName, hotkey }) {
+  const markerName = `${bindingName}_installed`;
+  if (window.top !== window || window[markerName]) return;
+  Object.defineProperty(window, markerName, { value: true });
+  const modifiersFor = (event) => (event.altKey ? 1 : 0)
+    | (event.ctrlKey ? 2 : 0)
+    | (event.shiftKey ? 4 : 0)
+    | (event.metaKey ? 8 : 0);
+  window.addEventListener("keydown", (event) => {
+    if (event.repeat || event.code !== hotkey.code || modifiersFor(event) !== hotkey.modifiers) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void window[bindingName]().catch(() => {});
+  }, true);
+}
+
+export async function attachBrowserActivationShortcut(context, config, onActivationShortcut) {
+  if (typeof onActivationShortcut !== "function") throw new Error("The browser activation shortcut requires a handler.");
+  const hotkey = activationHotkeySpec(config.session.activationHotkey);
+  const bindingName = `__xsoarAssistantActivate_${randomBytes(16).toString("hex")}`;
+  await context.exposeBinding(bindingName, async ({ page, frame }) => {
+    if (!page || frame !== page.mainFrame()) return;
+    assertIncidentUrl(page.url(), config.xsoar, "Shortcut page");
+    if (!await page.evaluate(() => document.hasFocus()).catch(() => false)) return;
+    await onActivationShortcut();
+  });
+  const payload = { bindingName, hotkey };
+  await context.addInitScript(installShortcutListener, payload);
+  await Promise.all(context.pages()
+    .filter((page) => !page.url().startsWith("devtools://"))
+    .map((page) => page.evaluate(installShortcutListener, payload).catch(() => {})));
+}
 
 function browserExecutableCandidates(browser) {
   const roots = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA]
@@ -120,7 +155,7 @@ export class BrowserSessionManager {
     return { running: Boolean(this.context), mode: this.mode };
   }
 
-  async start(config) {
+  async start(config, { onActivationShortcut } = {}) {
     if (this.context) return this.context;
     const profileDirectory = await ensureIsolatedProfile(config.session.profileDirectory);
     const diagnostics = config.session.mode === "diagnostics";
@@ -131,6 +166,9 @@ export class BrowserSessionManager {
       acceptDownloads: false,
       args: diagnostics ? ["--auto-open-devtools-for-tabs"] : []
     });
+    if (onActivationShortcut) {
+      await attachBrowserActivationShortcut(this.context, config, onActivationShortcut);
+    }
     this.mode = config.session.mode;
     const pages = this.context.pages();
     const page = pages.find((candidate) => !candidate.url().startsWith("devtools://")) || await this.context.newPage();

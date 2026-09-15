@@ -28,5 +28,6 @@
   .control { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-ink transition focus:border-brand; }
   .button { @apply inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50; }
   .button-secondary { @apply bg-slate-200 text-slate-800 hover:bg-slate-300; }
+  .button-danger { @apply bg-rose-700 text-white hover:bg-rose-800; }
   .helper { @apply text-sm leading-6 text-muted; }
 }

@@ -1,7 +1,7 @@
 import { Show, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
 
-import { ACTIVATION_HOTKEYS } from "../../src/hotkey.js";
+import { activationHotkeyFromKeyboardEvent } from "../../src/hotkey.js";
 import { rpc, sessionToken } from "./rpc";
 import "./styles.css";
 
@@ -21,6 +21,9 @@ function App() {
     ? "Loading local status…"
     : "Start the assistant again to open an authorised local control page.");
   const [busy, setBusy] = createSignal(false);
+  const [recordingSeconds, setRecordingSeconds] = createSignal(0);
+  let recordingInterval: number | undefined;
+  let recordingTimeout: number | undefined;
 
   const updateMode = (value: string) => {
     if (value !== "managed" && value !== "diagnostics") return;
@@ -42,13 +45,57 @@ function App() {
     });
   };
 
-  const updateActivationHotkey = (value: string) => {
+  const updateActivationHotkey = (value: AppConfig["session"]["activationHotkey"]) => {
     setConfig((current) => {
       if (!current) return current;
       const next = structuredClone(current);
       next.session.activationHotkey = value;
       return next;
     });
+  };
+
+  const stopShortcutRecording = () => {
+    if (recordingInterval !== undefined) window.clearInterval(recordingInterval);
+    if (recordingTimeout !== undefined) window.clearTimeout(recordingTimeout);
+    recordingInterval = undefined;
+    recordingTimeout = undefined;
+    setRecordingSeconds(0);
+    window.removeEventListener("keydown", captureShortcut, true);
+  };
+
+  const captureShortcut = (event: KeyboardEvent) => {
+    try {
+      const hotkey = activationHotkeyFromKeyboardEvent(event);
+      if (!hotkey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      updateActivationHotkey(hotkey);
+      stopShortcutRecording();
+      setMessage(`${hotkey.label} recorded. Save settings to activate it.`);
+    } catch (error) {
+      event.preventDefault();
+      event.stopPropagation();
+      setMessage(`${errorMessage(error)} Try another key before recording stops.`);
+    }
+  };
+
+  const startShortcutRecording = () => {
+    if (recordingSeconds()) {
+      stopShortcutRecording();
+      setMessage("Shortcut recording cancelled. Settings unchanged.");
+      return;
+    }
+    const deadline = Date.now() + 5000;
+    setRecordingSeconds(5);
+    setMessage("Recording shortcut now. Press the key combination you want within five seconds.");
+    window.addEventListener("keydown", captureShortcut, true);
+    recordingInterval = window.setInterval(() => {
+      setRecordingSeconds(Math.max(1, Math.ceil((deadline - Date.now()) / 1000)));
+    }, 200);
+    recordingTimeout = window.setTimeout(() => {
+      stopShortcutRecording();
+      setMessage("No shortcut was detected within five seconds. Settings unchanged.");
+    }, 5000);
   };
 
   const updateTextSetting = (key: TextSetting, value: string) => {
@@ -133,6 +180,7 @@ function App() {
     const interval = window.setInterval(() => refresh().catch(() => {}), 1500);
     onCleanup(() => window.clearInterval(interval));
   });
+  onCleanup(stopShortcutRecording);
 
   return (
     <main class="mx-auto w-[min(1120px,calc(100%-2rem))] py-8 sm:py-12">
@@ -170,20 +218,28 @@ function App() {
                       <option value="chrome">Google Chrome</option>
                     </select>
                   </label>
-                  <label class="field">Activation shortcut
-                    <select id="activationHotkey" class="control" value={settings().session.activationHotkey} onInput={(event) => updateActivationHotkey(event.currentTarget.value)}>
-                      {ACTIVATION_HOTKEYS.map((hotkey) => <option value={hotkey.id}>{hotkey.label}</option>)}
-                    </select>
-                  </label>
+                  <div class="field sm:col-span-2">
+                    <span>Activation shortcut</span>
+                    <div class="flex gap-2">
+                      <input id="activationHotkey" class="control min-w-0" value={settings().session.activationHotkey.label} readOnly />
+                      <button
+                        id="recordHotkey"
+                        class={`button shrink-0 ${recordingSeconds() ? "button-danger" : "button-secondary"}`}
+                        type="button"
+                        disabled={busy()}
+                        aria-pressed={Boolean(recordingSeconds())}
+                        onClick={startShortcutRecording}
+                      >
+                        {recordingSeconds() ? `Cancel (${recordingSeconds()}s)` : "Record shortcut"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <label class="field mt-4">Dedicated profile directory
                   <input id="profileDirectory" class="control bg-slate-50 text-slate-600" value={settings().session.profileDirectory} readOnly />
                 </label>
                 <p class="helper mb-0">Diagnostics mode opens Chromium DevTools in the Playwright-owned browser. It does not expose a remote-debugging network port.</p>
-                <p class="helper mb-0">Save settings to apply a new activation shortcut immediately. If it is already used by another application, the assistant keeps your previous shortcut.</p>
-                <Show when={status()?.hotkey.error}>
-                  {(error) => <p class="mb-0 text-sm font-semibold text-amber-800">Activation shortcut unavailable: {error()}. Choose another shortcut and save settings.</p>}
-                </Show>
+                <p class="helper mb-0">Select Record shortcut and press any supported key combination within five seconds. Recording stops as soon as a shortcut is detected or when the five-second window expires. Save settings before opening the assistant browser. The shortcut works only while that browser is focused; no extension or plugin is installed.</p>
                 <p class="helper mb-0">The dedicated profile retains browser session data between runs, while your identity-provider policy controls reauthentication. Your everyday browser profile is never copied or reused.</p>
               </section>
 
@@ -248,7 +304,7 @@ function App() {
                 <button id="run" class="button" type="button" disabled={busy()} onClick={() => runAction(() => rpc.draft.generate())}>Generate draft</button>
                 <button id="stop" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(() => rpc.browser.stop())}>Close browser</button>
               </div>
-              <p class="helper mt-0">You can also press the configured activation shortcut while an XSOAR incident is open. The draft will appear here.</p>
+              <p class="helper mt-0">You can also press the configured activation shortcut while the assistant browser is focused on an XSOAR incident. The draft will appear here.</p>
               <label class="field">Draft
                 <textarea id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The generated draft appears here." value={status()?.draft || ""} />
               </label>
