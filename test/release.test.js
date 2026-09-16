@@ -175,6 +175,24 @@ test("version 10 settings gain the default incident path template", () => {
   assert.equal(upgraded.xsoar.incidentPathTemplate, "/Custom/GenericLayout/{id}");
 });
 
+test("legacy custom routes load but require a matching incident template when next saved", () => {
+  const upgraded = resolveAppConfig({
+    configVersion: 10,
+    xsoar: {
+      configVersion: 2,
+      allowedOrigin: "https://xsoar.example.test",
+      incidentUrlPattern: "\\/Custom\\/OtherLayout\\/\\d+\\/?$"
+    }
+  }, { allowRouteMismatch: true });
+
+  assert.equal(upgraded.xsoar.incidentPathTemplate, "/Custom/GenericLayout/{id}");
+  assert.equal(resolveAppConfig(
+    { ...upgraded, localAi: { enabled: true, model: "qwen3.5:9b" } },
+    { allowRouteMismatch: true }
+  ).localAi.enabled, true);
+  assert.throws(() => resolveAppConfig(upgraded), /incidentPathTemplate must match incidentUrlPattern/);
+});
+
 test("cloud aliases cannot be saved as local AI models", () => {
   assert.throws(
     () => resolveAppConfig({ localAi: { enabled: true, model: "qwen3.5:cloud" } }, { requireTenant: false }),

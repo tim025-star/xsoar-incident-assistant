@@ -103,7 +103,10 @@ export function createAssistantRouter({
       saveLocalAi: os.input(localAiSettingsSchema).output(localAiSettingsSchema).handler(async ({ input }) => {
         try {
           const current = await configStore.load({ requireTenant: false });
-          const saved = await configStore.save({ ...current, localAi: input }, { requireTenant: false });
+          const saved = await configStore.save(
+            { ...current, localAi: input },
+            { requireTenant: false, allowRouteMismatch: true }
+          );
           activity = { ...activity, detail: "Local AI config saved." };
           return saved.localAi;
         } catch (error) {

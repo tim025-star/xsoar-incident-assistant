@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  assertIncidentRouteCompatibility,
   assertIncidentUrl,
   assertSearchUrl,
   buildDraft,
@@ -53,13 +54,13 @@ test("searches are encoded in the incidents page URL and verified after navigati
   );
 });
 
-test("incident and historical navigation remain in the configured tenant and path", () => {
+test("incident navigation remains in the configured tenant and path", () => {
   const resolved = settings();
   const current = "https://xsoar.example.test/Custom/GenericLayout/4200";
 
   assert.equal(assertIncidentUrl(current, resolved).pathname, "/Custom/GenericLayout/4200");
   assert.equal(
-    buildHistoricalIncidentUrl(current, "4199", resolved),
+    buildIncidentUrlFromId("4199", resolved),
     "https://xsoar.example.test/Custom/GenericLayout/4199"
   );
   assert.equal(
@@ -77,6 +78,43 @@ test("incident and historical navigation remain in the configured tenant and pat
       incidentPathTemplate: "https://attacker.example/{id}"
     }),
     /absolute path on the configured XSOAR origin/
+  );
+});
+
+test("incident templates require the ID as the final path segment and must match the route regex", () => {
+  const resolved = resolveSettings({
+    allowedOrigin: "https://xsoar.example.test",
+    incidentUrlPattern: "\\/Custom\\/case\\/\\d+\\/?$",
+    incidentPathTemplate: "/Custom/case/{id}"
+  });
+
+  const url = buildIncidentUrlFromId("4200", resolved);
+  assert.equal(url, "https://xsoar.example.test/Custom/case/4200");
+  assert.equal(buildHistoricalIncidentUrl(`${url}/`, "4199", resolved), "https://xsoar.example.test/Custom/case/4199/");
+  const trailingSlashSettings = resolveSettings({
+    allowedOrigin: "https://xsoar.example.test",
+    incidentUrlPattern: "\\/Custom\\/case\\/\\d+\\/$",
+    incidentPathTemplate: "/Custom/case/{id}/"
+  });
+  assert.equal(
+    buildHistoricalIncidentUrl("https://xsoar.example.test/Custom/case/4200/", "4199", trailingSlashSettings),
+    "https://xsoar.example.test/Custom/case/4199/"
+  );
+  assert.throws(
+    () => resolveSettings({
+      allowedOrigin: "https://xsoar.example.test",
+      incidentUrlPattern: "\\/Custom\\/case-\\d+\\/view\\/?$",
+      incidentPathTemplate: "/Custom/case-{id}/view"
+    }),
+    /final path segment/
+  );
+  assert.throws(
+    () => assertIncidentRouteCompatibility(resolveSettings({
+      allowedOrigin: "https://xsoar.example.test",
+      incidentUrlPattern: "\\/Custom\\/GenericLayout\\/\\d+$",
+      incidentPathTemplate: "/Custom/case/{id}"
+    })),
+    /must match incidentUrlPattern/
   );
 });
 

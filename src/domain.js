@@ -125,8 +125,9 @@ export function resolveSettings(input = {}) {
   } catch {
     throw new Error("incidentUrlPattern must be a valid regular expression.");
   }
-  if ((settings.incidentPathTemplate.match(/\{id\}/g) || []).length !== 1) {
-    throw new Error("incidentPathTemplate must contain {id} exactly once.");
+  if ((settings.incidentPathTemplate.match(/\{id\}/g) || []).length !== 1
+    || !/\/\{id\}\/?$/.test(settings.incidentPathTemplate)) {
+    throw new Error("incidentPathTemplate must end with /{id} so the Incident ID is the final path segment.");
   }
   const templateUrl = new URL(settings.incidentPathTemplate.replace("{id}", "1"), settings.allowedOrigin);
   if (templateUrl.origin !== settings.allowedOrigin || templateUrl.username || templateUrl.password
@@ -209,13 +210,21 @@ export function assertIncidentUrl(value, settings, operation = "Incident navigat
   return url;
 }
 
+export function assertIncidentRouteCompatibility(settings) {
+  const sampleUrl = new URL(settings.incidentPathTemplate.replace("{id}", "1"), settings.allowedOrigin);
+  if (!new RegExp(settings.incidentUrlPattern).test(sampleUrl.pathname)) {
+    throw new Error("incidentPathTemplate must match incidentUrlPattern.");
+  }
+  return settings;
+}
+
 function escapeQueryValue(value) {
   return cleanText(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 export function buildSearchQuery(ruleName, caseType, lookbackQuery = "") {
   if (!isAvailable(ruleName) || !isAvailable(caseType)) {
-    throw new Error("The incident must expose both Rule Name and Type before a historical search can run.");
+    throw new Error("The incident must expose both Rule Name and Type before a related-case search can run.");
   }
   const parts = [
     `name:"${escapeQueryValue(ruleName)}"`,
@@ -248,21 +257,24 @@ export function assertSearchUrl(value, settings, expectedQuery) {
   return url;
 }
 
-export function buildHistoricalIncidentUrl(currentIncidentUrl, ticketId, settings) {
-  const source = assertIncidentUrl(currentIncidentUrl, settings, "Historical URL construction");
-  if (!/^\d+$/.test(String(ticketId))) throw new Error("Historical incident ID must be numeric.");
-  const replaced = source.pathname.replace(/\/\d+\/?$/, `/${ticketId}`);
-  if (replaced === source.pathname) throw new Error("The current incident URL does not end with a numeric ID.");
-  source.pathname = replaced;
-  source.search = "";
-  source.hash = "";
-  return assertIncidentUrl(source.toString(), settings, "Historical URL construction").toString();
-}
-
 export function buildIncidentUrlFromId(ticketId, settings) {
   if (!/^\d+$/.test(String(ticketId))) throw new Error("Incident ID must be numeric.");
   const url = new URL(settings.incidentPathTemplate.replace("{id}", String(ticketId)), settings.allowedOrigin);
   return assertIncidentUrl(url.toString(), settings, "Requested incident navigation").toString();
+}
+
+export function buildHistoricalIncidentUrl(currentIncidentUrl, ticketId, settings) {
+  const source = assertIncidentUrl(currentIncidentUrl, settings, "Related incident URL construction");
+  if (!/^\d+$/.test(String(ticketId))) throw new Error("Related incident ID must be numeric.");
+  const replaced = source.pathname.replace(
+    /\/\d+(\/?)$/,
+    (_match, trailingSlash) => `/${ticketId}${trailingSlash}`
+  );
+  if (replaced === source.pathname) throw new Error("The current incident URL does not end with a numeric ID.");
+  source.pathname = replaced;
+  source.search = "";
+  source.hash = "";
+  return assertIncidentUrl(source.toString(), settings, "Related incident URL construction").toString();
 }
 
 export function mergeIncidentDetails(...details) {

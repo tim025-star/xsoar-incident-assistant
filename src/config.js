@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
-import { DEFAULT_SETTINGS, FIELD_LABELS, resolveSettings } from "./domain.js";
+import { assertIncidentRouteCompatibility, DEFAULT_SETTINGS, FIELD_LABELS, resolveSettings } from "./domain.js";
 import { DEFAULT_OLLAMA_MODEL, localAiSettingsSchema } from "./local-ai.js";
 
 const localAppDataDirectory = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
@@ -113,7 +113,7 @@ function parseConfigInput(input) {
   throw new Error(`${location}${issue.message}`);
 }
 
-export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
+export function resolveAppConfig(input = {}, { requireTenant = true, allowRouteMismatch = false } = {}) {
   input = parseConfigInput(input);
   const suppliedFieldLabels = { ...(input.xsoar?.fieldLabels || {}) };
   for (const key of retiredFieldLabels) delete suppliedFieldLabels[key];
@@ -129,21 +129,22 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
   };
   if (!requireTenant && !String(merged.xsoar.allowedOrigin || "").trim()) return merged;
   merged.xsoar = resolveSettings(merged.xsoar);
+  if (!allowRouteMismatch) assertIncidentRouteCompatibility(merged.xsoar);
   return merged;
 }
 
 export async function loadConfig({ requireTenant = false } = {}) {
   try {
     const parsed = JSON.parse(await readFile(CONFIG_PATH, "utf8"));
-    return resolveAppConfig(parsed, { requireTenant });
+    return resolveAppConfig(parsed, { requireTenant, allowRouteMismatch: true });
   } catch (error) {
     if (error?.code === "ENOENT") return resolveAppConfig({}, { requireTenant: false });
     throw error;
   }
 }
 
-export async function saveConfig(input, { requireTenant = true } = {}) {
-  const config = resolveAppConfig(input, { requireTenant });
+export async function saveConfig(input, options = {}) {
+  const config = resolveAppConfig(input, options);
   await mkdir(APP_DATA_DIRECTORY, { recursive: true });
   const temporaryPath = `${CONFIG_PATH}.${process.pid}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });

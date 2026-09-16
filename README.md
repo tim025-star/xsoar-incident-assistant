@@ -49,7 +49,7 @@ Cloud and remote model aliases are blocked. Before Ollama receives incident evid
 4. Enter a numeric **Incident ID**, or leave it blank and keep the intended XSOAR incident open in another tab.
 5. Select **Build response** in the local console.
 6. Watch **Live AI output** if Local AI is enabled, then review the analyst response.
-7. Confirm the AI-assisted response and select **Copy response**.
+7. If AI analysis was used, confirm the AI-assisted response, then select **Copy response**.
 
 When Incident ID is blank, the tool uses the only open incident tab. If several are open, enter the intended ID to avoid triaging the wrong case. An entered ID opens through the configured incident URL template. The tool closes temporary incident, search, and related-case tabs after evidence collection.
 
