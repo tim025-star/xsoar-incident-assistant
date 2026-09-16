@@ -46,7 +46,7 @@ Cloud and remote model aliases are blocked. Before Ollama receives incident evid
 2. Select **Connect Chrome**. If the app detects that Chrome access needs attention, use the setup action it displays, approve remote debugging, then connect again.
 3. Keep the intended XSOAR incident open in Chrome. Expand **Target a specific incident** only when you need to enter an Incident ID.
 4. Select **Build response** in the local console.
-5. If Local AI is enabled, watch the generated output in **Analyst response**, then review the validated final response.
+5. When the response is ready, the app returns to the local console automatically. If Local AI is enabled, review the validated output in **Analyst response**.
 6. If AI analysis was used, confirm the AI-assisted response, then select **Copy response**.
 
 When Incident ID is blank, the tool uses the only open incident tab. If several are open, enter the intended ID to avoid triaging the wrong case. An entered ID opens through the configured incident URL template. The tool closes temporary incident, search, and related-case tabs after evidence collection.

@@ -147,6 +147,7 @@ export class BrowserSessionManager {
     this.openChromePage = openChromePage;
     this.context = null;
     this.browser = null;
+    this.consoleUrl = "";
   }
 
   status() {
@@ -155,6 +156,53 @@ export class BrowserSessionManager {
 
   openSetup() {
     this.openChromePage(CHROME_SETUP_URL);
+  }
+
+  setConsoleUrl(url) {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol !== "http:" || parsed.hostname !== "127.0.0.1" || !parsed.port
+      || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || !parsed.hash.slice(1)
+    ) {
+      throw new Error("The local console URL must use the loopback home page.");
+    }
+    this.consoleUrl = parsed.href;
+  }
+
+  async showConsole() {
+    if (!this.context || !this.consoleUrl) return false;
+    const expected = new URL(this.consoleUrl);
+    let existing;
+    for (const page of this.context.pages()) {
+      try {
+        const current = new URL(page.url());
+        if (current.origin !== expected.origin || current.pathname !== expected.pathname) continue;
+        const authenticated = await page.evaluate(
+          (token) => sessionStorage.getItem("assistant-session-token") === token,
+          expected.hash.slice(1)
+        );
+        if (authenticated) {
+          existing = page;
+          break;
+        }
+      } catch {
+        continue;
+      }
+    }
+    if (existing) {
+      await existing.bringToFront();
+      return true;
+    }
+
+    const page = await this.context.newPage();
+    try {
+      await page.goto(this.consoleUrl, { waitUntil: "domcontentloaded", timeout: 5000 });
+      await page.bringToFront();
+      return true;
+    } catch (error) {
+      await page.close().catch(() => {});
+      throw error;
+    }
   }
 
   async start() {

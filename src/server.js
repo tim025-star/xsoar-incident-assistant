@@ -95,7 +95,9 @@ export function createAssistantServer({
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("The local server did not provide a TCP address.");
       localOrigin = `http://127.0.0.1:${address.port}`;
-      return `${localOrigin}/#${token}`;
+      const launchUrl = `${localOrigin}/#${token}`;
+      assistant.sessions.setConsoleUrl?.(launchUrl);
+      return launchUrl;
     }
   };
 }
