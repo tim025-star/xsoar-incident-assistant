@@ -211,8 +211,12 @@ export function assertIncidentUrl(value, settings, operation = "Incident navigat
 }
 
 export function assertIncidentRouteCompatibility(settings) {
-  const sampleUrl = new URL(settings.incidentPathTemplate.replace("{id}", "1"), settings.allowedOrigin);
-  if (!new RegExp(settings.incidentUrlPattern).test(sampleUrl.pathname)) {
+  const supportsAnIncidentIdLength = Array.from({ length: 32 }, (_, index) => "1".repeat(index + 1))
+    .some((sampleId) => {
+      const sampleUrl = new URL(settings.incidentPathTemplate.replace("{id}", sampleId), settings.allowedOrigin);
+      return new RegExp(settings.incidentUrlPattern).test(sampleUrl.pathname);
+    });
+  if (!supportsAnIncidentIdLength) {
     throw new Error("incidentPathTemplate must match incidentUrlPattern.");
   }
   return settings;

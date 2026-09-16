@@ -100,6 +100,11 @@ test("incident templates require the ID as the final path segment and must match
     buildHistoricalIncidentUrl("https://xsoar.example.test/Custom/case/4200/", "4199", trailingSlashSettings),
     "https://xsoar.example.test/Custom/case/4199/"
   );
+  assert.doesNotThrow(() => assertIncidentRouteCompatibility(resolveSettings({
+    allowedOrigin: "https://xsoar.example.test",
+    incidentUrlPattern: "\\/Custom\\/case\\/\\d{6}$",
+    incidentPathTemplate: "/Custom/case/{id}"
+  })));
   assert.throws(
     () => resolveSettings({
       allowedOrigin: "https://xsoar.example.test",
