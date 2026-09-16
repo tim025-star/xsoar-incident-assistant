@@ -38,7 +38,7 @@ Every runner and model asset has a fixed byte length and SHA-256 digest in `src/
 
 Select **Install default model** to use the verified GitHub path. If the default model is already present, the tool verifies it locally and does not contact the registry. Analysts can enter another valid local Ollama model and select **Pull selected model**; that path requires access to the Ollama registry. Both paths install the pinned Ollama runner from GitHub when needed.
 
-Cloud and remote model aliases are blocked. Before Ollama receives incident evidence, the selected model must appear on the loopback service at `127.0.0.1:11434` and pass a fresh local-model check. The tool has no cloud AI endpoint or configurable AI URL. The console shows download progress and live model output. Invalid or unavailable AI output falls back to the rules-based response.
+Cloud and remote model aliases are blocked. Before Ollama receives incident evidence, the selected model must appear on the loopback service at `127.0.0.1:11434` and pass a fresh local-model check. The tool has no cloud AI endpoint or configurable AI URL. Generated output streams in the analyst-response field. Invalid or unavailable AI output falls back to the rules-based response.
 
 ## Use
 
@@ -46,7 +46,7 @@ Cloud and remote model aliases are blocked. Before Ollama receives incident evid
 2. Select **Connect Chrome**. If the app detects that Chrome access needs attention, use the setup action it displays, approve remote debugging, then connect again.
 3. Keep the intended XSOAR incident open in Chrome. Expand **Target a specific incident** only when you need to enter an Incident ID.
 4. Select **Build response** in the local console.
-5. Watch **Live AI output** if Local AI is enabled, then review the analyst response.
+5. If Local AI is enabled, watch the generated output in **Analyst response**, then review the validated final response.
 6. If AI analysis was used, confirm the AI-assisted response, then select **Copy response**.
 
 When Incident ID is blank, the tool uses the only open incident tab. If several are open, enter the intended ID to avoid triaging the wrong case. An entered ID opens through the configured incident URL template. The tool closes temporary incident, search, and related-case tabs after evidence collection.
@@ -63,7 +63,7 @@ XSOAR routes vary by deployment. Before operational use, run a harmless search m
 
 The application never asks for or stores a password or API token, and it does not export Playwright `storageState` or copy Chrome profile files. Authentication remains in the normal Chrome profile. While connected, Playwright can inspect and control tabs exposed by Chrome's approved debugging session, so connect only this trusted local application and disconnect when finished.
 
-Configuration is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. It may include a tenant hostname, analyst identity, Local AI setting, and selected model name, but it must not contain credentials or incident content. Responses stay in process memory and reach the clipboard only after the analyst selects **Copy response**. The tool requires review confirmation before it copies an AI-assisted response. Only a bounded allowlist of incident and related-case fields goes to loopback Ollama.
+Configuration is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. It may include a tenant hostname, analyst identity, Local AI setting, selected model name, response wording, and field-label mappings, but it must not contain credentials or incident content. Responses stay in process memory and reach the clipboard only after the analyst selects **Copy response**. The tool requires review confirmation before it copies an AI-assisted response. Only a bounded allowlist from the original incident goes to loopback Ollama. Related-ticket resolutions are appended locally after AI analysis and are never sent to the model.
 
 An organisation must review and approve the tool against its own browser, identity, information-handling, and software policies. See [SECURITY.md](SECURITY.md).
 

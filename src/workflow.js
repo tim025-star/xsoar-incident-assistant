@@ -148,7 +148,7 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
     if (enrichDraft) {
       await onProgress("Running local AI analysis.");
       try {
-        const enrichment = await enrichDraft({ incident, historical, draft });
+        const enrichment = await enrichDraft({ incident });
         draft = buildDraft(output, settings.template, enrichment);
         aiEnriched = true;
       } catch {

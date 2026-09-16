@@ -139,3 +139,27 @@ test("draft output contains configured identity only when the user supplies it",
   assert.doesNotMatch(anonymous, /Security Analyst$/);
   assert.match(named, /Example Analyst\nSecurity Analyst$/);
 });
+
+test("related ticket resolutions only use resolution-bearing fields", () => {
+  const base = {
+    customerName: "Example Organisation",
+    incidentName: "Example detection",
+    historical: [
+      {
+        ticketId: "4199",
+        descriptionLong: "Alert description that must not be presented as a resolution",
+        historicalSummary: "General related-ticket summary"
+      }
+    ]
+  };
+
+  const withoutResolution = buildDraft(base, settings().template);
+  assert.match(withoutResolution, /Related Ticket Resolutions\nNo related ticket resolution was available\./);
+  assert.doesNotMatch(withoutResolution, /#4199:/);
+
+  const withResolution = buildDraft({
+    ...base,
+    historical: [{ ...base.historical[0], closeNotes: "Contained host and reset credentials." }]
+  }, settings().template);
+  assert.match(withResolution, /1\. #4199: Contained host and reset credentials\./);
+});

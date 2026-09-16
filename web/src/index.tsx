@@ -33,7 +33,7 @@ const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting; name: string; use: string 
   { key: "classification", name: "Classification", use: "Past rating" },
   { key: "incidentOutcome", name: "Incident outcome", use: "Related recommendations" },
   { key: "closeNotes", name: "Close notes", use: "Related recommendations" },
-  { key: "descriptionLong", name: "Long description", use: "Related-case fallback" }
+  { key: "descriptionLong", name: "Long description", use: "Original-incident AI context" }
 ];
 
 function errorMessage(error: unknown) {
@@ -45,7 +45,7 @@ function splitLabels(value: string) {
 }
 
 function App() {
-  let aiOutputElement: HTMLTextAreaElement | undefined;
+  let draftElement: HTMLTextAreaElement | undefined;
   const configurationPage = location.pathname === "/configuration";
   const [config, setConfig] = createSignal<AppConfig>();
   const [status, setStatus] = createSignal<Status>();
@@ -60,11 +60,16 @@ function App() {
   const modelDownloadRunning = () => pullingModel() || status()?.operation === "model download";
   const tenantMissing = () => !config()?.xsoar.allowedOrigin.trim();
   const chromeSetupRequired = () => /remote debugging|valid browser endpoint|could not connect to chrome/i.test(message());
+  const analystResponse = () => {
+    const current = status();
+    if (current?.draft) return current.draft;
+    return current?.aiOutput ? `Local AI analysis (live)\n${current.aiOutput}` : "";
+  };
 
   createEffect(() => {
-    status()?.aiOutput;
+    analystResponse();
     queueMicrotask(() => {
-      if (aiOutputElement) aiOutputElement.scrollTop = aiOutputElement.scrollHeight;
+      if (draftElement) draftElement.scrollTop = status()?.draft ? 0 : draftElement.scrollHeight;
     });
   });
 
@@ -100,11 +105,11 @@ function App() {
       return next;
     });
   };
-  const updateHistoricalLabels = (key: "historicalSummaryLabels" | "historicalRecommendationLabels", value: string) => {
+  const updateHistoricalRecommendationLabels = (value: string) => {
     setConfig((current) => {
       if (!current) return current;
       const next = structuredClone(current);
-      next.xsoar[key] = splitLabels(value);
+      next.xsoar.historicalRecommendationLabels = splitLabels(value);
       return next;
     });
   };
@@ -275,14 +280,9 @@ function App() {
             <span class="helper">Leave blank to use the only open incident tab. Enter an ID when several incidents are open.</span>
           </label>
         </details>
-        <Show when={settings().localAi.enabled}>
-          <label class="field mb-5">Live AI output
-            <textarea ref={aiOutputElement} id="aiOutput" class="control min-h-44 resize-y font-mono text-xs leading-5" rows="7" readOnly placeholder="Ollama output appears here during AI-assisted analysis." value={status()?.aiOutput || ""} />
-            <span class="helper">Raw Ollama response. The analyst response only uses output that passes the schema checks.</span>
-          </label>
-        </Show>
         <label class="field">Analyst response
-          <textarea id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The analyst-ready response appears here." value={status()?.draft || ""} />
+          <textarea ref={draftElement} id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The analyst-ready response appears here." value={analystResponse()} />
+          <span class="helper">During Local AI analysis, generated output streams here. The final response replaces it only after the output passes schema validation. Related ticket resolutions are appended afterward by the app.</span>
         </label>
         <Show when={status()?.aiDraft}>
           <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
@@ -364,14 +364,9 @@ function App() {
               </label>
             )}</For>
             <label class="field rounded-xl border border-line bg-slate-50 p-4">
-              <span>Historical summary</span>
-              <span class="text-xs font-normal text-muted">Used for: Related-case fallback</span>
-              <input id="historicalSummaryLabels" class="control mt-1" placeholder="Historical Summary" value={settings().xsoar.historicalSummaryLabels.join(", ")} onInput={(event) => updateHistoricalLabels("historicalSummaryLabels", event.currentTarget.value)} />
-            </label>
-            <label class="field rounded-xl border border-line bg-slate-50 p-4">
               <span>Historical recommendations</span>
               <span class="text-xs font-normal text-muted">Used for: Related recommendations</span>
-              <input id="historicalRecommendationLabels" class="control mt-1" placeholder="Historical Recommendations, Customer Recommendations" value={settings().xsoar.historicalRecommendationLabels.join(", ")} onInput={(event) => updateHistoricalLabels("historicalRecommendationLabels", event.currentTarget.value)} />
+              <input id="historicalRecommendationLabels" class="control mt-1" placeholder="Historical Recommendations, Customer Recommendations" value={settings().xsoar.historicalRecommendationLabels.join(", ")} onInput={(event) => updateHistoricalRecommendationLabels(event.currentTarget.value)} />
             </label>
           </div>
           <details class="mt-5 border-t border-line pt-4">
@@ -398,7 +393,7 @@ function App() {
               updateLocalAi("enabled", event.currentTarget.checked);
               void runAction(persistLocalAiSettings);
             }} />
-            <span><span class="block font-bold">Enable local AI analysis</span><span class="helper mt-1 block">Sends allowlisted incident fields and related-case notes to Ollama on this workstation.</span></span>
+            <span><span class="block font-bold">Enable local AI analysis</span><span class="helper mt-1 block">Sends allowlisted fields from the original incident to Ollama on this workstation. Related tickets never go to the model.</span></span>
           </label>
           <label class="field mt-4">Local model
             <input id="localAiModel" class="control font-mono text-sm" list="localAiModels" autocomplete="off" value={settings().localAi.model} onInput={(event) => updateLocalAi("model", event.currentTarget.value)} />
