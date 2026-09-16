@@ -96,6 +96,19 @@ function App() {
     }
   };
 
+  const persistLocalAiSettings = async () => {
+    const current = config();
+    if (!current) return;
+    try {
+      const localAi = await rpc.config.saveLocalAi(current.localAi);
+      setConfig((latest) => latest ? { ...latest, localAi } : latest);
+    } catch (error) {
+      const persisted = await rpc.config.get().catch(() => undefined);
+      if (persisted) setConfig(persisted);
+      throw error;
+    }
+  };
+
   const openSession = () => runAction(async () => {
     await persistSettings();
     await rpc.browser.open();
@@ -104,6 +117,7 @@ function App() {
   const generateDraft = () => runAction(async () => {
     setAcknowledgedDraftVersion(undefined);
     if (!status()?.session.running) await persistSettings();
+    else await persistLocalAiSettings();
     await rpc.draft.generate({ incidentId: incidentId().trim() });
   });
   const pullSelectedModel = async () => {
@@ -114,6 +128,7 @@ function App() {
       ? "Installing the default local model from GitHub…"
       : `Downloading ${current.localAi.model} from the Ollama registry…`);
     try {
+      await persistLocalAiSettings();
       await rpc.localAi.pull({ model: current.localAi.model });
       await Promise.all([refreshLocalAi(), refresh()]);
     } catch (error) {
@@ -242,13 +257,16 @@ function App() {
               </section>
 
               <section class="panel">
-                <fieldset class="contents" disabled={busy() || modelDownloadRunning() || status()?.session.running}>
+                <fieldset class="contents" disabled={busy() || modelDownloadRunning()}>
                 <div class="mb-5">
                   <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">03 · Optional local AI</p>
                   <h2 class="m-0 text-xl font-bold">Ollama draft enrichment</h2>
                 </div>
                 <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-slate-50 p-4">
-                  <input id="localAiEnabled" class="mt-1 h-4 w-4" type="checkbox" checked={settings().localAi.enabled} onChange={(event) => updateLocalAi("enabled", event.currentTarget.checked)} />
+                  <input id="localAiEnabled" class="mt-1 h-4 w-4" type="checkbox" checked={settings().localAi.enabled} onChange={(event) => {
+                    updateLocalAi("enabled", event.currentTarget.checked);
+                    void runAction(persistLocalAiSettings);
+                  }} />
                   <span><span class="block font-bold">Use local AI for this draft</span><span class="helper mt-1 block">Optional. Incident content is sent only to Ollama running on this computer after you enable this setting.</span></span>
                 </label>
                 <label class="field mt-4">Local Ollama model
@@ -257,7 +275,7 @@ function App() {
                 </label>
                 </fieldset>
                 <div class="mt-3 flex flex-wrap items-center gap-2.5">
-                  <button id="pullModel" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning() || status()?.session.running} onClick={pullSelectedModel}>{settings().localAi.model === "qwen3.5:9b" ? "Install default from GitHub" : "Download from Ollama registry"}</button>
+                  <button id="pullModel" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning()} onClick={pullSelectedModel}>{settings().localAi.model === "qwen3.5:9b" ? "Install default from GitHub" : "Download from Ollama registry"}</button>
                   <Show when={modelDownloadRunning()}><button id="cancelPull" class="button button-secondary" type="button" onClick={cancelModelPull}>Cancel download</button></Show>
                   <button id="refreshLocalAi" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning()} onClick={() => runAction(refreshLocalAi)}>Refresh local AI status</button>
                 </div>

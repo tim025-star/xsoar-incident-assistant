@@ -91,6 +91,16 @@ export function createAssistantRouter({
         } catch (error) {
           return fail(error);
         }
+      }),
+      saveLocalAi: os.input(localAiSettingsSchema).output(localAiSettingsSchema).handler(async ({ input }) => {
+        try {
+          const current = await configStore.load({ requireTenant: false });
+          const saved = await configStore.save({ ...current, localAi: input }, { requireTenant: false });
+          activity = { ...activity, detail: "Local AI settings saved." };
+          return saved.localAi;
+        } catch (error) {
+          return fail(error);
+        }
       })
     },
     status: os.handler(() => status()),

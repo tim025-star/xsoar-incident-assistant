@@ -85,7 +85,7 @@ try {
   assert.equal(await page.locator("#pullModel").textContent(), "Install default from GitHub");
   await page.locator("#localAiEnabled").check();
   await page.locator("#pullModel").click();
-  await page.getByText("Local Ollama is available.").waitFor();
+  await page.getByText("Local model qwen3.5:9b is ready.").waitFor();
   assert.deepEqual(pulledModels, ["qwen3.5:9b"]);
 
   await page.locator("#localAiModel").fill("slow-model");
@@ -110,6 +110,13 @@ try {
   assert.equal(await page.locator("#allowedOrigin").isDisabled(), true);
   assert.equal(await page.locator("#analystName").isDisabled(), true);
   assert.equal(await page.locator("#maxHistoricalIncidents").isDisabled(), true);
+  assert.equal(await page.locator("#localAiEnabled").isDisabled(), false);
+  await page.locator("#localAiEnabled").uncheck();
+  await page.getByText("Local AI settings saved.").waitFor();
+  assert.equal(uiConfig.localAi.enabled, false);
+  await page.locator("#localAiEnabled").check();
+  await page.getByText("Local AI settings saved.").waitFor();
+  assert.equal(uiConfig.localAi.enabled, true);
   await page.locator("#stop").click();
   await page.getByText("Chrome and its tabs remain open.").waitFor();
   assert.equal(sessionRunning, false);

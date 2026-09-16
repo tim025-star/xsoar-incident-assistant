@@ -130,6 +130,40 @@ test("legacy settings migrate by discarding retired fields", () => {
   assert.deepEqual(migrated.localAi, { enabled: false, model: "qwen3.5:9b" });
 });
 
+test("local AI settings can be saved while Chrome remains connected", async () => {
+  let stored = resolveAppConfig({ xsoar: { allowedOrigin: "https://xsoar.example.test" } });
+  const configStore = {
+    load: async () => stored,
+    save: async (input, options) => {
+      stored = resolveAppConfig(input, options);
+      return stored;
+    }
+  };
+  const sessions = {
+    status: () => ({ running: true }),
+    start: async () => {},
+    stop: async () => {},
+    adapter: () => ({})
+  };
+  const app = createAssistantServer({
+    token: "local-ai-settings-token",
+    routerOptions: { configStore, sessions }
+  });
+  const origin = new URL(await app.listen(0)).origin;
+  const client = createORPCClient(new RPCLink({
+    url: `${origin}/rpc`,
+    headers: { "X-Assistant-Token": "local-ai-settings-token", Origin: origin }
+  }));
+  try {
+    const saved = await client.config.saveLocalAi({ enabled: true, model: "qwen3.5:9b" });
+    assert.deepEqual(saved, { enabled: true, model: "qwen3.5:9b" });
+    assert.equal(stored.localAi.enabled, true);
+    await assert.rejects(() => client.config.save(stored), /Disconnect Chrome before changing settings/);
+  } finally {
+    await closeServer(app.server);
+  }
+});
+
 test("version 10 settings gain the default incident path template", () => {
   const upgraded = resolveAppConfig({
     configVersion: 10,
