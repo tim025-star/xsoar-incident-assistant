@@ -1,8 +1,8 @@
 {
   "name": "xsoar-incident-assistant",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": false,
-  "description": "A local Playwright assistant for preparing incident-response drafts in Cortex XSOAR.",
+  "description": "A local Playwright assistant for processing Cortex XSOAR incident data.",
   "type": "module",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

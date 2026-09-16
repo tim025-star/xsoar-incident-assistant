@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildEnrichmentEvidence, createOllamaClient, DEFAULT_OLLAMA_MODEL } from "../src/local-ai.js";
+import { buildEnrichmentEvidence, createOllamaClient, DEFAULT_OLLAMA_MODEL, processedIncidentSchema } from "../src/local-ai.js";
 
 function response(data, { status = 200, headers = {} } = {}) {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", ...headers } });
@@ -23,11 +23,20 @@ function streamedResponse(lines, delayMs = 0) {
     }), { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
 }
 
-test("local enrichment uses bounded allowlisted evidence and validates structured output", async () => {
+test("processed incident fields can stay empty but cannot include decision fields", () => {
+  assert.deepEqual(processedIncidentSchema.parse({ eventSummary: "", observedFacts: [] }), {
+    eventSummary: "", observedFacts: []
+  });
+  assert.equal(processedIncidentSchema.safeParse({
+    eventSummary: "Recorded event", observedFacts: [], recommendations: ["Isolate the host."]
+  }).success, false);
+});
+
+test("local processing uses bounded allowlisted evidence and a factual-only schema", async () => {
   const requests = [];
   const generated = JSON.stringify({
-    investigationSummary: "Review observed event details.", relatedActivity: "Review activity recorded in the original incident.",
-    vendorGuidance: "Use applicable vendor documentation.", recommendations: ["Validate the affected system with its owner."]
+    eventSummary: "The incident records an authentication event on host endpoint-01.",
+    observedFacts: ["Source IP: 192.0.2.10", "User: example.user"]
   });
   const client = createOllamaClient({ fetchImplementation: async (url, options = {}) => {
     requests.push({ url, options });
@@ -47,13 +56,17 @@ test("local enrichment uses bounded allowlisted evidence and validates structure
     historical: [{ ticketId: "4199", closeNotes: "RELATED TICKET MUST NOT REACH AI" }],
     onToken: (chunk) => chunks.push(chunk)
   });
-  assert.equal(enrichment.recommendations.length, 1);
+  assert.equal(enrichment.observedFacts.length, 2);
   assert.equal(chunks.join(""), generated);
   const body = JSON.parse(requests.find((request) => request.url.endsWith("/api/chat")).options.body);
   const prompt = JSON.parse(body.messages[1].content);
   assert.equal(prompt.evidence.current.unexpected, undefined);
   assert.deepEqual(Object.keys(prompt.evidence), ["current"]);
   assert.doesNotMatch(body.messages[1].content, /RELATED TICKET MUST NOT REACH AI/);
+  assert.match(body.messages[0].content, /data transformation component, not an investigator or decision maker/i);
+  assert.match(body.messages[0].content, /Do not infer causes, intent, relationships, risk, severity, impact, outcomes, classifications, conclusions, or recommendations/i);
+  assert.match(body.messages[0].content, /empty string or array when the evidence does not state/i);
+  assert.doesNotMatch(JSON.stringify(body.format), /recommendations|vendorGuidance|investigationSummary|relatedActivity/);
   assert.equal(body.options.num_ctx, 8192);
   assert.equal(body.stream, true);
   assert.equal(body.think, false);
@@ -125,7 +138,7 @@ test("untagged model aliases resolve to the installed latest tag after pull and 
     if (url.endsWith("/api/pull")) return streamedResponse([{ status: "success" }]);
     if (url.endsWith("/api/show")) return response({});
     if (url.endsWith("/api/chat")) return streamedResponse([
-      { message: { content: JSON.stringify({ investigationSummary: "Summary", relatedActivity: "Activity", vendorGuidance: "Guidance", recommendations: [] }) }, done: false },
+      { message: { content: JSON.stringify({ eventSummary: "Recorded event", observedFacts: [] }) }, done: false },
       { message: { content: "" }, done: true }
     ]);
     throw new Error(`Unexpected URL: ${url}`);
@@ -178,7 +191,7 @@ test("Ollama JSON endpoints reject oversized bodies before schema parsing", asyn
     if (url.endsWith("/api/show")) return response({});
     return new Response(`${JSON.stringify({ message: { content: "x".repeat(70 * 1024) }, done: false })}\n`, { headers: { "Content-Type": "application/x-ndjson" } });
   } });
-  await assert.rejects(() => chat.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: {}, historical: [] }), /too much AI analysis data/);
+  await assert.rejects(() => chat.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: {}, historical: [] }), /too much processed incident data/);
 });
 
 test("redirect responses cannot forward incident evidence away from loopback", async () => {
@@ -193,7 +206,7 @@ test("redirect responses cannot forward incident evidence away from loopback", a
       }
       throw new Error(`Unexpected URL: ${url}`);
     } });
-    await assert.rejects(() => client.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: { ticketId: "sensitive" }, historical: [] }), new RegExp(`analysis request failed \\(${status}\\)`));
+    await assert.rejects(() => client.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: { ticketId: "sensitive" }, historical: [] }), new RegExp(`data-processing request failed \\(${status}\\)`));
     assert.equal(redirectedBody, undefined);
   }
 });

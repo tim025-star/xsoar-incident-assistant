@@ -27,8 +27,9 @@ let foregroundPage = "console";
 let registeredConsoleUrl = "";
 const pulledModels = [];
 const requestedIncidentIds = [];
-const firstAiChunk = '{"investigationSummary":"Reviewing';
-const secondAiChunk = ' alert"}';
+const firstAiChunk = `{"eventSummary":"${Array.from({ length: 60 }, (_, index) => `field-${index + 1}`).join("\\n")}`;
+const secondAiChunk = '","observedFacts":[]}';
+const generatedDraft = Array.from({ length: 60 }, (_, index) => `Evidence field ${index + 1}: observed value`).join("\n");
 const sessions = {
   status: () => ({ running: sessionRunning }),
   openSetup: () => { setupOpens += 1; },
@@ -81,11 +82,11 @@ const app = createAssistantServer({
     },
     generateDraft: async ({ incidentId, onProgress, enrichDraft }) => {
       requestedIncidentIds.push(incidentId);
-      await onProgress("Running local AI analysis.");
+      await onProgress("Running local AI data processing.");
       await enrichDraft?.({ incident: {} });
       foregroundPage = "workflow";
       await workflowPage?.bringToFront();
-      return { draft: "Locally enriched example draft", warning: "", reviewed: 0, aiEnriched: true };
+      return { draft: generatedDraft, warning: "", reviewed: 0, aiEnriched: true };
     }
   }
 });
@@ -108,7 +109,7 @@ try {
   assert.equal(await page.locator("#setup").count(), 0, "Chrome setup must stay hidden until a connection misconfiguration is detected");
   assert.equal(await page.locator("#allowedOrigin").count(), 0, "configuration controls must not appear on the home page");
   await page.getByRole("link", { name: "Configuration", exact: true }).click();
-  await page.getByRole("heading", { name: "Data mapping" }).waitFor();
+  await page.getByRole("heading", { name: "JSON log mapping" }).waitFor();
   await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
   await page.locator("#fieldLabel-occurred").fill("Occurred, Event Time");
   await page.locator("#saveMappings").click();
@@ -122,7 +123,7 @@ try {
   assert.equal(await page.locator("#pullModel").textContent(), "Install default model");
   await page.locator("#localAiEnabled").check();
   await page.locator("#pullModel").click();
-  await page.getByText("Model qwen3.5:9b is ready for analysis.").waitFor();
+  await page.getByText("Model qwen3.5:9b is ready for field processing.").waitFor();
   assert.deepEqual(pulledModels, ["qwen3.5:9b"]);
 
   await page.locator("#localAiModel").fill("slow-model");
@@ -149,7 +150,7 @@ try {
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
 
   await page.getByRole("link", { name: "Home" }).click();
-  await page.getByRole("heading", { name: "Build analyst response" }).waitFor();
+  await page.getByRole("heading", { name: "Process incident data" }).waitFor();
   await page.locator("#open").click();
   await page.locator("#stop:not([disabled])").waitFor({ timeout: 2000 });
   assert.equal(starts, 1);
@@ -192,9 +193,26 @@ try {
     firstAiChunk,
     { timeout: 3000 }
   );
+  const liveReadingPosition = await page.locator("#draft").evaluate((element) => {
+    element.style.minHeight = "0";
+    element.style.height = "80px";
+    element.scrollTop = Math.floor(element.scrollHeight / 3);
+    element.dispatchEvent(new Event("scroll"));
+    return element.scrollTop;
+  });
+  assert.ok(liveReadingPosition > 0, "the live response fixture must overflow its text area");
+  await page.waitForTimeout(700);
+  assert.equal(await page.locator("#draft").evaluate((element) => element.scrollTop), liveReadingPosition, "status refreshes must preserve the reader's live-output scroll position");
   await page.locator("#aiDraftAcknowledgement").waitFor();
-  assert.equal(await page.locator("#aiOutput").count(), 0, "live AI output belongs in the analyst response, not a separate field");
-  assert.equal(await page.locator("#draft").inputValue(), "Locally enriched example draft");
+  assert.equal(await page.locator("#aiOutput").count(), 0, "live AI output belongs in the processed-data field, not a separate field");
+  assert.equal(await page.locator("#draft").inputValue(), generatedDraft);
+  const draftReadingPosition = await page.locator("#draft").evaluate((element) => {
+    element.scrollTop = Math.floor(element.scrollHeight / 2);
+    return element.scrollTop;
+  });
+  assert.ok(draftReadingPosition > 0, "the response fixture must overflow its text area");
+  await page.waitForTimeout(700);
+  assert.equal(await page.locator("#draft").evaluate((element) => element.scrollTop), draftReadingPosition, "status refreshes must preserve the reader's response scroll position");
   assert.equal(foregroundPage, "console", "the local console must return to the foreground when the response is ready");
   assert.equal(consoleRestoreCalls, 1);
   await workflowPage.close();
@@ -243,6 +261,24 @@ try {
   });
   assert.equal(mappedIncident.destinationIp, "192.0.2.42");
   await mappedLogPage.close();
+
+  const jsonLogPage = await browser.newPage();
+  await jsonLogPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: '<div class="header-inv-id">#4203</div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper">JSON Rule</div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper">Endpoint</div></div><pre>{"network":{"destination":{"ip":"198.51.100.24"}},"events":[{"actor":{"user_name":"example.user"}}]}</pre>'
+  }));
+  await jsonLogPage.goto("https://xsoar.example.test/Custom/GenericLayout/4203");
+  const jsonIncident = await jsonLogPage.evaluate(extractIncidentFromPage, {
+    ...settings,
+    fieldLabels: {
+      ...settings.fieldLabels,
+      destinationIp: ["network.destination.ip"],
+      sourceUsername: ["events.actor.user_name"]
+    }
+  });
+  assert.equal(jsonIncident.destinationIp, "198.51.100.24");
+  assert.equal(jsonIncident.sourceUsername, "example.user");
+  await jsonLogPage.close();
 
   const query = 'name:"Example Rule" and type:"Endpoint"';
   await incidentPage.goto(`https://xsoar.example.test/incidents?query=${encodeURIComponent(query)}`);

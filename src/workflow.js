@@ -141,18 +141,18 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
     );
 
     const output = { ...incident, historical };
-    await onProgress("Building the analyst response.");
+    await onProgress("Building the processed incident data.");
     let draft = buildDraft(output, settings.template);
     let enrichmentWarning = "";
     let aiEnriched = false;
     if (enrichDraft) {
-      await onProgress("Running local AI analysis.");
+      await onProgress("Running local AI data processing.");
       try {
         const enrichment = await enrichDraft({ incident });
         draft = buildDraft(output, settings.template, enrichment);
         aiEnriched = true;
       } catch {
-        enrichmentWarning = "Local AI did not return valid analysis. The rules-based response is ready.";
+        enrichmentWarning = "Local AI did not return valid processed fields. The source-field response is ready.";
       }
     }
     return {
