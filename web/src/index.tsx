@@ -15,7 +15,7 @@ function errorMessage(error: unknown) {
 }
 
 function App() {
-  let aiOutputElement: HTMLTextAreaElement | undefined;
+  let draftElement: HTMLTextAreaElement | undefined;
   const [config, setConfig] = createSignal<AppConfig>();
   const [status, setStatus] = createSignal<Status>();
   const [localAiStatus, setLocalAiStatus] = createSignal<LocalAiStatus>();
@@ -27,11 +27,16 @@ function App() {
     : "Restart the app to open a valid local console.");
   const [busy, setBusy] = createSignal(false);
   const modelDownloadRunning = () => pullingModel() || status()?.operation === "model download";
+  const analystResponse = () => {
+    const current = status();
+    if (current?.draft) return current.draft;
+    return current?.aiOutput ? `Local AI analysis (live)\n${current.aiOutput}` : "";
+  };
 
   createEffect(() => {
-    status()?.aiOutput;
+    analystResponse();
     queueMicrotask(() => {
-      if (aiOutputElement) aiOutputElement.scrollTop = aiOutputElement.scrollHeight;
+      if (draftElement) draftElement.scrollTop = status()?.draft ? 0 : draftElement.scrollHeight;
     });
   });
 
@@ -275,7 +280,7 @@ function App() {
                     updateLocalAi("enabled", event.currentTarget.checked);
                     void runAction(persistLocalAiSettings);
                   }} />
-                  <span><span class="block font-bold">Enable local AI analysis</span><span class="helper mt-1 block">Sends allowlisted incident fields and related-case notes to Ollama on this workstation. Nothing goes to a cloud AI service.</span></span>
+                  <span><span class="block font-bold">Enable local AI analysis</span><span class="helper mt-1 block">Sends allowlisted fields from the original incident to Ollama on this workstation. Related tickets never go to the model.</span></span>
                 </label>
                 <label class="field mt-4">Local model
                   <input id="localAiModel" class="control font-mono text-sm" list="localAiModels" autocomplete="off" value={settings().localAi.model} onInput={(event) => updateLocalAi("model", event.currentTarget.value)} />
@@ -311,14 +316,9 @@ function App() {
                 <button id="stop" class="button button-secondary" type="button" disabled={busy() || !status()?.session.running} onClick={() => runAction(() => rpc.browser.stop())}>Disconnect</button>
               </div>
               <p class="helper mt-0">Blank ID: uses the only open incident tab. Entered ID: opens that incident directly. The app closes its temporary tabs after evidence collection.</p>
-              <Show when={settings().localAi.enabled}>
-                <label class="field mb-5">Live AI output
-                  <textarea ref={aiOutputElement} id="aiOutput" class="control min-h-44 resize-y font-mono text-xs leading-5" rows="7" readOnly placeholder="Ollama output appears here during AI-assisted analysis." value={status()?.aiOutput || ""} />
-                  <span class="helper">Raw Ollama response. The analyst response only uses output that passes the schema checks.</span>
-                </label>
-              </Show>
               <label class="field">Analyst response
-                <textarea id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The analyst-ready response appears here." value={status()?.draft || ""} />
+                <textarea ref={draftElement} id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The analyst-ready response appears here." value={analystResponse()} />
+                <span class="helper">During Local AI analysis, generated output streams here. The final response replaces it only after the output passes schema validation. Related ticket resolutions are appended afterward by the app.</span>
               </label>
               <Show when={status()?.aiDraft}>
                 <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">

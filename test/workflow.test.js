@@ -148,16 +148,22 @@ test("workflow retains the rules-based response if local enrichment fails", asyn
 });
 
 test("workflow inserts injected local enrichment without changing browser concurrency", async () => {
+  let enrichmentInput;
   const result = await runIncidentDraft({
     adapter: createAdapter(), settings,
-    enrichDraft: async () => ({
-      investigationSummary: "Review the event with the asset owner.",
-      relatedActivity: "Compare supplied matching incidents.",
-      vendorGuidance: "Use applicable vendor documentation.",
-      recommendations: ["Confirm containment requirements."]
-    })
+    enrichDraft: async (input) => {
+      enrichmentInput = input;
+      return {
+        investigationSummary: "Review the event with the asset owner.",
+        relatedActivity: "Review activity recorded on the original incident.",
+        vendorGuidance: "Use applicable vendor documentation.",
+        recommendations: ["Confirm containment requirements."]
+      };
+    }
   });
+  assert.deepEqual(Object.keys(enrichmentInput), ["incident"]);
   assert.match(result.draft, /Review the event with the asset owner/);
   assert.match(result.draft, /Confirm containment requirements/);
+  assert.ok(result.draft.indexOf("Confirm containment requirements.") < result.draft.indexOf("#4199: Reviewed incident 4199"));
   assert.equal(result.aiEnriched, true);
 });

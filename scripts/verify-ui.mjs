@@ -66,7 +66,7 @@ const app = createAssistantServer({
     generateDraft: async ({ incidentId, onProgress, enrichDraft }) => {
       requestedIncidentIds.push(incidentId);
       await onProgress("Running local AI analysis.");
-      await enrichDraft?.({ incident: {}, historical: [], draft: "Rules-based response" });
+      await enrichDraft?.({ incident: {} });
       return { draft: "Locally enriched example draft", warning: "", reviewed: 0, aiEnriched: true };
     }
   }
@@ -147,9 +147,14 @@ try {
 
   await page.locator("#incidentId").fill("4300");
   await page.locator("#run").click();
-  await page.waitForFunction((chunk) => (document.querySelector("#aiOutput")?.value || "") === chunk, firstAiChunk);
+  await page.waitForFunction(
+    (chunk) => (document.querySelector("#draft")?.value || "").includes(chunk),
+    firstAiChunk,
+    { timeout: 3000 }
+  );
   await page.locator("#aiDraftAcknowledgement").waitFor();
-  assert.equal(await page.locator("#aiOutput").inputValue(), `${firstAiChunk}${secondAiChunk}`);
+  assert.equal(await page.locator("#aiOutput").count(), 0, "live AI output belongs in the analyst response, not a separate field");
+  assert.equal(await page.locator("#draft").inputValue(), "Locally enriched example draft");
   assert.deepEqual(requestedIncidentIds, ["4300"]);
   assert.equal(await page.locator("#copy").isDisabled(), true);
   await page.locator("#aiDraftAcknowledgement").check();

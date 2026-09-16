@@ -314,14 +314,14 @@ export function buildDraft(output, templateInput = {}, enrichment = {}) {
     output.sourceUsername,
     output.clientUserName
   ) || "n/a";
-  const recommendations = historical
+  const relatedResolutions = historical
     .map((item) => ({ ticketId: item.ticketId, recommendation: selectHistoricalRecommendation(item) }))
     .filter((item) => item.recommendation)
     .map((item, index) => `${index + 1}. #${item.ticketId || "unknown"}: ${item.recommendation}`);
   const localRecommendations = Array.isArray(enrichment.recommendations)
     ? enrichment.recommendations.map(cleanText).filter(isAvailable).slice(0, 5)
     : [];
-  const allRecommendations = [...recommendations, ...localRecommendations.map((item, index) => `${recommendations.length + index + 1}. ${item}`)];
+  const allRecommendations = localRecommendations.map((item, index) => `${index + 1}. ${item}`);
   const investigationSummary = firstAvailable(enrichment.investigationSummary) || "x x x";
   const relatedActivity = firstAvailable(enrichment.relatedActivity) || "x x x";
   const vendorGuidance = firstAvailable(enrichment.vendorGuidance) || "x x x";
@@ -361,6 +361,10 @@ ${allRecommendations.length ? allRecommendations.join("\n") : "x x x"}
 
 Vendor Guidance
 ${vendorGuidance}
+-----
+
+Related Ticket Resolutions
+${relatedResolutions.length ? relatedResolutions.join("\n") : "No related ticket resolution was available."}
 -----
 
 ${template.contactText}${signature ? `\n\n${signature}` : ""}`;
