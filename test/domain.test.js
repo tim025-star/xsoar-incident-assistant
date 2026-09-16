@@ -6,6 +6,7 @@ import {
   assertSearchUrl,
   buildDraft,
   buildHistoricalIncidentUrl,
+  buildIncidentUrlFromId,
   buildIncidentSearchUrl,
   buildSearchQuery,
   resolveSettings
@@ -61,9 +62,21 @@ test("incident and historical navigation remain in the configured tenant and pat
     buildHistoricalIncidentUrl(current, "4199", resolved),
     "https://xsoar.example.test/Custom/GenericLayout/4199"
   );
+  assert.equal(
+    buildIncidentUrlFromId("4201", resolved),
+    "https://xsoar.example.test/Custom/GenericLayout/4201"
+  );
   assert.throws(
     () => buildHistoricalIncidentUrl(current, "../admin", resolved),
     /must be numeric/
+  );
+  assert.throws(() => buildIncidentUrlFromId("../admin", resolved), /must be numeric/);
+  assert.throws(
+    () => resolveSettings({
+      allowedOrigin: "https://xsoar.example.test",
+      incidentPathTemplate: "https://attacker.example/{id}"
+    }),
+    /absolute path on the configured XSOAR origin/
   );
 });
 

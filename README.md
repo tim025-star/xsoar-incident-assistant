@@ -45,17 +45,18 @@ Cloud/remote aliases are rejected. Before incident evidence is sent, the selecte
 
 1. Open the application from its desktop or Start-menu shortcut.
 2. If Chrome was restarted, select **Open Chrome setup** and approve remote debugging.
-3. Select **Connect Chrome** and keep one XSOAR incident open in another tab.
-4. Select **Generate draft** in the assistant tab.
-5. Review the draft, then explicitly select **Copy draft** if needed.
+3. Select **Connect Chrome**.
+4. Enter a numeric **Incident ID**, or leave it blank and keep the intended XSOAR incident open in another tab.
+5. Select **Generate draft** in the assistant tab.
+6. Review the draft, then explicitly select **Copy draft** if needed.
 
-Temporary search and historical tabs are closed, and the original incident is brought back to the front. If multiple incident tabs are open, the assistant asks you to bring the intended one to the front.
+When Incident ID is blank, the assistant scans all connected Chrome tabs and uses the only open incident. If several are open, enter the intended ID. The assistant opens an entered ID using the configured incident path template. Temporary incident, search, and historical tabs are closed; an incident that was already open is brought back to the front.
 
 If launch reports a startup error, reinstall the current release. The launcher displays an error instead of failing silently.
 
 ## Configure and verify your tenant
 
-The settings page includes the tenant origin, analyst identity, incident URL pattern, incidents page path, URL query parameter, historical lookback, result limit, and page timeout. No person's name is hard-coded.
+The settings page includes the tenant origin, analyst identity, incident URL pattern, incident path template, incidents page path, URL query parameter, historical lookback, result limit, and page timeout. No person's name is hard-coded.
 
 XSOAR routes vary by deployment. Before operational use, run a harmless search manually, confirm the query remains in the browser address bar, configure that path and parameter, then test against synthetic incidents. Automation stops if navigation leaves the configured HTTPS origin, an incident path does not match, or the final search URL does not retain the exact expected query.
 

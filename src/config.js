@@ -11,7 +11,7 @@ const APP_DATA_DIRECTORY = path.join(localAppDataDirectory, "XSOAR Incident Assi
 const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 10,
+  configVersion: 11,
   xsoar: DEFAULT_SETTINGS,
   localAi: { enabled: false, model: DEFAULT_OLLAMA_MODEL }
 });
@@ -40,6 +40,7 @@ const xsoarShape = {
   configVersion: z.number().int(),
   allowedOrigin: z.string(),
   incidentUrlPattern: z.string(),
+  incidentPathTemplate: z.string(),
   incidentsPath: z.string(),
   searchQueryParameter: z.string(),
   lookbackQuery: z.string(),
@@ -67,7 +68,7 @@ const legacySessionSchema = z.object({
 }).strict();
 
 export const appConfigInputSchema = z.object({
-  configVersion: z.number().int().min(3).max(10).optional(),
+  configVersion: z.number().int().min(3).max(11).optional(),
   session: legacySessionSchema.optional(),
   xsoar: xsoarInputSchema.optional(),
   localAi: localAiSettingsSchema.optional()
@@ -94,10 +95,10 @@ export const appConfigInputSchema = z.object({
 });
 
 export const resolvedAppConfigSchema = z.object({
-  configVersion: z.literal(10),
+  configVersion: z.literal(11),
   xsoar: z.object({
     ...xsoarShape,
-    configVersion: z.literal(2),
+    configVersion: z.literal(3),
     fieldLabels: z.object(fieldLabelsShape).strict(),
     template: z.object(templateShape).strict()
   }).strict(),
@@ -117,7 +118,7 @@ export function resolveAppConfig(input = {}, { requireTenant = true } = {}) {
   const suppliedFieldLabels = { ...(input.xsoar?.fieldLabels || {}) };
   for (const key of retiredFieldLabels) delete suppliedFieldLabels[key];
   const merged = {
-    configVersion: 10,
+    configVersion: 11,
     xsoar: {
       ...structuredClone(DEFAULT_SETTINGS),
       ...(input.xsoar || {}),

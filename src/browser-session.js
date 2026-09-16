@@ -85,24 +85,29 @@ class PlaywrightBrowserAdapter {
     }
     if (focused.length === 1) return { id: focused[0], url: focused[0].url() };
     if (candidates.length === 1) return { id: candidates[0], url: candidates[0].url() };
-    throw new Error("More than one XSOAR incident is open. Bring the incident you want to process to the front and try again.");
+    throw new Error("More than one XSOAR incident is open. Enter the Incident ID you want to process and try again.");
   }
 
   async openTab(url) {
     const page = await this.context.newPage();
-    await page.route("**/*", async (route) => {
-      const request = route.request();
-      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
-        try {
-          assertTrustedUrl(request.url(), this.settings, "Automated navigation");
-        } catch {
-          return route.abort("blockedbyclient");
+    try {
+      await page.route("**/*", async (route) => {
+        const request = route.request();
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+          try {
+            assertTrustedUrl(request.url(), this.settings, "Automated navigation");
+          } catch {
+            return route.abort("blockedbyclient");
+          }
         }
-      }
-      return route.continue();
-    });
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.settings.pageReadyTimeoutMs });
-    return { id: page, url: page.url() };
+        return route.continue();
+      });
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.settings.pageReadyTimeoutMs });
+      return { id: page, url: page.url() };
+    } catch (error) {
+      await page.close().catch(() => {});
+      throw error;
+    }
   }
 
   async getTabUrl(page) {

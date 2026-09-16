@@ -3,6 +3,7 @@ import {
   assertSearchUrl,
   buildDraft,
   buildHistoricalIncidentUrl,
+  buildIncidentUrlFromId,
   buildIncidentSearchUrl,
   buildSearchQuery,
   mergeIncidentDetails,
@@ -45,16 +46,37 @@ function historicalWarning(items) {
   return failed ? `${failed} historical incident(s) could not be read.` : "";
 }
 
-export async function runIncidentDraft({ adapter, settings: inputSettings, onProgress = async () => {}, enrichDraft }) {
+export async function runIncidentDraft({ adapter, settings: inputSettings, incidentId = "", onProgress = async () => {}, enrichDraft }) {
   if (!adapter) throw new Error("A browser adapter is required.");
   const settings = resolveSettings(inputSettings);
-  const originalTab = await adapter.getActiveTab();
-  assertIncidentUrl(originalTab.url, settings, "The active tab");
   const temporaryTabs = new Set();
+  const requestedIncidentId = String(incidentId).trim();
+  let originalTab;
+  let openedRequestedIncident = false;
 
   try {
-    await onProgress("Reading the active XSOAR incident.");
+    if (requestedIncidentId) {
+      await onProgress(`Opening XSOAR incident ${requestedIncidentId}.`);
+      originalTab = await adapter.openTab(buildIncidentUrlFromId(requestedIncidentId, settings));
+      temporaryTabs.add(originalTab);
+      openedRequestedIncident = true;
+      const finalUrl = await adapter.getTabUrl(originalTab.id);
+      const finalIncidentUrl = assertIncidentUrl(finalUrl, settings, "Requested incident navigation");
+      const finalTicketId = finalIncidentUrl.pathname.match(/\/(\d+)\/?$/)?.[1];
+      if (finalTicketId !== requestedIncidentId) {
+        throw new Error("XSOAR opened a different incident than the requested Incident ID.");
+      }
+      originalTab.url = finalIncidentUrl.toString();
+    } else {
+      originalTab = await adapter.getActiveTab();
+      assertIncidentUrl(originalTab.url, settings, "The active tab");
+    }
+
+    await onProgress(requestedIncidentId ? `Reading XSOAR incident ${requestedIncidentId}.` : "Reading the active XSOAR incident.");
     const initial = await adapter.extractIncident(originalTab.id, settings);
+    if (requestedIncidentId && String(initial.ticketId) !== requestedIncidentId) {
+      throw new Error("XSOAR opened a different incident than the requested Incident ID.");
+    }
     const views = [initial];
     for (const url of uniqueTrustedTabUrls(initial, settings)) {
       if (url === originalTab.url) continue;
@@ -143,6 +165,6 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, onPro
     for (const tab of [...temporaryTabs].reverse()) {
       await adapter.closeTab(tab.id).catch(() => {});
     }
-    await adapter.focusTab(originalTab.id).catch(() => {});
+    if (originalTab && !openedRequestedIncident) await adapter.focusTab(originalTab.id).catch(() => {});
   }
 }

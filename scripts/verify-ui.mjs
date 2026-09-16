@@ -20,6 +20,7 @@ let sessionRunning = false;
 let starts = 0;
 let setupOpens = 0;
 const pulledModels = [];
+const requestedIncidentIds = [];
 const sessions = {
   status: () => ({ running: sessionRunning }),
   openSetup: () => { setupOpens += 1; },
@@ -55,7 +56,8 @@ const app = createAssistantServer({
         });
       }
     },
-    generateDraft: async ({ onProgress }) => {
+    generateDraft: async ({ incidentId, onProgress }) => {
+      requestedIncidentIds.push(incidentId);
       await onProgress("Enriching the draft locally.");
       return { draft: "Locally enriched example draft", warning: "", reviewed: 0, aiEnriched: true };
     }
@@ -128,8 +130,10 @@ try {
   assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
 
+  await page.locator("#incidentId").fill("4300");
   await page.locator("#run").click();
   await page.locator("#aiDraftAcknowledgement").waitFor();
+  assert.deepEqual(requestedIncidentIds, ["4300"]);
   assert.equal(await page.locator("#copy").isDisabled(), true);
   await page.locator("#aiDraftAcknowledgement").check();
   assert.equal(await page.locator("#copy").isDisabled(), false);

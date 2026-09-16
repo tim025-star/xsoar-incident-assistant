@@ -7,7 +7,7 @@ import "./styles.css";
 type AppConfig = Awaited<ReturnType<typeof rpc.config.get>>;
 type Status = Awaited<ReturnType<typeof rpc.status>>;
 type LocalAiStatus = Awaited<ReturnType<typeof rpc.localAi.status>>;
-type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentsPath" | "searchQueryParameter" | "lookbackQuery";
+type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "searchQueryParameter" | "lookbackQuery";
 type NumberSetting = "maxHistoricalIncidents" | "pageReadyTimeoutMs";
 
 function errorMessage(error: unknown) {
@@ -19,6 +19,7 @@ function App() {
   const [status, setStatus] = createSignal<Status>();
   const [localAiStatus, setLocalAiStatus] = createSignal<LocalAiStatus>();
   const [pullingModel, setPullingModel] = createSignal(false);
+  const [incidentId, setIncidentId] = createSignal("");
   const [acknowledgedDraftVersion, setAcknowledgedDraftVersion] = createSignal<number>();
   const [message, setMessage] = createSignal(sessionToken
     ? "Loading local status…"
@@ -103,7 +104,7 @@ function App() {
   const generateDraft = () => runAction(async () => {
     setAcknowledgedDraftVersion(undefined);
     if (!status()?.session.running) await persistSettings();
-    await rpc.draft.generate();
+    await rpc.draft.generate({ incidentId: incidentId().trim() });
   });
   const pullSelectedModel = async () => {
     const current = config();
@@ -211,6 +212,10 @@ function App() {
                     <label class="field">Incident URL pattern
                       <input id="incidentUrlPattern" class="control font-mono text-sm" value={settings().xsoar.incidentUrlPattern} onInput={(event) => updateTextSetting("incidentUrlPattern", event.currentTarget.value)} />
                     </label>
+                    <label class="field">Incident path template
+                      <input id="incidentPathTemplate" class="control font-mono text-sm" value={settings().xsoar.incidentPathTemplate} onInput={(event) => updateTextSetting("incidentPathTemplate", event.currentTarget.value)} />
+                      <span class="helper">Use <code>{"{id}"}</code> where the numeric Incident ID belongs.</span>
+                    </label>
                     <div class="grid gap-4 sm:grid-cols-2">
                       <label class="field">Incidents path
                         <input id="incidentsPath" class="control" value={settings().xsoar.incidentsPath} onInput={(event) => updateTextSetting("incidentsPath", event.currentTarget.value)} />
@@ -270,12 +275,16 @@ function App() {
                 <p class="mb-1 text-xs font-bold uppercase tracking-wider text-muted">Current status</p>
                 <p id="status" class="m-0 leading-6" role="status" aria-live="polite">{message()}</p>
               </div>
+              <label class="field mt-5">Incident ID <span class="font-normal text-muted">(optional)</span>
+                <input id="incidentId" class="control" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="32" autocomplete="off" placeholder="For example, 4200" value={incidentId()} onInput={(event) => setIncidentId(event.currentTarget.value)} />
+                <span class="helper">Enter an ID to open that exact incident. Leave blank to automatically use the only open incident tab; if several are open, enter the intended ID.</span>
+              </label>
               <div class="my-5 flex flex-wrap gap-2.5">
                 <button id="open" class="button" type="button" disabled={busy() || status()?.session.running} onClick={openSession}>Connect Chrome</button>
                 <button id="run" class="button" type="button" disabled={busy()} onClick={generateDraft}>Generate draft</button>
                 <button id="stop" class="button button-secondary" type="button" disabled={busy() || !status()?.session.running} onClick={() => runAction(() => rpc.browser.stop())}>Disconnect</button>
               </div>
-              <p class="helper mt-0">Keep this assistant tab and one XSOAR incident open in the same Chrome window. Temporary child tabs are closed automatically.</p>
+              <p class="helper mt-0">The assistant scans the connected Chrome window for incident tabs. An incident opened from an ID and all other temporary child tabs are closed automatically.</p>
               <label class="field">Draft
                 <textarea id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The generated draft appears here." value={status()?.draft || ""} />
               </label>

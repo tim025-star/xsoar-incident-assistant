@@ -7,6 +7,10 @@ import { createLocalAiInstaller } from "./local-ai-installer.js";
 import { createOllamaClient, localAiSettingsSchema } from "./local-ai.js";
 import { runIncidentDraft } from "./workflow.js";
 
+const draftRequestSchema = z.object({
+  incidentId: z.string().trim().max(32).regex(/^\d*$/, "Incident ID must contain digits only.")
+}).strict();
+
 function messageFor(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -39,7 +43,7 @@ export function createAssistantRouter({
     activity = { detail: messageFor(error), draft: activity.draft, aiDraft: activity.aiDraft, draftVersion: activity.draftVersion };
     throw new ORPCError(code, { message: activity.detail });
   };
-  const generate = async () => {
+  const generate = async ({ incidentId = "" } = {}) => {
     if (runningWorkflow) {
       throw new ORPCError("CONFLICT", { message: "A draft is already being generated." });
     }
@@ -53,6 +57,7 @@ export function createAssistantRouter({
         const result = await generateDraft({
           adapter: sessions.adapter(config.xsoar),
           settings: config.xsoar,
+          incidentId,
           enrichDraft: config.localAi.enabled ? (input) => localAi.enrich({ ...input, model: config.localAi.model }) : undefined,
           onProgress: async (detail) => { activity = { detail, draft: activity.draft, aiDraft: false, draftVersion }; }
         });
@@ -140,7 +145,7 @@ export function createAssistantRouter({
           await sessions.start();
           activity = {
             ...activity,
-            detail: "Connected to the current Chrome window. Open one XSOAR incident, then generate a draft from this tab."
+            detail: "Connected to the current Chrome window. Enter an Incident ID or keep one XSOAR incident open, then generate a draft."
           };
           return status();
         } catch (error) {
@@ -160,7 +165,7 @@ export function createAssistantRouter({
         }
       })
     },
-    draft: { generate: os.handler(generate) }
+    draft: { generate: os.input(draftRequestSchema).handler(({ input }) => generate(input)) }
   };
 
   return { router, sessions, status, generate };
