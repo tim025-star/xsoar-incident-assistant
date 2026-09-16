@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
-import { assertIncidentRouteCompatibility, DEFAULT_SETTINGS, FIELD_LABELS, resolveSettings } from "./domain.js";
+import { assertIncidentRouteCompatibility, DEFAULT_SETTINGS, FIELD_LABELS, LOG_TABLE_FIELD_KEYS, resolveSettings } from "./domain.js";
 import { DEFAULT_OLLAMA_MODEL, localAiSettingsSchema } from "./local-ai.js";
 
 const localAppDataDirectory = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
@@ -11,7 +11,7 @@ const APP_DATA_DIRECTORY = path.join(localAppDataDirectory, "XSOAR Incident Assi
 const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 11,
+  configVersion: 12,
   xsoar: DEFAULT_SETTINGS,
   localAi: { enabled: false, model: DEFAULT_OLLAMA_MODEL }
 });
@@ -68,7 +68,7 @@ const legacySessionSchema = z.object({
 }).strict();
 
 export const appConfigInputSchema = z.object({
-  configVersion: z.number().int().min(3).max(11).optional(),
+  configVersion: z.number().int().min(3).max(12).optional(),
   session: legacySessionSchema.optional(),
   xsoar: xsoarInputSchema.optional(),
   localAi: localAiSettingsSchema.optional()
@@ -95,7 +95,7 @@ export const appConfigInputSchema = z.object({
 });
 
 export const resolvedAppConfigSchema = z.object({
-  configVersion: z.literal(11),
+  configVersion: z.literal(12),
   xsoar: z.object({
     ...xsoarShape,
     configVersion: z.literal(3),
@@ -117,8 +117,16 @@ export function resolveAppConfig(input = {}, { requireTenant = true, allowRouteM
   input = parseConfigInput(input);
   const suppliedFieldLabels = { ...(input.xsoar?.fieldLabels || {}) };
   for (const key of retiredFieldLabels) delete suppliedFieldLabels[key];
+  if ((input.configVersion ?? 0) < 12) {
+    for (const key of LOG_TABLE_FIELD_KEYS) {
+      suppliedFieldLabels[key] = [...new Set([
+        ...(suppliedFieldLabels[key] || []),
+        ...FIELD_LABELS[key]
+      ])];
+    }
+  }
   const merged = {
-    configVersion: 11,
+    configVersion: 12,
     xsoar: {
       ...structuredClone(DEFAULT_SETTINGS),
       ...(input.xsoar || {}),

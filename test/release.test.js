@@ -22,7 +22,7 @@ async function closeServer(server) {
 function deferred() { let resolve; const promise = new Promise((next) => { resolve = next; }); return { promise, resolve }; }
 
 test("current Chrome is the only browser interface", () => {
-  assert.equal(DEFAULT_APP_CONFIG.configVersion, 11);
+  assert.equal(DEFAULT_APP_CONFIG.configVersion, 12);
   assert.equal("session" in DEFAULT_APP_CONFIG, false);
   assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "");
   assert.deepEqual(DEFAULT_APP_CONFIG.localAi, { enabled: false, model: "qwen3.5:9b" });
@@ -122,7 +122,7 @@ test("legacy settings migrate by discarding retired fields", () => {
       template: { analystName: "" }
     }
   }, { requireTenant: false });
-  assert.equal(migrated.configVersion, 11);
+  assert.equal(migrated.configVersion, 12);
   assert.equal("session" in migrated, false);
   for (const key of ["customerShortName", "owner", "phase", "description"]) {
     assert.equal(key in migrated.xsoar.fieldLabels, false);
@@ -164,15 +164,30 @@ test("local AI settings can be saved while Chrome remains connected", async () =
   }
 });
 
-test("version 10 settings gain the default incident path template", () => {
+test("version 10 settings gain the default incident path template and log-table mappings", () => {
   const upgraded = resolveAppConfig({
     configVersion: 10,
     xsoar: { configVersion: 2, allowedOrigin: "https://xsoar.example.test" }
   });
 
-  assert.equal(upgraded.configVersion, 11);
+  assert.equal(upgraded.configVersion, 12);
   assert.equal(upgraded.xsoar.configVersion, 3);
   assert.equal(upgraded.xsoar.incidentPathTemplate, "/Custom/GenericLayout/{id}");
+  assert.ok(upgraded.xsoar.fieldLabels.sourceIp.includes("Source IP Address"));
+});
+
+test("version 11 log-table mappings retain their former built-in aliases", () => {
+  const upgraded = resolveAppConfig({
+    configVersion: 11,
+    xsoar: {
+      allowedOrigin: "https://xsoar.example.test",
+      fieldLabels: { sourceIp: ["Observed Address"] }
+    }
+  });
+
+  assert.deepEqual(upgraded.xsoar.fieldLabels.sourceIp, [
+    "Observed Address", "Source IP", "Source IP Address", "Client IP Address"
+  ]);
 });
 
 test("legacy custom routes load but require a matching incident template when next saved", () => {
@@ -305,7 +320,7 @@ test("local oRPC API requires the process token and exact origin", async () => {
       headers: { "X-Assistant-Token": "test-token", Origin: origin }
     }));
     const authorised = await client.status();
-    assert.match(authorised.detail, /Set the XSOAR tenant/);
+    assert.match(authorised.detail, /Connect Chrome/);
     const invalidHostStatus = await new Promise((resolve, reject) => {
       const request = http.request({
         hostname: launchUrl.hostname,

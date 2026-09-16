@@ -97,14 +97,7 @@ export async function extractIncidentFromPage(settings) {
       }
     }
 
-    const aliases = {
-      sourceIp: ["source ip", "source ip address", "client ip address"],
-      sourceUsername: ["source username", "source user name", "client principal name", "accountname"],
-      deviceHostname: ["device hostname", "device dns name", "compromisedentity", "hostname"],
-      eventName: ["event name", "display name", "display_name"],
-      detectionUrl: ["detection url", "incidentweburl", "incident web url", "incident_web_url"],
-      serviceMessage: ["service message", "event info", "error message", "description"]
-    };
+    const aliases = settings.fieldLabels || {};
     const normalizeKey = (value) => normalize(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     const pairs = [];
     for (const row of document.querySelectorAll("tr")) {
@@ -126,6 +119,9 @@ export async function extractIncidentFromPage(settings) {
         }
       }
     }
+    const combinedFields = Object.fromEntries(
+      Object.keys(fields).map((key) => [key, first(fields[key], embedded[key])])
+    );
 
     const headerTicket = normalize(document.querySelector(".header-inv-id")?.textContent);
     const urlTicket = location.href.match(/\/(\d+)\/?(?:[?#].*)?$/)?.[1] || "";
@@ -154,13 +150,9 @@ export async function extractIncidentFromPage(settings) {
     return {
       ticketId: headerTicket.match(/\d+/)?.[0] || urlTicket,
       incidentName,
-      ...fields,
-      deviceHostname: first(fields.deviceHostname, embedded.deviceHostname),
-      eventName: first(fields.eventName, embedded.eventName),
-      detectionUrl: first(fields.detectionUrl, embedded.detectionUrl),
-      serviceMessage: first(fields.serviceMessage, embedded.serviceMessage),
-      sourceIp: first(fields.sourceIp, fields.clientIp, embedded.sourceIp),
-      sourceUsername: first(fields.sourceUsername, fields.clientUserName, embedded.sourceUsername),
+      ...combinedFields,
+      sourceIp: first(combinedFields.sourceIp, combinedFields.clientIp),
+      sourceUsername: first(combinedFields.sourceUsername, combinedFields.clientUserName),
       tabUrls: [...new Set(tabUrls)]
     };
   };

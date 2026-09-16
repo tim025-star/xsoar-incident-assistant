@@ -10,17 +10,21 @@ export const FIELD_LABELS = Object.freeze({
   clientHostname: ["Client Hostname", "Client Host Hostname"],
   clientUserName: ["Client User Name"],
   destinationIp: ["Destination IP"],
-  deviceHostname: ["Device Hostname", "Device Host Hostname", "Device Name"],
+  deviceHostname: ["Device Hostname", "Device Host Hostname", "Device Name", "Device DNS Name", "CompromisedEntity", "Hostname"],
   eventInfo: ["Event Info"],
-  eventName: ["Event Name"],
-  detectionUrl: ["Detection URL"],
+  eventName: ["Event Name", "Display Name", "display_name"],
+  detectionUrl: ["Detection URL", "IncidentWebURL", "Incident Web URL", "incident_web_url"],
   errorMessage: ["Error Message"],
-  serviceMessage: ["Service Message"],
+  serviceMessage: ["Service Message", "Event Info", "Error Message", "Description"],
   sourceHostname: ["Source Hostname", "Source Host Hostname"],
-  sourceIp: ["Source IP"],
-  sourceUsername: ["Source Username"],
+  sourceIp: ["Source IP", "Source IP Address", "Client IP Address"],
+  sourceUsername: ["Source Username", "Source User Name", "Client Principal Name", "AccountName"],
   descriptionLong: ["Description Long"]
 });
+
+export const LOG_TABLE_FIELD_KEYS = Object.freeze([
+  "sourceIp", "sourceUsername", "deviceHostname", "eventName", "detectionUrl", "serviceMessage"
+]);
 
 export const DEFAULT_SETTINGS = Object.freeze({
   configVersion: 3,
