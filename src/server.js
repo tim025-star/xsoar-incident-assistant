@@ -65,6 +65,7 @@ export function createAssistantServer({
   });
 
   app.get("/", serveStatic({ root: STATIC_DIRECTORY, path: "index.html" }));
+  app.get("/configuration", serveStatic({ root: STATIC_DIRECTORY, path: "index.html" }));
   app.get("/assets/*", serveStatic({ root: STATIC_DIRECTORY }));
   app.notFound((context) => context.text("Not found", 404));
   app.onError((error, context) => {
@@ -103,7 +104,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const app = createAssistantServer();
   const url = await app.listen(Number(process.env.XSOAR_ASSISTANT_PORT || 0));
   console.log("XSOAR Incident Assistant is running locally.");
-  console.log("Approve Chrome access, connect the analyst session, then build an incident response.");
+  console.log("Connect Chrome, open an XSOAR incident, then build an incident response.");
   if (process.env.XSOAR_ASSISTANT_NO_OPEN !== "1") {
     openNormalChromePage(url);
   }

@@ -19,6 +19,7 @@ let uiConfig = resolveAppConfig({
 let sessionRunning = false;
 let starts = 0;
 let setupOpens = 0;
+let failNextStart = false;
 const pulledModels = [];
 const requestedIncidentIds = [];
 const firstAiChunk = '{"investigationSummary":"Reviewing';
@@ -28,6 +29,10 @@ const sessions = {
   openSetup: () => { setupOpens += 1; },
   start: async () => {
     starts += 1;
+    if (failNextStart) {
+      failNextStart = false;
+      throw new Error("Enable remote debugging in Chrome, approve the prompt, then try again.");
+    }
     sessionRunning = true;
     return {};
   },
@@ -85,6 +90,14 @@ try {
   const page = await browser.newPage();
   await page.goto(url);
   await page.getByRole("heading", { name: "XSOAR Incident Assistant" }).waitFor();
+  assert.equal(await page.locator("#setup").count(), 0, "Chrome setup must stay hidden until a connection misconfiguration is detected");
+  assert.equal(await page.locator("#allowedOrigin").count(), 0, "configuration controls must not appear on the home page");
+  await page.getByRole("link", { name: "Configuration", exact: true }).click();
+  await page.getByRole("heading", { name: "Data mapping" }).waitFor();
+  await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
+  await page.locator("#fieldLabel-occurred").fill("Occurred, Event Time");
+  await page.locator("#saveMappings").click();
+  await page.getByText("XSOAR config saved.").waitFor();
   assert.equal(await page.locator("#mode").count(), 0);
   assert.equal(await page.locator("#profileDirectory").count(), 0);
   assert.equal("session" in uiConfig, false);
@@ -108,16 +121,29 @@ try {
   assert.deepEqual(pulledModels, ["qwen3.5:9b", "slow-model"]);
   await page.locator("#localAiEnabled").check();
 
-  await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
+  await page.getByText("Advanced XSOAR routing").click();
+  await page.locator("#maxHistoricalIncidents").fill("");
+  assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "");
+  await page.locator("#maxHistoricalIncidents").fill("10");
+  await page.locator("#analystName").fill("Example Analyst");
+  await page.locator("#saveMappings").click();
+  await page.getByText("XSOAR config saved.").waitFor();
+  assert.deepEqual(uiConfig.xsoar.fieldLabels.occurred, ["Occurred", "Event Time"]);
+  assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
+  assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
+
+  await page.getByRole("link", { name: "Home" }).click();
+  await page.getByRole("heading", { name: "Build analyst response" }).waitFor();
   await page.locator("#open").click();
   await page.locator("#stop:not([disabled])").waitFor({ timeout: 2000 });
   assert.equal(starts, 1);
   assert.equal(uiConfig.xsoar.allowedOrigin, "https://xsoar.example.test");
   assert.equal(uiConfig.localAi.enabled, true);
   await page.getByText("Chrome connected.").waitFor({ timeout: 2000 });
+  await page.getByRole("link", { name: "Configuration", exact: true }).click();
   assert.equal(await page.locator("#allowedOrigin").isDisabled(), true);
   assert.equal(await page.locator("#analystName").isDisabled(), true);
-  assert.equal(await page.locator("#maxHistoricalIncidents").isDisabled(), true);
+  assert.equal(await page.locator("#fieldLabel-occurred").isDisabled(), true);
   assert.equal(await page.locator("#localAiEnabled").isDisabled(), false);
   await page.locator("#localAiEnabled").uncheck();
   await page.getByText("Local AI config saved.").waitFor();
@@ -125,26 +151,22 @@ try {
   await page.locator("#localAiEnabled").check();
   await page.getByText("Local AI config saved.").waitFor();
   assert.equal(uiConfig.localAi.enabled, true);
+  await page.getByRole("link", { name: "Home" }).click();
   await page.locator("#stop").click();
   await page.getByText("Your browser and tabs are still open.").waitFor();
   assert.equal(sessionRunning, false);
-  assert.equal(await page.locator("#allowedOrigin").isDisabled(), false);
 
+  failNextStart = true;
+  await page.locator("#open").click();
+  await page.getByRole("heading", { name: "Chrome access needs attention" }).waitFor();
   await page.locator("#setup").click();
   await page.getByText("Chrome access setup opened.").waitFor();
   assert.equal(setupOpens, 1);
-  await page.getByText("Re-approve it after Chrome restarts.").waitFor();
+  await page.locator("#open").click();
+  await page.locator("#stop:not([disabled])").waitFor({ timeout: 2000 });
+  assert.equal(await page.locator("#setup").count(), 0);
 
-  await page.getByText("Advanced XSOAR routing").click();
-  await page.locator("#maxHistoricalIncidents").fill("");
-  assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "");
-  await page.locator("#maxHistoricalIncidents").fill("10");
-  await page.locator("#analystName").fill("Example Analyst");
-  await page.locator("#save").click();
-  await page.getByText("XSOAR config saved.").waitFor();
-  assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
-  assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
-
+  await page.getByText("Target a specific incident").click();
   await page.locator("#incidentId").fill("4300");
   await page.locator("#run").click();
   await page.waitForFunction((chunk) => (document.querySelector("#aiOutput")?.value || "") === chunk, firstAiChunk);
@@ -181,6 +203,19 @@ try {
   await incidentPage.goto("https://xsoar.example.test/Custom/GenericLayout/4200");
   const incident = await incidentPage.evaluate(extractIncidentFromPage, settings);
   assert.equal(incident.ruleName, "Example Rule");
+
+  const mappedLogPage = await browser.newPage();
+  await mappedLogPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: '<div class="header-inv-id">#4202</div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper">Mapped Rule</div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper">Endpoint</div></div><table><tr><td>Observed Address</td><td>192.0.2.42</td></tr></table>'
+  }));
+  await mappedLogPage.goto("https://xsoar.example.test/Custom/GenericLayout/4202");
+  const mappedIncident = await mappedLogPage.evaluate(extractIncidentFromPage, {
+    ...settings,
+    fieldLabels: { ...settings.fieldLabels, destinationIp: ["Observed Address"] }
+  });
+  assert.equal(mappedIncident.destinationIp, "192.0.2.42");
+  await mappedLogPage.close();
 
   const query = 'name:"Example Rule" and type:"Endpoint"';
   await incidentPage.goto(`https://xsoar.example.test/incidents?query=${encodeURIComponent(query)}`);

@@ -8,7 +8,7 @@ This is an independent community project. It is not affiliated with or endorsed 
 
 The tool connects to the signed-in Google Chrome session the analyst already uses. The local console, XSOAR incident, and temporary evidence tabs stay in that session. It does not launch, copy, or close a separate browser profile.
 
-Chrome 144 or newer is required. Select **Open Chrome access setup**, enable remote debugging, and approve Chrome's prompt. Chrome writes a local, process-specific WebSocket endpoint into its normal user-data directory. The tool validates that browser-scoped endpoint, connects only through `127.0.0.1`, and disconnects without closing Chrome.
+Chrome 144 or newer is required. Select **Connect Chrome** first. If Chrome has not exposed an approved debugging session, the home page shows **Chrome access needs attention**; only then select **Open Chrome access setup**, enable remote debugging, and approve Chrome's prompt. Chrome writes a local, process-specific WebSocket endpoint into its normal user-data directory. The tool validates that browser-scoped endpoint, connects only through `127.0.0.1`, and disconnects without closing Chrome.
 
 Chrome's approval is session-scoped, so repeat the setup after Chrome restarts. A fixed debugging port is deliberately not used: current Chrome versions do not permit that approach for the default data directory, and it would weaken the user-controlled approval boundary.
 
@@ -21,9 +21,8 @@ Download `XSOAR-Incident-Assistant-Setup-<version>-x64.exe` from the project's G
 Each release includes a matching `.sha256` file. The installer is currently unsigned, so Windows may show an unknown-publisher warning. Compare the checksum before running it.
 
 1. Run the installer and leave **Create a desktop shortcut** and **Launch XSOAR Incident Assistant** selected. **Install local Ollama and qwen3.5:9b from GitHub** is optional and starts unchecked.
-2. Select **Open Chrome access setup**, enable remote debugging, and approve Chrome's prompt.
-3. Enter the exact HTTPS origin of your XSOAR tenant and optional analyst name/title.
-4. Select **Connect Chrome**. The current settings are saved before the connection is made.
+2. Open **Configuration**, enter the exact HTTPS origin of your XSOAR tenant, review the field mappings, and save.
+3. Return to **Home** and select **Connect Chrome**. If Chrome access needs attention, use the setup action shown there, approve Chrome's prompt, then connect again.
 
 The installer also adds a Start-menu shortcut. It does not add a browser extension, alter browser policy, start automatically at Windows sign-in, or overwrite configuration during an upgrade.
 
@@ -44,12 +43,11 @@ Cloud and remote model aliases are blocked. Before Ollama receives incident evid
 ## Use
 
 1. Open the application from its desktop or Start-menu shortcut.
-2. If Chrome was restarted, select **Open Chrome access setup** and approve remote debugging.
-3. Select **Connect Chrome**.
-4. Enter a numeric **Incident ID**, or leave it blank and keep the intended XSOAR incident open in another tab.
-5. Select **Build response** in the local console.
-6. Watch **Live AI output** if Local AI is enabled, then review the analyst response.
-7. If AI analysis was used, confirm the AI-assisted response, then select **Copy response**.
+2. Select **Connect Chrome**. If the app detects that Chrome access needs attention, use the setup action it displays, approve remote debugging, then connect again.
+3. Keep the intended XSOAR incident open in Chrome. Expand **Target a specific incident** only when you need to enter an Incident ID.
+4. Select **Build response** in the local console.
+5. Watch **Live AI output** if Local AI is enabled, then review the analyst response.
+6. If AI analysis was used, confirm the AI-assisted response, then select **Copy response**.
 
 When Incident ID is blank, the tool uses the only open incident tab. If several are open, enter the intended ID to avoid triaging the wrong case. An entered ID opens through the configured incident URL template. The tool closes temporary incident, search, and related-case tabs after evidence collection.
 
@@ -57,7 +55,7 @@ If launch reports a startup error, reinstall the current release. The launcher d
 
 ## Configure and verify your tenant
 
-The XSOAR config includes the tenant URL, analyst identity, incident route regex, incident URL template, incident list path, search parameter, related-case lookback, review limit, and page timeout. No analyst name is hard-coded.
+The separate **Configuration** page includes the tenant URL, analyst identity, incident route regex, incident URL template, incident list path, search parameter, related-case lookback, review limit, page timeout, local AI, response wording, and data mappings. Each data mapping associates one or more XSOAR field or log-table labels with a value used by the response template. No analyst name is hard-coded.
 
 XSOAR routes vary by deployment. Before operational use, run a harmless search manually, confirm the query remains in the browser address bar, configure that path and parameter, then test against synthetic incidents. Automation stops if navigation leaves the configured HTTPS origin, an incident path does not match, or the final search URL does not retain the exact expected query.
 

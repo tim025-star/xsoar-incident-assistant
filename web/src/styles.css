@@ -30,4 +30,6 @@
   .button-secondary { @apply bg-slate-200 text-slate-800 hover:bg-slate-300; }
   .button-danger { @apply bg-rose-700 text-white hover:bg-rose-800; }
   .helper { @apply text-sm leading-6 text-muted; }
+  .nav-link { @apply rounded-lg px-3 py-2 text-muted no-underline transition hover:bg-slate-100 hover:text-ink; }
+  .nav-link-active { @apply bg-slate-100 text-ink; }
 }

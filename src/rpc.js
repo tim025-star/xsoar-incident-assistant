@@ -24,7 +24,7 @@ export function createAssistantRouter({
 } = {}) {
   localAiInstaller ||= createLocalAiInstaller({ localAi });
   let activity = {
-    detail: "Set the XSOAR tenant, then connect Chrome.",
+    detail: "Connect Chrome, open an XSOAR incident, then build the response.",
     draft: "",
     aiOutput: "",
     aiDraft: false,
