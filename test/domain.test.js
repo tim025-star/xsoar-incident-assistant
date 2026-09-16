@@ -140,6 +140,24 @@ test("draft output contains configured identity only when the user supplies it",
   assert.match(named, /Example Analyst\nSecurity Analyst$/);
 });
 
+test("processed output presents source facts without analysis, guidance, or recommendations", () => {
+  const draft = buildDraft({
+    customerName: "Example Organisation",
+    ticketId: "4200",
+    incidentName: "Example detection",
+    deviceHostname: "endpoint-01",
+    historical: []
+  }, settings().template, {
+    eventSummary: "The source record names endpoint-01.",
+    observedFacts: ["Account: example.user", "Source IP: 192.0.2.10"]
+  });
+
+  assert.match(draft, /Incident ID: 4200/);
+  assert.match(draft, /Processed Incident Data\nEvent Summary: The source record names endpoint-01\./);
+  assert.match(draft, /Observed Facts:\n- Account: example\.user\n- Source IP: 192\.0\.2\.10/);
+  assert.doesNotMatch(draft, /Investigation Summary|Related Activity|Recommended Actions|Vendor Guidance/);
+});
+
 test("related ticket resolutions only use resolution-bearing fields", () => {
   const base = {
     customerName: "Example Organisation",
@@ -154,7 +172,7 @@ test("related ticket resolutions only use resolution-bearing fields", () => {
   };
 
   const withoutResolution = buildDraft(base, settings().template);
-  assert.match(withoutResolution, /Related Ticket Resolutions\nNo related ticket resolution was available\./);
+  assert.match(withoutResolution, /Related Ticket Records\nNo related ticket resolution was available\./);
   assert.doesNotMatch(withoutResolution, /#4199:/);
 
   const withResolution = buildDraft({

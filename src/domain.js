@@ -43,6 +43,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   fieldLabels: FIELD_LABELS,
   template: {
     greeting: "Hello",
+    // Retained only so existing configuration files continue to load; processed output never renders it.
     recommendationsHeading: "Recommended Actions",
     contactText: "If you require more information or would like to discuss this incident, contact your security operations team and quote the incident ID.",
     signOff: "Kind regards,",
@@ -308,7 +309,7 @@ export function buildDraft(output, templateInput = {}, enrichment = {}) {
   const template = { ...DEFAULT_SETTINGS.template, ...templateInput };
   const historical = (output.historical || []).filter((item) => item && !item.error);
   const pastRatings = historical.map((item) => cleanText(item.classification)).filter(isAvailable);
-  const pastRatingLine = pastRatings.length ? `Past rating: ${pastRatings.join(", ")}\n` : "";
+  const relatedClassifications = pastRatings.length ? pastRatings.join(", ") : "n/a";
   const subjectIdentity = firstAvailable(
     output.deviceHostname,
     output.sourceHostname,
@@ -320,13 +321,10 @@ export function buildDraft(output, templateInput = {}, enrichment = {}) {
     .map((item) => ({ ticketId: item.ticketId, recommendation: selectRelatedResolution(item) }))
     .filter((item) => item.recommendation)
     .map((item, index) => `${index + 1}. #${item.ticketId || "unknown"}: ${item.recommendation}`);
-  const localRecommendations = Array.isArray(enrichment.recommendations)
-    ? enrichment.recommendations.map(cleanText).filter(isAvailable).slice(0, 5)
+  const observedFacts = Array.isArray(enrichment.observedFacts)
+    ? enrichment.observedFacts.map(cleanText).filter(isAvailable).slice(0, 10)
     : [];
-  const allRecommendations = localRecommendations.map((item, index) => `${index + 1}. ${item}`);
-  const investigationSummary = firstAvailable(enrichment.investigationSummary) || "x x x";
-  const relatedActivity = firstAvailable(enrichment.relatedActivity) || "x x x";
-  const vendorGuidance = firstAvailable(enrichment.vendorGuidance) || "x x x";
+  const eventSummary = firstAvailable(enrichment.eventSummary) || "No additional source facts were extracted.";
   const signature = [
     template.signOff,
     template.analystName,
@@ -334,7 +332,10 @@ export function buildDraft(output, templateInput = {}, enrichment = {}) {
   ].filter(Boolean).join("\n");
 
   return `${template.greeting} ${firstAvailable(output.customerName) || "n/a"},
-${pastRatingLine}We have detected ${firstAvailable(output.incidentName) || "n/a"} for ${subjectIdentity}.
+Incident ID: ${firstAvailable(output.ticketId) || "n/a"}
+Incident: ${firstAvailable(output.incidentName) || "n/a"}
+Affected entity: ${subjectIdentity}
+Recorded related classifications: ${relatedClassifications}
 -----------------------------------------------------------------
 
 Event info breakdown is as follows:
@@ -349,23 +350,13 @@ Event Record URL: ${firstAvailable(output.detectionUrl) || "n/a"}
 Error / Service Message: ${firstAvailable(output.serviceMessage, output.eventInfo, output.errorMessage) || "n/a"}
 ----------------------------------------------------------
 
-Investigation Summary
-${investigationSummary}
+Processed Incident Data
+Event Summary: ${eventSummary}
+Observed Facts:
+${observedFacts.length ? observedFacts.map((item) => `- ${item}`).join("\n") : "No additional source facts were extracted."}
 -----
 
-Related Activity
-${relatedActivity}
------
-
-${template.recommendationsHeading}
-${allRecommendations.length ? allRecommendations.join("\n") : "x x x"}
------------------------------------------------
-
-Vendor Guidance
-${vendorGuidance}
------
-
-Related Ticket Resolutions
+Related Ticket Records
 ${relatedResolutions.length ? relatedResolutions.join("\n") : "No related ticket resolution was available."}
 -----
 

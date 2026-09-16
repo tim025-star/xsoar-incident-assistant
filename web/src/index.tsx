@@ -13,27 +13,27 @@ type TemplateSetting = keyof AppConfig["xsoar"]["template"];
 type FieldLabelSetting = keyof AppConfig["xsoar"]["fieldLabels"];
 
 const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting; name: string; use: string }> = [
-  { key: "customerName", name: "Customer name", use: "Greeting" },
-  { key: "occurred", name: "Time stamp", use: "Event breakdown" },
-  { key: "sourceUsername", name: "Source user", use: "User and source" },
-  { key: "clientUserName", name: "Client user", use: "Fallback user" },
-  { key: "sourceIp", name: "Source IP", use: "Source" },
-  { key: "clientIp", name: "Client IP", use: "Fallback source" },
-  { key: "destinationIp", name: "Destination IP", use: "Destination" },
-  { key: "clientHostname", name: "Client hostname", use: "Client hostname" },
-  { key: "deviceHostname", name: "Device hostname", use: "Affected device" },
-  { key: "sourceHostname", name: "Source hostname", use: "Fallback affected device" },
-  { key: "eventName", name: "Event name", use: "Event detail" },
-  { key: "detectionUrl", name: "Detection URL", use: "Event record URL" },
-  { key: "serviceMessage", name: "Service message", use: "Error / service message" },
-  { key: "eventInfo", name: "Event info", use: "Fallback message" },
-  { key: "errorMessage", name: "Error message", use: "Fallback message" },
-  { key: "ruleName", name: "Rule name", use: "Related-incident search" },
-  { key: "caseType", name: "Case type", use: "Related-incident search" },
-  { key: "classification", name: "Classification", use: "Past rating" },
-  { key: "incidentOutcome", name: "Incident outcome", use: "Related recommendations" },
-  { key: "closeNotes", name: "Close notes", use: "Related recommendations" },
-  { key: "descriptionLong", name: "Long description", use: "Original-incident AI context" }
+  { key: "customerName", name: "Customer name", use: "customer.name → greeting" },
+  { key: "occurred", name: "Time stamp", use: "@timestamp → event breakdown" },
+  { key: "sourceUsername", name: "Source user", use: "source.user.name → user and source" },
+  { key: "clientUserName", name: "Client user", use: "client.user.name → fallback user" },
+  { key: "sourceIp", name: "Source IP", use: "source.ip → source" },
+  { key: "clientIp", name: "Client IP", use: "client.ip → fallback source" },
+  { key: "destinationIp", name: "Destination IP", use: "destination.ip → destination" },
+  { key: "clientHostname", name: "Client hostname", use: "client.hostname → client hostname" },
+  { key: "deviceHostname", name: "Device hostname", use: "host.name → affected device" },
+  { key: "sourceHostname", name: "Source hostname", use: "source.hostname → fallback device" },
+  { key: "eventName", name: "Event name", use: "event.name → event detail" },
+  { key: "detectionUrl", name: "Detection URL", use: "event.url → event record URL" },
+  { key: "serviceMessage", name: "Service message", use: "message → error / service message" },
+  { key: "eventInfo", name: "Event info", use: "event.original → fallback message" },
+  { key: "errorMessage", name: "Error message", use: "error.message → fallback message" },
+  { key: "ruleName", name: "Rule name", use: "rule.name → related-incident search" },
+  { key: "caseType", name: "Case type", use: "event.category → related-incident search" },
+  { key: "classification", name: "Classification", use: "classification → recorded related rating" },
+  { key: "incidentOutcome", name: "Incident outcome", use: "event.outcome → related ticket records" },
+  { key: "closeNotes", name: "Close notes", use: "close.notes → related ticket records" },
+  { key: "descriptionLong", name: "Long description", use: "event.description → factual AI context" }
 ];
 
 function errorMessage(error: unknown) {
@@ -46,6 +46,8 @@ function splitLabels(value: string) {
 
 function App() {
   let draftElement: HTMLTextAreaElement | undefined;
+  let previousResponse = "";
+  let followLiveOutput = true;
   const configurationPage = location.pathname === "/configuration";
   const [config, setConfig] = createSignal<AppConfig>();
   const [status, setStatus] = createSignal<Status>();
@@ -60,16 +62,32 @@ function App() {
   const modelDownloadRunning = () => pullingModel() || status()?.operation === "model download";
   const tenantMissing = () => !config()?.xsoar.allowedOrigin.trim();
   const chromeSetupRequired = () => /remote debugging|valid browser endpoint|could not connect to chrome/i.test(message());
-  const analystResponse = () => {
+  const processedResponse = () => {
     const current = status();
     if (current?.draft) return current.draft;
-    return current?.aiOutput ? `Local AI analysis (live)\n${current.aiOutput}` : "";
+    return current?.aiOutput ? `Local AI processing (live)\n${current.aiOutput}` : "";
+  };
+  const updateLiveOutputFollow = () => {
+    if (!draftElement || status()?.draft) return;
+    const distanceFromBottom = draftElement.scrollHeight - draftElement.clientHeight - draftElement.scrollTop;
+    followLiveOutput = distanceFromBottom <= 8;
   };
 
   createEffect(() => {
-    analystResponse();
+    const response = processedResponse();
+    const finalDraft = Boolean(status()?.draft);
+    if (response === previousResponse) return;
+    const shouldFollow = followLiveOutput;
+    previousResponse = response;
     queueMicrotask(() => {
-      if (draftElement) draftElement.scrollTop = status()?.draft ? 0 : draftElement.scrollHeight;
+      if (!draftElement) return;
+      if (finalDraft) {
+        draftElement.scrollTop = 0;
+        followLiveOutput = false;
+      } else if (shouldFollow) {
+        draftElement.scrollTop = draftElement.scrollHeight;
+        followLiveOutput = true;
+      }
     });
   });
 
@@ -168,6 +186,7 @@ function App() {
 
   const generateDraft = () => runAction(async () => {
     setAcknowledgedDraftVersion(undefined);
+    followLiveOutput = true;
     await rpc.draft.generate({ incidentId: incidentId().trim() });
   });
   const pullSelectedModel = async () => {
@@ -195,15 +214,15 @@ function App() {
   };
   const copyDraft = async () => {
     const draft = status()?.draft || "";
-    if (!draft) return setMessage("Build an analyst response before copying it.");
+    if (!draft) return setMessage("Process incident data before copying it.");
     if (status()?.aiDraft && acknowledgedDraftVersion() !== status()?.draftVersion) {
-      return setMessage("Review and confirm the AI-assisted response before copying it.");
+      return setMessage("Review and confirm the AI-processed data before copying it.");
     }
     try {
       await navigator.clipboard.writeText(draft);
-      setMessage("Analyst response copied.");
+      setMessage("Processed incident data copied.");
     } catch (error) {
-      setMessage(`Could not copy the analyst response: ${errorMessage(error)}`);
+      setMessage(`Could not copy the processed incident data: ${errorMessage(error)}`);
     }
   };
 
@@ -227,7 +246,7 @@ function App() {
       <div>
         <p class="mb-2 text-xs font-bold tracking-[0.18em] text-brand">LOCAL SOC WORKFLOW</p>
         <h1 class="m-0 text-3xl font-bold tracking-tight sm:text-5xl">XSOAR Incident Assistant</h1>
-        <p class="helper mt-3 max-w-3xl">Pull an XSOAR incident, check related cases, and build an analyst-ready response.</p>
+        <p class="helper mt-3 max-w-3xl">Pull an XSOAR incident, extract important fields, and format the source data for analyst review.</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <nav class="flex rounded-xl border border-line bg-white p-1 text-sm font-bold" aria-label="Main navigation">
@@ -247,7 +266,7 @@ function App() {
       <Show when={tenantMissing()}>
         <section class="rounded-2xl border border-amber-300 bg-amber-50 p-5" role="alert">
           <h2 class="m-0 text-lg font-bold">Configuration needed</h2>
-          <p class="helper mb-4 mt-2">Add the XSOAR tenant and confirm the field mappings before building a response.</p>
+          <p class="helper mb-4 mt-2">Add the XSOAR tenant and confirm the field mappings before processing incident data.</p>
           <a class="button" href="/configuration">Open configuration</a>
         </section>
       </Show>
@@ -261,8 +280,8 @@ function App() {
       <section class="panel">
         <div class="mb-5">
           <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Incident workflow</p>
-          <h2 class="m-0 text-2xl font-bold">Build analyst response</h2>
-          <p class="helper mb-0 mt-2">Connect your existing Chrome session, open the intended XSOAR incident, then build the response.</p>
+          <h2 class="m-0 text-2xl font-bold">Process incident data</h2>
+          <p class="helper mb-0 mt-2">Connect your existing Chrome session, open the intended XSOAR incident, then extract and format its source fields.</p>
         </div>
         <div class="rounded-xl border border-line bg-slate-50 p-4">
           <p class="mb-1 text-xs font-bold uppercase tracking-wider text-muted">Run status</p>
@@ -270,7 +289,7 @@ function App() {
         </div>
         <div class="my-5 flex flex-wrap gap-2.5">
           <button id="open" class="button" type="button" disabled={busy() || status()?.session.running || tenantMissing()} onClick={() => runAction(() => rpc.browser.open())}>Connect Chrome</button>
-          <button id="run" class="button" type="button" disabled={busy() || tenantMissing()} onClick={generateDraft}>Build response</button>
+          <button id="run" class="button" type="button" disabled={busy() || tenantMissing()} onClick={generateDraft}>Process data</button>
           <button id="stop" class="button button-secondary" type="button" disabled={busy() || !status()?.session.running} onClick={() => runAction(() => rpc.browser.stop())}>Disconnect</button>
         </div>
         <details class="mb-5 border-t border-line pt-4">
@@ -280,17 +299,17 @@ function App() {
             <span class="helper">Leave blank to use the only open incident tab. Enter an ID when several incidents are open.</span>
           </label>
         </details>
-        <label class="field">Analyst response
-          <textarea ref={draftElement} id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="The analyst-ready response appears here." value={analystResponse()} />
-          <span class="helper">During Local AI analysis, generated output streams here. The final response replaces it only after the output passes schema validation. Related ticket resolutions are appended afterward by the app.</span>
+        <label class="field">Processed incident data
+          <textarea ref={draftElement} id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="Processed source fields appear here." value={processedResponse()} onScroll={updateLiveOutputFollow} />
+          <span class="helper">During Local AI processing, structured output streams here. The final data replaces it only after schema validation. The model is instructed to extract stated facts only; related ticket records are appended afterward by the app.</span>
         </label>
         <Show when={status()?.aiDraft}>
           <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
             <input id="aiDraftAcknowledgement" class="mt-1 h-4 w-4" type="checkbox" checked={acknowledgedDraftVersion() === status()?.draftVersion} onChange={(event) => setAcknowledgedDraftVersion(event.currentTarget.checked ? status()?.draftVersion : undefined)} />
-            <span><span class="block font-bold">I reviewed the AI-assisted response.</span><span class="helper mt-1 block">Validate the evidence, scope, and recommended actions before copying it into XSOAR.</span></span>
+            <span><span class="block font-bold">I reviewed the AI-processed data.</span><span class="helper mt-1 block">Confirm every field accurately reflects the source evidence before copying it into XSOAR.</span></span>
           </label>
         </Show>
-        <button id="copy" class="button button-secondary mt-4" type="button" disabled={busy() || !status()?.draft || (status()?.aiDraft && acknowledgedDraftVersion() !== status()?.draftVersion)} onClick={copyDraft}>Copy response</button>
+        <button id="copy" class="button button-secondary mt-4" type="button" disabled={busy() || !status()?.draft || (status()?.aiDraft && acknowledgedDraftVersion() !== status()?.draftVersion)} onClick={copyDraft}>Copy processed data</button>
       </section>
     </div>
   );
@@ -350,30 +369,30 @@ function App() {
 
       <section class="panel">
         <div class="mb-5">
-          <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Response template</p>
-          <h2 class="m-0 text-xl font-bold">Data mapping</h2>
-          <p class="helper mb-0 mt-2">Match labels found in XSOAR fields and log tables to the values used in the response. Separate alternate labels with commas.</p>
+          <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">JSON ingestion</p>
+          <h2 class="m-0 text-xl font-bold">JSON log mapping</h2>
+          <p class="helper mb-0 mt-2">Map important output fields to JSON keys or dotted paths from XSOAR logs. For example, <code>source.ip</code>, <code>events.actor.user_name</code>, or <code>message</code>. Separate alternatives with commas. Existing XSOAR field labels remain valid fallbacks.</p>
         </div>
         <fieldset class="contents" disabled={busy() || status()?.session.running}>
           <div class="grid gap-3 md:grid-cols-2">
             <For each={FIELD_MAPPINGS}>{(mapping) => (
               <label class="field rounded-xl border border-line bg-slate-50 p-4">
                 <span>{mapping.name}</span>
-                <span class="text-xs font-normal text-muted">Used for: {mapping.use}</span>
-                <input id={`fieldLabel-${mapping.key}`} class="control mt-1" value={settings().xsoar.fieldLabels[mapping.key].join(", ")} onInput={(event) => updateFieldLabels(mapping.key, event.currentTarget.value)} />
+                <span class="text-xs font-normal text-muted">JSON example / output use: {mapping.use}</span>
+                <input id={`fieldLabel-${mapping.key}`} class="control mt-1 font-mono text-sm" aria-label={`${mapping.name} JSON keys or paths`} value={settings().xsoar.fieldLabels[mapping.key].join(", ")} onInput={(event) => updateFieldLabels(mapping.key, event.currentTarget.value)} />
               </label>
             )}</For>
             <label class="field rounded-xl border border-line bg-slate-50 p-4">
-              <span>Historical recommendations</span>
-              <span class="text-xs font-normal text-muted">Used for: Related recommendations</span>
-              <input id="historicalRecommendationLabels" class="control mt-1" placeholder="Historical Recommendations, Customer Recommendations" value={settings().xsoar.historicalRecommendationLabels.join(", ")} onInput={(event) => updateHistoricalRecommendationLabels(event.currentTarget.value)} />
+              <span>Historical resolution data</span>
+              <span class="text-xs font-normal text-muted">JSON paths or XSOAR labels used for related ticket records</span>
+              <input id="historicalRecommendationLabels" class="control mt-1 font-mono text-sm" placeholder="resolution.summary, close.notes" value={settings().xsoar.historicalRecommendationLabels.join(", ")} onInput={(event) => updateHistoricalRecommendationLabels(event.currentTarget.value)} />
             </label>
           </div>
+          <p class="helper mt-4">JSON objects are flattened into dotted paths. Array indexes are ignored, so <code>events[0].actor.user_name</code> can be mapped as <code>events.actor.user_name</code>. When several values match, the first available source value is used.</p>
           <details class="mt-5 border-t border-line pt-4">
-            <summary class="cursor-pointer font-bold">Response wording</summary>
+            <summary class="cursor-pointer font-bold">Output wording</summary>
             <div class="mt-4 grid gap-4 sm:grid-cols-2">
               <label class="field">Greeting<input class="control" value={settings().xsoar.template.greeting} onInput={(event) => updateTemplate("greeting", event.currentTarget.value)} /></label>
-              <label class="field">Recommendations heading<input class="control" value={settings().xsoar.template.recommendationsHeading} onInput={(event) => updateTemplate("recommendationsHeading", event.currentTarget.value)} /></label>
               <label class="field sm:col-span-2">Contact text<textarea class="control min-h-24" value={settings().xsoar.template.contactText} onInput={(event) => updateTemplate("contactText", event.currentTarget.value)} /></label>
               <label class="field">Sign-off<input class="control" value={settings().xsoar.template.signOff} onInput={(event) => updateTemplate("signOff", event.currentTarget.value)} /></label>
             </div>
@@ -385,7 +404,7 @@ function App() {
       <section class="panel">
         <fieldset class="contents" disabled={busy() || modelDownloadRunning()}>
           <div class="mb-5">
-            <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Optional analysis</p>
+            <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Optional field processing</p>
             <h2 class="m-0 text-xl font-bold">Local AI</h2>
           </div>
           <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-slate-50 p-4">
@@ -393,7 +412,7 @@ function App() {
               updateLocalAi("enabled", event.currentTarget.checked);
               void runAction(persistLocalAiSettings);
             }} />
-            <span><span class="block font-bold">Enable local AI analysis</span><span class="helper mt-1 block">Sends allowlisted fields from the original incident to Ollama on this workstation. Related tickets never go to the model.</span></span>
+            <span><span class="block font-bold">Enable local AI field processing</span><span class="helper mt-1 block">Sends allowlisted fields from the original incident to Ollama on this workstation for factual extraction only. Related tickets never go to the model.</span></span>
           </label>
           <label class="field mt-4">Local model
             <input id="localAiModel" class="control font-mono text-sm" list="localAiModels" autocomplete="off" value={settings().localAi.model} onInput={(event) => updateLocalAi("model", event.currentTarget.value)} />

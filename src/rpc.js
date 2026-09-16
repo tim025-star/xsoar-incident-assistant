@@ -46,7 +46,7 @@ export function createAssistantRouter({
   };
   const generate = async ({ incidentId = "" } = {}) => {
     if (runningWorkflow) {
-      throw new ORPCError("CONFLICT", { message: "An analyst response is already being built." });
+      throw new ORPCError("CONFLICT", { message: "Incident data is already being processed." });
     }
     runningWorkflow = true;
     try {
@@ -69,7 +69,7 @@ export function createAssistantRouter({
           onProgress: async (detail) => { activity = { ...activity, detail, aiDraft: false, draftVersion }; }
         });
         activity = {
-          detail: result.warning || `Analyst response ready. Reviewed ${result.reviewed} related incident(s).`,
+          detail: result.warning || `Processed incident data ready. Reviewed ${result.reviewed} related incident(s).`,
           draft: result.draft,
           aiOutput: activity.aiOutput,
           aiDraft: result.aiEnriched,
@@ -131,7 +131,7 @@ export function createAssistantRouter({
                 activity = { ...activity, detail: `${progress}${percent}` };
               }
             });
-            activity = { ...activity, detail: `Model ${input.model} is ready for analysis.` };
+            activity = { ...activity, detail: `Model ${input.model} is ready for field processing.` };
             return { models };
           } catch (error) {
             return fail(error);

@@ -137,33 +137,32 @@ test("workflow fails closed when XSOAR removes or changes the URL query", async 
   assert.equal(adapter.closed.length, 1);
 });
 
-test("workflow retains the rules-based response if local enrichment fails", async () => {
+test("workflow retains the source-field response if local processing fails", async () => {
   const result = await runIncidentDraft({
     adapter: createAdapter(), settings,
     enrichDraft: async () => { throw new Error("Ollama offline"); }
   });
-  assert.match(result.draft, /Investigation Summary\nx x x/);
-  assert.match(result.warning, /rules-based response is ready/);
+  assert.match(result.draft, /Processed Incident Data/);
+  assert.match(result.warning, /source-field response is ready/);
   assert.equal(result.aiEnriched, false);
 });
 
-test("workflow inserts injected local enrichment without changing browser concurrency", async () => {
+test("workflow inserts factual local processing without changing browser concurrency", async () => {
   let enrichmentInput;
   const result = await runIncidentDraft({
     adapter: createAdapter(), settings,
     enrichDraft: async (input) => {
       enrichmentInput = input;
       return {
-        investigationSummary: "Review the event with the asset owner.",
-        relatedActivity: "Review activity recorded on the original incident.",
-        vendorGuidance: "Use applicable vendor documentation.",
-        recommendations: ["Confirm containment requirements."]
+        eventSummary: "The source record names endpoint-01.",
+        observedFacts: ["Source IP: 192.0.2.10"]
       };
     }
   });
   assert.deepEqual(Object.keys(enrichmentInput), ["incident"]);
-  assert.match(result.draft, /Review the event with the asset owner/);
-  assert.match(result.draft, /Confirm containment requirements/);
-  assert.ok(result.draft.indexOf("Confirm containment requirements.") < result.draft.indexOf("#4199: Reviewed incident 4199"));
+  assert.match(result.draft, /The source record names endpoint-01/);
+  assert.match(result.draft, /Source IP: 192\.0\.2\.10/);
+  assert.doesNotMatch(result.draft, /Recommended Actions|Vendor Guidance/);
+  assert.ok(result.draft.indexOf("Source IP: 192.0.2.10") < result.draft.indexOf("#4199: Reviewed incident 4199"));
   assert.equal(result.aiEnriched, true);
 });

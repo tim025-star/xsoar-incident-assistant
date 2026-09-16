@@ -43,6 +43,46 @@ export async function extractIncidentFromPage(settings) {
       .forEach((element) => element.remove());
     return normalize(copy.innerText || copy.textContent);
   };
+  const normalizeJsonPath = (value) => normalize(value).toLowerCase()
+    .replace(/\[(?:\d+|\*)\]/g, ".")
+    .split(/[^a-z0-9]+/)
+    .filter((part) => part && !/^\d+$/.test(part))
+    .join(".");
+  const collectJsonPairs = () => {
+    const pairs = [];
+    const seen = new Set();
+    let visitedNodes = 0;
+    const visit = (value, path, depth) => {
+      if (depth > 10 || visitedNodes >= 5000) return;
+      visitedNodes += 1;
+      if (Array.isArray(value)) {
+        for (const item of value.slice(0, 100)) visit(item, path, depth + 1);
+        return;
+      }
+      if (value && typeof value === "object") {
+        for (const [key, item] of Object.entries(value).slice(0, 200)) {
+          visit(item, [...path, key], depth + 1);
+        }
+        return;
+      }
+      const jsonPath = normalizeJsonPath(path.join("."));
+      const text = normalize(typeof value === "string" ? value : String(value));
+      if (jsonPath && available(text)) pairs.push([jsonPath, text]);
+    };
+    const candidates = Array.from(document.querySelectorAll(
+      "pre,code,textarea,.preplacer,.value-wrapper,.markdown,[data-testid*='json' i],[class*='json' i],td"
+    )).filter(isVisible).slice(0, 100);
+    for (const element of candidates) {
+      const raw = String(element.value ?? element.textContent ?? "").trim();
+      if (!raw || raw.length > 256 * 1024 || seen.has(raw)
+        || !((raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]")))) continue;
+      seen.add(raw);
+      try {
+        visit(JSON.parse(raw), [], 0);
+      } catch {}
+    }
+    return pairs;
+  };
 
   const read = () => {
     const wrappers = Array.from(document.querySelectorAll(".field-wrapper")).filter(isVisible);
@@ -73,6 +113,16 @@ export async function extractIncidentFromPage(settings) {
       }
       fields[key] = available(value) ? normalize(value) : "";
     }
+    const jsonPairs = collectJsonPairs();
+    const findJsonValue = (candidates = []) => {
+      for (const candidate of candidates.map(normalizeJsonPath).filter(Boolean)) {
+        const exact = jsonPairs.find(([path, value]) => path === candidate && available(value));
+        if (exact) return exact[1];
+        const suffix = jsonPairs.find(([path, value]) => path.endsWith(`.${candidate}`) && available(value));
+        if (suffix) return suffix[1];
+      }
+      return "";
+    };
 
     const semanticFields = {
       historicalSummary: settings.historicalSummaryLabels?.length
@@ -95,6 +145,7 @@ export async function extractIncidentFromPage(settings) {
           break;
         }
       }
+      if (!available(fields[key])) fields[key] = findJsonValue(labels);
     }
 
     const aliases = settings.fieldLabels || {};
@@ -109,8 +160,10 @@ export async function extractIncidentFromPage(settings) {
       ]);
     }
     const embedded = {};
+    const jsonFields = {};
     for (const [key, candidates] of Object.entries(aliases)) {
       embedded[key] = "";
+      jsonFields[key] = findJsonValue(candidates);
       for (const candidate of candidates.map(normalizeKey)) {
         const match = pairs.find(([label, value]) => label === candidate && available(value));
         if (match) {
@@ -120,7 +173,7 @@ export async function extractIncidentFromPage(settings) {
       }
     }
     const combinedFields = Object.fromEntries(
-      Object.keys(fields).map((key) => [key, first(fields[key], embedded[key])])
+      Object.keys(fields).map((key) => [key, first(fields[key], jsonFields[key], embedded[key])])
     );
 
     const headerTicket = normalize(document.querySelector(".header-inv-id")?.textContent);
