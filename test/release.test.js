@@ -22,7 +22,7 @@ async function closeServer(server) {
 function deferred() { let resolve; const promise = new Promise((next) => { resolve = next; }); return { promise, resolve }; }
 
 test("current Chrome is the only browser interface", () => {
-  assert.equal(DEFAULT_APP_CONFIG.configVersion, 10);
+  assert.equal(DEFAULT_APP_CONFIG.configVersion, 11);
   assert.equal("session" in DEFAULT_APP_CONFIG, false);
   assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "");
   assert.deepEqual(DEFAULT_APP_CONFIG.localAi, { enabled: false, model: "qwen3.5:9b" });
@@ -122,12 +122,57 @@ test("legacy settings migrate by discarding retired fields", () => {
       template: { analystName: "" }
     }
   }, { requireTenant: false });
-  assert.equal(migrated.configVersion, 10);
+  assert.equal(migrated.configVersion, 11);
   assert.equal("session" in migrated, false);
   for (const key of ["customerShortName", "owner", "phase", "description"]) {
     assert.equal(key in migrated.xsoar.fieldLabels, false);
   }
   assert.deepEqual(migrated.localAi, { enabled: false, model: "qwen3.5:9b" });
+});
+
+test("local AI settings can be saved while Chrome remains connected", async () => {
+  let stored = resolveAppConfig({ xsoar: { allowedOrigin: "https://xsoar.example.test" } });
+  const configStore = {
+    load: async () => stored,
+    save: async (input, options) => {
+      stored = resolveAppConfig(input, options);
+      return stored;
+    }
+  };
+  const sessions = {
+    status: () => ({ running: true }),
+    start: async () => {},
+    stop: async () => {},
+    adapter: () => ({})
+  };
+  const app = createAssistantServer({
+    token: "local-ai-settings-token",
+    routerOptions: { configStore, sessions }
+  });
+  const origin = new URL(await app.listen(0)).origin;
+  const client = createORPCClient(new RPCLink({
+    url: `${origin}/rpc`,
+    headers: { "X-Assistant-Token": "local-ai-settings-token", Origin: origin }
+  }));
+  try {
+    const saved = await client.config.saveLocalAi({ enabled: true, model: "qwen3.5:9b" });
+    assert.deepEqual(saved, { enabled: true, model: "qwen3.5:9b" });
+    assert.equal(stored.localAi.enabled, true);
+    await assert.rejects(() => client.config.save(stored), /Disconnect Chrome before changing settings/);
+  } finally {
+    await closeServer(app.server);
+  }
+});
+
+test("version 10 settings gain the default incident path template", () => {
+  const upgraded = resolveAppConfig({
+    configVersion: 10,
+    xsoar: { configVersion: 2, allowedOrigin: "https://xsoar.example.test" }
+  });
+
+  assert.equal(upgraded.configVersion, 11);
+  assert.equal(upgraded.xsoar.configVersion, 3);
+  assert.equal(upgraded.xsoar.incidentPathTemplate, "/Custom/GenericLayout/{id}");
 });
 
 test("cloud aliases cannot be saved as local AI models", () => {
@@ -161,18 +206,18 @@ test("shared operation locking and draft versions survive identical AI draft tex
   const origin = new URL(await app.listen(0)).origin;
   const client = createORPCClient(new RPCLink({ url: `${origin}/rpc`, headers: { "X-Assistant-Token": "operation-token", Origin: origin } }));
   try {
-    const first = client.draft.generate();
+    const first = client.draft.generate({ incidentId: "" });
     await draftStarted.promise;
-    await assert.rejects(() => client.localAi.pull({ model: "qwen3.5:9b" }), /Cannot start model download while draft generation is running/);
+    await assert.rejects(() => client.localAi.pull({ model: "qwen3.5:9b" }), /Cannot start model download while response build is running/);
     draftDone.resolve();
     const firstResult = await first;
-    const secondResult = await client.draft.generate();
+    const secondResult = await client.draft.generate({ incidentId: "" });
     assert.equal(firstResult.draft, secondResult.draft);
     assert.equal(firstResult.draftVersion, 1);
     assert.equal(secondResult.draftVersion, 2);
     const pull = client.localAi.pull({ model: "qwen3.5:9b" });
     await pullStarted.promise;
-    await assert.rejects(() => client.draft.generate(), /Cannot start draft generation while model download is running/);
+    await assert.rejects(() => client.draft.generate({ incidentId: "" }), /Cannot start response build while model download is running/);
     pullDone.resolve();
     await pull;
   } finally { await closeServer(app.server); }
@@ -242,7 +287,7 @@ test("local oRPC API requires the process token and exact origin", async () => {
       headers: { "X-Assistant-Token": "test-token", Origin: origin }
     }));
     const authorised = await client.status();
-    assert.match(authorised.detail, /Configure the assistant/);
+    assert.match(authorised.detail, /Set the XSOAR tenant/);
     const invalidHostStatus = await new Promise((resolve, reject) => {
       const request = http.request({
         hostname: launchUrl.hostname,

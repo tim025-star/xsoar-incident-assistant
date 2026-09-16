@@ -78,31 +78,36 @@ class PlaywrightBrowserAdapter {
         return false;
       }
     });
-    if (!candidates.length) throw new Error("Open an XSOAR incident in the connected Chrome window before generating a draft.");
+    if (!candidates.length) throw new Error("Enter an Incident ID or open one XSOAR incident in the connected Chrome session.");
     const focused = [];
     for (const page of candidates) {
       if (await page.evaluate(() => document.hasFocus()).catch(() => false)) focused.push(page);
     }
     if (focused.length === 1) return { id: focused[0], url: focused[0].url() };
     if (candidates.length === 1) return { id: candidates[0], url: candidates[0].url() };
-    throw new Error("More than one XSOAR incident is open. Bring the incident you want to process to the front and try again.");
+    throw new Error("Multiple XSOAR incidents are open. Enter the Incident ID you want to triage.");
   }
 
   async openTab(url) {
     const page = await this.context.newPage();
-    await page.route("**/*", async (route) => {
-      const request = route.request();
-      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
-        try {
-          assertTrustedUrl(request.url(), this.settings, "Automated navigation");
-        } catch {
-          return route.abort("blockedbyclient");
+    try {
+      await page.route("**/*", async (route) => {
+        const request = route.request();
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+          try {
+            assertTrustedUrl(request.url(), this.settings, "Automated navigation");
+          } catch {
+            return route.abort("blockedbyclient");
+          }
         }
-      }
-      return route.continue();
-    });
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.settings.pageReadyTimeoutMs });
-    return { id: page, url: page.url() };
+        return route.continue();
+      });
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.settings.pageReadyTimeoutMs });
+      return { id: page, url: page.url() };
+    } catch (error) {
+      await page.close().catch(() => {});
+      throw error;
+    }
   }
 
   async getTabUrl(page) {
@@ -160,14 +165,14 @@ export class BrowserSessionManager {
       browser = await this.chromium.connectOverCDP(endpoint);
     } catch (error) {
       throw new Error(
-        "Could not connect to the current Chrome window. Open Chrome setup, enable remote debugging, and accept Chrome's connection prompt.",
+        "Could not connect to Chrome. Open Chrome access setup, enable remote debugging, and approve Chrome's prompt.",
         { cause: error }
       );
     }
     const contexts = browser.contexts();
     if (!contexts.length) {
       await browser.close().catch(() => {});
-      throw new Error("The current Chrome window did not expose a browser context.");
+      throw new Error("Chrome did not expose the approved browser session.");
     }
     this.browser = browser;
     this.context = contexts[0];
@@ -180,7 +185,7 @@ export class BrowserSessionManager {
   }
 
   adapter(settings) {
-    if (!this.context) throw new Error("Connect the current Chrome window first.");
+    if (!this.context) throw new Error("Connect Chrome before starting triage.");
     return new PlaywrightBrowserAdapter(this.context, settings);
   }
 

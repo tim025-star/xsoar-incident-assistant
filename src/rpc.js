@@ -7,6 +7,10 @@ import { createLocalAiInstaller } from "./local-ai-installer.js";
 import { createOllamaClient, localAiSettingsSchema } from "./local-ai.js";
 import { runIncidentDraft } from "./workflow.js";
 
+const draftRequestSchema = z.object({
+  incidentId: z.string().trim().max(32).regex(/^\d*$/, "Incident ID must contain digits only.")
+}).strict();
+
 function messageFor(error) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -20,8 +24,9 @@ export function createAssistantRouter({
 } = {}) {
   localAiInstaller ||= createLocalAiInstaller({ localAi });
   let activity = {
-    detail: "Configure the assistant, then connect your current Chrome window.",
+    detail: "Set the XSOAR tenant, then connect Chrome.",
     draft: "",
+    aiOutput: "",
     aiDraft: false,
     draftVersion: 0
   };
@@ -36,29 +41,37 @@ export function createAssistantRouter({
     try { return await action(); } finally { activeOperation = ""; }
   };
   const fail = (error, code = "BAD_REQUEST") => {
-    activity = { detail: messageFor(error), draft: activity.draft, aiDraft: activity.aiDraft, draftVersion: activity.draftVersion };
+    activity = { ...activity, detail: messageFor(error) };
     throw new ORPCError(code, { message: activity.detail });
   };
-  const generate = async () => {
+  const generate = async ({ incidentId = "" } = {}) => {
     if (runningWorkflow) {
-      throw new ORPCError("CONFLICT", { message: "A draft is already being generated." });
+      throw new ORPCError("CONFLICT", { message: "An analyst response is already being built." });
     }
     runningWorkflow = true;
     try {
-      return await withOperationLock("draft generation", async () => {
+      return await withOperationLock("response build", async () => {
         const draftVersion = activity.draftVersion + 1;
-        activity = { detail: "Preparing a new deterministic draft.", draft: "", aiDraft: false, draftVersion };
+        activity = { detail: "Collecting incident evidence.", draft: "", aiOutput: "", aiDraft: false, draftVersion };
         const config = await configStore.load({ requireTenant: true });
         await sessions.start();
         const result = await generateDraft({
           adapter: sessions.adapter(config.xsoar),
           settings: config.xsoar,
-          enrichDraft: config.localAi.enabled ? (input) => localAi.enrich({ ...input, model: config.localAi.model }) : undefined,
-          onProgress: async (detail) => { activity = { detail, draft: activity.draft, aiDraft: false, draftVersion }; }
+          incidentId,
+          enrichDraft: config.localAi.enabled ? (input) => localAi.enrich({
+            ...input,
+            model: config.localAi.model,
+            onToken: (token) => {
+              activity = { ...activity, aiOutput: `${activity.aiOutput}${token}`.slice(0, 20000) };
+            }
+          }) : undefined,
+          onProgress: async (detail) => { activity = { ...activity, detail, aiDraft: false, draftVersion }; }
         });
         activity = {
-          detail: result.warning || `Draft ready. Reviewed ${result.reviewed} historical incident(s).`,
+          detail: result.warning || `Analyst response ready. Reviewed ${result.reviewed} related incident(s).`,
           draft: result.draft,
+          aiOutput: activity.aiOutput,
           aiDraft: result.aiEnriched,
           draftVersion
         };
@@ -81,8 +94,18 @@ export function createAssistantRouter({
         }
         try {
           const config = await configStore.save(input);
-          activity = { ...activity, detail: "Settings saved." };
+          activity = { ...activity, detail: "XSOAR config saved." };
           return config;
+        } catch (error) {
+          return fail(error);
+        }
+      }),
+      saveLocalAi: os.input(localAiSettingsSchema).output(localAiSettingsSchema).handler(async ({ input }) => {
+        try {
+          const current = await configStore.load({ requireTenant: false });
+          const saved = await configStore.save({ ...current, localAi: input }, { requireTenant: false });
+          activity = { ...activity, detail: "Local AI config saved." };
+          return saved.localAi;
         } catch (error) {
           return fail(error);
         }
@@ -95,7 +118,7 @@ export function createAssistantRouter({
         .output(z.object({ models: z.array(z.string()) }).strict())
         .handler(async ({ input }) => withOperationLock("model download", async () => {
           pullAbortController = new AbortController();
-          activity = { ...activity, detail: `Downloading local model ${input.model}.` };
+          activity = { ...activity, detail: `Pulling local model ${input.model}.` };
           try {
             const models = await localAiInstaller.installModel(input.model, {
               signal: pullAbortController.signal,
@@ -104,7 +127,7 @@ export function createAssistantRouter({
                 activity = { ...activity, detail: `${progress}${percent}` };
               }
             });
-            activity = { ...activity, detail: `Local model ${input.model} is ready.` };
+            activity = { ...activity, detail: `Model ${input.model} is ready for analysis.` };
             return { models };
           } catch (error) {
             return fail(error);
@@ -126,7 +149,7 @@ export function createAssistantRouter({
           sessions.openSetup();
           activity = {
             ...activity,
-            detail: "Chrome setup opened. Enable remote debugging, accept Chrome's prompt, then return here and connect."
+            detail: "Chrome access setup opened. Enable remote debugging, approve the prompt, then connect."
           };
           return status();
         } catch (error) {
@@ -136,11 +159,11 @@ export function createAssistantRouter({
       open: os.handler(async () => {
         try {
           await configStore.load({ requireTenant: true });
-          activity = { ...activity, detail: "Connecting to your current Chrome window." };
+          activity = { ...activity, detail: "Connecting to the analyst Chrome session." };
           await sessions.start();
           activity = {
             ...activity,
-            detail: "Connected to the current Chrome window. Open one XSOAR incident, then generate a draft from this tab."
+            detail: "Chrome connected. Enter an Incident ID, or leave one XSOAR incident open, then build the response."
           };
           return status();
         } catch (error) {
@@ -152,7 +175,7 @@ export function createAssistantRouter({
           await sessions.stop();
           activity = {
             ...activity,
-            detail: "Disconnected from current Chrome. Chrome and its tabs remain open."
+            detail: "Chrome disconnected. Your browser and tabs are still open."
           };
           return status();
         } catch (error) {
@@ -160,7 +183,7 @@ export function createAssistantRouter({
         }
       })
     },
-    draft: { generate: os.handler(generate) }
+    draft: { generate: os.input(draftRequestSchema).handler(({ input }) => generate(input)) }
   };
 
   return { router, sessions, status, generate };

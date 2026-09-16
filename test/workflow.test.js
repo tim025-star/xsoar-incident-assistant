@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { resolveSettings } from "../src/domain.js";
 import { runIncidentDraft } from "../src/workflow.js";
 
-function createAdapter({ searchRedirect } = {}) {
+function createAdapter({ searchRedirect, incidentRedirect } = {}) {
   const tabs = new Map([[1, "https://xsoar.example.test/Custom/GenericLayout/4200"]]);
   const opened = [];
   const closed = [];
@@ -26,6 +26,7 @@ function createAdapter({ searchRedirect } = {}) {
     },
     async getTabUrl(id) {
       const url = tabs.get(id);
+      if (id === 2 && incidentRedirect) return incidentRedirect;
       return url.includes("/incidents?") && searchRedirect ? searchRedirect : url;
     },
     async extractIncident(id) {
@@ -85,6 +86,29 @@ test("workflow searches through the URL, excludes the current incident, and rest
   assert.equal(adapter.closed.length, 4);
 });
 
+test("workflow opens an explicitly requested incident and closes that temporary tab", async () => {
+  const adapter = createAdapter();
+  const result = await runIncidentDraft({ adapter, settings, incidentId: "4200" });
+
+  assert.equal(adapter.opened[0], "https://xsoar.example.test/Custom/GenericLayout/4200");
+  assert.equal(result.reviewed, 3);
+  assert.deepEqual(adapter.focused, []);
+  assert.equal(adapter.closed.length, 5);
+});
+
+test("workflow closes an explicitly requested tab when XSOAR redirects to another incident", async () => {
+  const adapter = createAdapter({
+    incidentRedirect: "https://xsoar.example.test/Custom/GenericLayout/4201"
+  });
+
+  await assert.rejects(
+    () => runIncidentDraft({ adapter, settings, incidentId: "4200" }),
+    /different incident/
+  );
+  assert.deepEqual(adapter.closed, [2]);
+  assert.deepEqual(adapter.focused, []);
+});
+
 test("workflow fails closed when XSOAR removes or changes the URL query", async () => {
   const adapter = createAdapter({ searchRedirect: "https://xsoar.example.test/incidents" });
 
@@ -93,13 +117,13 @@ test("workflow fails closed when XSOAR removes or changes the URL query", async 
   assert.equal(adapter.closed.length, 1);
 });
 
-test("workflow retains the deterministic draft if local enrichment fails", async () => {
+test("workflow retains the rules-based response if local enrichment fails", async () => {
   const result = await runIncidentDraft({
     adapter: createAdapter(), settings,
     enrichDraft: async () => { throw new Error("Ollama offline"); }
   });
   assert.match(result.draft, /Investigation Summary\nx x x/);
-  assert.match(result.warning, /deterministic draft was provided/);
+  assert.match(result.warning, /rules-based response is ready/);
   assert.equal(result.aiEnriched, false);
 });
 

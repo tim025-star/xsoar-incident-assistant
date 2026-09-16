@@ -8,6 +8,7 @@ import {
   BrowserSessionManager,
   readDevToolsWebSocketEndpoint
 } from "../src/browser-session.js";
+import { resolveSettings } from "../src/domain.js";
 
 test("reads only a loopback browser WebSocket endpoint from Chrome's approval file", async (t) => {
   const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), "xsoar-current-chrome-"));
@@ -61,4 +62,28 @@ test("opens Chrome's approved remote-debugging setup in the normal browser", () 
   const manager = new BrowserSessionManager({ openChromePage: (url) => { openedUrl = url; } });
   manager.openSetup();
   assert.equal(openedUrl, "chrome://inspect/#remote-debugging");
+});
+
+test("closes a temporary tab when its initial navigation fails", async () => {
+  let closed = false;
+  const page = {
+    route: async () => {},
+    goto: async () => { throw new Error("navigation failed"); },
+    close: async () => { closed = true; }
+  };
+  const context = { pages: () => [], newPage: async () => page };
+  const browser = {
+    contexts: () => [context],
+    once: () => {},
+    close: async () => {}
+  };
+  const manager = new BrowserSessionManager({
+    chromiumApi: { connectOverCDP: async () => browser },
+    currentChromeEndpoint: async () => "ws://127.0.0.1:43127/devtools/browser/01234567-89ab-cdef-0123-456789abcdef"
+  });
+  await manager.start();
+  const adapter = manager.adapter(resolveSettings({ allowedOrigin: "https://xsoar.example.test" }));
+
+  await assert.rejects(() => adapter.openTab("https://xsoar.example.test/Custom/GenericLayout/4200"), /navigation failed/);
+  assert.equal(closed, true);
 });

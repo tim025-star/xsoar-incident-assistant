@@ -23,9 +23,10 @@ export const FIELD_LABELS = Object.freeze({
 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  configVersion: 2,
+  configVersion: 3,
   allowedOrigin: "",
   incidentUrlPattern: "\\/Custom\\/[^/]+\\/\\d+\\/?(?:[?#].*)?$",
+  incidentPathTemplate: "/Custom/GenericLayout/{id}",
   incidentsPath: "/incidents",
   searchQueryParameter: "query",
   lookbackQuery: "created:>=\"7 days ago\"",
@@ -102,11 +103,12 @@ export function resolveSettings(input = {}) {
   }
   const settings = structuredClone(DEFAULT_SETTINGS);
   Object.assign(settings, input);
-  settings.configVersion = 2;
+  settings.configVersion = 3;
   settings.allowedOrigin = normalizeOrigin(settings.allowedOrigin);
 
   for (const key of [
     "incidentUrlPattern",
+    "incidentPathTemplate",
     "incidentsPath",
     "searchQueryParameter",
     "lookbackQuery",
@@ -122,6 +124,14 @@ export function resolveSettings(input = {}) {
     new RegExp(settings.incidentUrlPattern);
   } catch {
     throw new Error("incidentUrlPattern must be a valid regular expression.");
+  }
+  if ((settings.incidentPathTemplate.match(/\{id\}/g) || []).length !== 1) {
+    throw new Error("incidentPathTemplate must contain {id} exactly once.");
+  }
+  const templateUrl = new URL(settings.incidentPathTemplate.replace("{id}", "1"), settings.allowedOrigin);
+  if (templateUrl.origin !== settings.allowedOrigin || templateUrl.username || templateUrl.password
+    || templateUrl.search || templateUrl.hash || !settings.incidentPathTemplate.startsWith("/")) {
+    throw new Error("incidentPathTemplate must be an absolute path on the configured XSOAR origin without a query or fragment.");
   }
   if (!/^[A-Za-z0-9._~-]+$/.test(settings.searchQueryParameter)) {
     throw new Error("searchQueryParameter contains unsupported characters.");
@@ -247,6 +257,12 @@ export function buildHistoricalIncidentUrl(currentIncidentUrl, ticketId, setting
   source.search = "";
   source.hash = "";
   return assertIncidentUrl(source.toString(), settings, "Historical URL construction").toString();
+}
+
+export function buildIncidentUrlFromId(ticketId, settings) {
+  if (!/^\d+$/.test(String(ticketId))) throw new Error("Incident ID must be numeric.");
+  const url = new URL(settings.incidentPathTemplate.replace("{id}", String(ticketId)), settings.allowedOrigin);
+  return assertIncidentUrl(url.toString(), settings, "Requested incident navigation").toString();
 }
 
 export function mergeIncidentDetails(...details) {

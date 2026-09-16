@@ -3,6 +3,7 @@ import {
   assertSearchUrl,
   buildDraft,
   buildHistoricalIncidentUrl,
+  buildIncidentUrlFromId,
   buildIncidentSearchUrl,
   buildSearchQuery,
   mergeIncidentDetails,
@@ -42,23 +43,44 @@ function uniqueTrustedTabUrls(details, settings) {
 
 function historicalWarning(items) {
   const failed = items.filter((item) => item?.error).length;
-  return failed ? `${failed} historical incident(s) could not be read.` : "";
+  return failed ? `Could not read ${failed} related incident(s).` : "";
 }
 
-export async function runIncidentDraft({ adapter, settings: inputSettings, onProgress = async () => {}, enrichDraft }) {
+export async function runIncidentDraft({ adapter, settings: inputSettings, incidentId = "", onProgress = async () => {}, enrichDraft }) {
   if (!adapter) throw new Error("A browser adapter is required.");
   const settings = resolveSettings(inputSettings);
-  const originalTab = await adapter.getActiveTab();
-  assertIncidentUrl(originalTab.url, settings, "The active tab");
   const temporaryTabs = new Set();
+  const requestedIncidentId = String(incidentId).trim();
+  let originalTab;
+  let openedRequestedIncident = false;
 
   try {
-    await onProgress("Reading the active XSOAR incident.");
+    if (requestedIncidentId) {
+      await onProgress(`Opening XSOAR incident ${requestedIncidentId}.`);
+      originalTab = await adapter.openTab(buildIncidentUrlFromId(requestedIncidentId, settings));
+      temporaryTabs.add(originalTab);
+      openedRequestedIncident = true;
+      const finalUrl = await adapter.getTabUrl(originalTab.id);
+      const finalIncidentUrl = assertIncidentUrl(finalUrl, settings, "Requested incident navigation");
+      const finalTicketId = finalIncidentUrl.pathname.match(/\/(\d+)\/?$/)?.[1];
+      if (finalTicketId !== requestedIncidentId) {
+        throw new Error("XSOAR opened a different incident than the requested Incident ID.");
+      }
+      originalTab.url = finalIncidentUrl.toString();
+    } else {
+      originalTab = await adapter.getActiveTab();
+      assertIncidentUrl(originalTab.url, settings, "The active tab");
+    }
+
+    await onProgress(requestedIncidentId ? `Collecting evidence from incident ${requestedIncidentId}.` : "Collecting evidence from the open XSOAR incident.");
     const initial = await adapter.extractIncident(originalTab.id, settings);
+    if (requestedIncidentId && String(initial.ticketId) !== requestedIncidentId) {
+      throw new Error("XSOAR opened a different incident than the requested Incident ID.");
+    }
     const views = [initial];
     for (const url of uniqueTrustedTabUrls(initial, settings)) {
       if (url === originalTab.url) continue;
-      await onProgress("Reading an additional incident view.");
+      await onProgress("Collecting evidence from another incident view.");
       const tab = await adapter.openTab(url);
       temporaryTabs.add(tab);
       const finalUrl = await adapter.getTabUrl(tab.id);
@@ -71,7 +93,7 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, onPro
     const incident = mergeIncidentDetails(...views);
     const query = buildSearchQuery(incident.ruleName, incident.caseType, settings.lookbackQuery);
     const searchUrl = buildIncidentSearchUrl(settings, query);
-    await onProgress("Opening the matching-incidents query URL.");
+    await onProgress("Running the related-incident search.");
     const searchTab = await adapter.openTab(searchUrl);
     temporaryTabs.add(searchTab);
     const finalSearchUrl = await adapter.getTabUrl(searchTab.id);
@@ -93,7 +115,7 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, onPro
       async (ticketId) => {
         let historyTab;
         try {
-          await onProgress("Reading a matching historical incident.");
+          await onProgress("Reviewing a related incident.");
           const historicalUrl = buildHistoricalIncidentUrl(originalTab.url, ticketId, settings);
           historyTab = await adapter.openTab(historicalUrl);
           temporaryTabs.add(historyTab);
@@ -101,7 +123,7 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, onPro
           assertIncidentUrl(finalUrl, settings, "Historical incident navigation");
           const detail = await adapter.extractIncident(historyTab.id, settings);
           if (String(detail.ticketId) !== String(ticketId)) {
-            throw new Error("XSOAR opened a different historical incident than requested.");
+            throw new Error("XSOAR opened a different related incident than requested.");
           }
           return detail;
         } catch (error) {
@@ -119,18 +141,18 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, onPro
     );
 
     const output = { ...incident, historical };
-    await onProgress("Preparing the incident-response draft.");
+    await onProgress("Building the analyst response.");
     let draft = buildDraft(output, settings.template);
     let enrichmentWarning = "";
     let aiEnriched = false;
     if (enrichDraft) {
-      await onProgress("Optionally enriching the deterministic draft with local Ollama.");
+      await onProgress("Running local AI analysis.");
       try {
         const enrichment = await enrichDraft({ incident, historical, draft });
         draft = buildDraft(output, settings.template, enrichment);
         aiEnriched = true;
       } catch {
-        enrichmentWarning = "Local AI enrichment was unavailable; the deterministic draft was provided.";
+        enrichmentWarning = "Local AI did not return valid analysis. The rules-based response is ready.";
       }
     }
     return {
@@ -143,6 +165,6 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, onPro
     for (const tab of [...temporaryTabs].reverse()) {
       await adapter.closeTab(tab.id).catch(() => {});
     }
-    await adapter.focusTab(originalTab.id).catch(() => {});
+    if (originalTab && !openedRequestedIncident) await adapter.focusTab(originalTab.id).catch(() => {});
   }
 }
