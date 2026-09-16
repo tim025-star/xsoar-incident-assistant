@@ -64,6 +64,47 @@ test("opens Chrome's approved remote-debugging setup in the normal browser", () 
   assert.equal(openedUrl, "chrome://inspect/#remote-debugging");
 });
 
+test("focuses an existing local console or reopens it when the tab was closed", async () => {
+  let pages = [];
+  let existingFocusCalls = 0;
+  let openedUrl = "";
+  let openedFocusCalls = 0;
+  const existingPage = {
+    url: () => "http://127.0.0.1:43128/",
+    evaluate: async (callback, token) => {
+      assert.equal(typeof callback, "function");
+      assert.equal(token, "session-token");
+      return true;
+    },
+    bringToFront: async () => { existingFocusCalls += 1; }
+  };
+  const openedPage = {
+    goto: async (url) => { openedUrl = url; },
+    bringToFront: async () => { openedFocusCalls += 1; },
+    close: async () => {}
+  };
+  const context = { pages: () => pages, newPage: async () => openedPage };
+  const browser = { contexts: () => [context], once: () => {}, close: async () => {} };
+  const manager = new BrowserSessionManager({
+    chromiumApi: { connectOverCDP: async () => browser },
+    currentChromeEndpoint: async () => "ws://127.0.0.1:43127/devtools/browser/01234567-89ab-cdef-0123-456789abcdef"
+  });
+  manager.setConsoleUrl("http://127.0.0.1:43128/#session-token");
+  assert.throws(() => manager.setConsoleUrl("https://attacker.example/#session-token"), /loopback home page/);
+  manager.setConsoleUrl("http://127.0.0.1:43128/#session-token");
+  await manager.start();
+
+  pages = [existingPage];
+  assert.equal(await manager.showConsole(), true);
+  assert.equal(existingFocusCalls, 1);
+  assert.equal(openedUrl, "");
+
+  pages = [];
+  assert.equal(await manager.showConsole(), true);
+  assert.equal(openedUrl, "http://127.0.0.1:43128/#session-token");
+  assert.equal(openedFocusCalls, 1);
+});
+
 test("closes a temporary tab when its initial navigation fails", async () => {
   let closed = false;
   const page = {

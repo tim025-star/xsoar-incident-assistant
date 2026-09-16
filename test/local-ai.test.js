@@ -26,7 +26,7 @@ function streamedResponse(lines, delayMs = 0) {
 test("local enrichment uses bounded allowlisted evidence and validates structured output", async () => {
   const requests = [];
   const generated = JSON.stringify({
-    investigationSummary: "Review observed event details.", relatedActivity: "Compare supplied historical incidents.",
+    investigationSummary: "Review observed event details.", relatedActivity: "Review activity recorded in the original incident.",
     vendorGuidance: "Use applicable vendor documentation.", recommendations: ["Validate the affected system with its owner."]
   });
   const client = createOllamaClient({ fetchImplementation: async (url, options = {}) => {
@@ -44,15 +44,19 @@ test("local enrichment uses bounded allowlisted evidence and validates structure
   const enrichment = await client.enrich({
     model: DEFAULT_OLLAMA_MODEL,
     incident: { ticketId: "4200", unexpected: "do not send" },
-    historical: [],
+    historical: [{ ticketId: "4199", closeNotes: "RELATED TICKET MUST NOT REACH AI" }],
     onToken: (chunk) => chunks.push(chunk)
   });
   assert.equal(enrichment.recommendations.length, 1);
   assert.equal(chunks.join(""), generated);
   const body = JSON.parse(requests.find((request) => request.url.endsWith("/api/chat")).options.body);
-  assert.equal(JSON.parse(body.messages[1].content).evidence.current.unexpected, undefined);
+  const prompt = JSON.parse(body.messages[1].content);
+  assert.equal(prompt.evidence.current.unexpected, undefined);
+  assert.deepEqual(Object.keys(prompt.evidence), ["current"]);
+  assert.doesNotMatch(body.messages[1].content, /RELATED TICKET MUST NOT REACH AI/);
   assert.equal(body.options.num_ctx, 8192);
   assert.equal(body.stream, true);
+  assert.equal(body.think, false);
   assert.ok(requests.every((request) => request.options.redirect === "error"));
 });
 

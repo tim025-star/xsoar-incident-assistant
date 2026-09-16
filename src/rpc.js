@@ -75,6 +75,7 @@ export function createAssistantRouter({
           aiDraft: result.aiEnriched,
           draftVersion
         };
+        try { await sessions.showConsole?.(); } catch {}
         return { ...result, draftVersion };
       });
     } catch (error) {

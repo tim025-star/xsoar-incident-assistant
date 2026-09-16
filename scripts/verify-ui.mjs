@@ -20,6 +20,11 @@ let sessionRunning = false;
 let starts = 0;
 let setupOpens = 0;
 let failNextStart = false;
+let consolePage;
+let workflowPage;
+let consoleRestoreCalls = 0;
+let foregroundPage = "console";
+let registeredConsoleUrl = "";
 const pulledModels = [];
 const requestedIncidentIds = [];
 const firstAiChunk = '{"investigationSummary":"Reviewing';
@@ -37,6 +42,12 @@ const sessions = {
     return {};
   },
   stop: async () => { sessionRunning = false; },
+  setConsoleUrl: (url) => { registeredConsoleUrl = url; },
+  showConsole: async () => {
+    consoleRestoreCalls += 1;
+    foregroundPage = "console";
+    await consolePage?.bringToFront();
+  },
   adapter: () => ({})
 };
 const app = createAssistantServer({
@@ -71,12 +82,15 @@ const app = createAssistantServer({
     generateDraft: async ({ incidentId, onProgress, enrichDraft }) => {
       requestedIncidentIds.push(incidentId);
       await onProgress("Running local AI analysis.");
-      await enrichDraft?.({ incident: {}, historical: [], draft: "Rules-based response" });
+      await enrichDraft?.({ incident: {} });
+      foregroundPage = "workflow";
+      await workflowPage?.bringToFront();
       return { draft: "Locally enriched example draft", warning: "", reviewed: 0, aiEnriched: true };
     }
   }
 });
 const url = await app.listen(0);
+assert.equal(registeredConsoleUrl, url);
 let browser;
 try {
   const candidates = [
@@ -88,6 +102,7 @@ try {
   const executablePath = candidates.find(existsSync);
   browser = await chromium.launch(executablePath ? { executablePath, headless: true } : { channel: "chromium", headless: true });
   const page = await browser.newPage();
+  consolePage = page;
   await page.goto(url);
   await page.getByRole("heading", { name: "XSOAR Incident Assistant" }).waitFor();
   assert.equal(await page.locator("#setup").count(), 0, "Chrome setup must stay hidden until a connection misconfiguration is detected");
@@ -169,10 +184,21 @@ try {
 
   await page.getByText("Target a specific incident").click();
   await page.locator("#incidentId").fill("4300");
+  workflowPage = await browser.newPage();
+  await workflowPage.setContent("<title>XSOAR workflow</title><main>Incident workflow</main>");
   await page.locator("#run").click();
-  await page.waitForFunction((chunk) => (document.querySelector("#aiOutput")?.value || "") === chunk, firstAiChunk);
+  await page.waitForFunction(
+    (chunk) => (document.querySelector("#draft")?.value || "").includes(chunk),
+    firstAiChunk,
+    { timeout: 3000 }
+  );
   await page.locator("#aiDraftAcknowledgement").waitFor();
-  assert.equal(await page.locator("#aiOutput").inputValue(), `${firstAiChunk}${secondAiChunk}`);
+  assert.equal(await page.locator("#aiOutput").count(), 0, "live AI output belongs in the analyst response, not a separate field");
+  assert.equal(await page.locator("#draft").inputValue(), "Locally enriched example draft");
+  assert.equal(foregroundPage, "console", "the local console must return to the foreground when the response is ready");
+  assert.equal(consoleRestoreCalls, 1);
+  await workflowPage.close();
+  workflowPage = undefined;
   assert.deepEqual(requestedIncidentIds, ["4300"]);
   assert.equal(await page.locator("#copy").isDisabled(), true);
   await page.locator("#aiDraftAcknowledgement").check();
