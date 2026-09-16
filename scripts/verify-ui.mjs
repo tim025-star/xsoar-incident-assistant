@@ -103,6 +103,7 @@ try {
   assert.equal("session" in uiConfig, false);
   assert.equal(await page.locator("#localAiEnabled").isChecked(), false);
   assert.equal(await page.locator("#localAiModel").inputValue(), "qwen3.5:9b");
+  assert.deepEqual(await page.locator("#localAiModels option").evaluateAll((options) => options.map((option) => option.value)), ["qwen3.5:9b"]);
   assert.equal(await page.locator("#pullModel").textContent(), "Install default model");
   await page.locator("#localAiEnabled").check();
   await page.locator("#pullModel").click();
