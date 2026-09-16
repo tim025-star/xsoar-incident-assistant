@@ -402,7 +402,7 @@ function App() {
           </label>
           <label class="field mt-4">Local model
             <input id="localAiModel" class="control font-mono text-sm" list="localAiModels" autocomplete="off" value={settings().localAi.model} onInput={(event) => updateLocalAi("model", event.currentTarget.value)} />
-            <datalist id="localAiModels"><option value="qwen3.5:9b" />{localAiStatus()?.models.map((model) => <option value={model} />)}</datalist>
+            <datalist id="localAiModels">{localAiStatus()?.models.map((model) => <option value={model} />)}</datalist>
           </label>
         </fieldset>
         <div class="mt-3 flex flex-wrap items-center gap-2.5">
