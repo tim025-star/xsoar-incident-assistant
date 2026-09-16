@@ -21,6 +21,8 @@ let starts = 0;
 let setupOpens = 0;
 const pulledModels = [];
 const requestedIncidentIds = [];
+const firstAiChunk = '{"investigationSummary":"Reviewing';
+const secondAiChunk = ' alert"}';
 const sessions = {
   status: () => ({ running: sessionRunning }),
   openSetup: () => { setupOpens += 1; },
@@ -44,8 +46,13 @@ const app = createAssistantServer({
       }
     },
     localAi: {
-      status: async () => ({ available: true, models: ["qwen3.5:9b"], detail: "Local Ollama is available." }),
-      enrich: async () => ({})
+      status: async () => ({ available: true, models: ["qwen3.5:9b"], detail: "Ollama is online and ready." }),
+      enrich: async ({ onToken }) => {
+        onToken(firstAiChunk);
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        onToken(secondAiChunk);
+        return {};
+      }
     },
     localAiInstaller: {
       installModel: async (model, { signal } = {}) => {
@@ -56,9 +63,10 @@ const app = createAssistantServer({
         });
       }
     },
-    generateDraft: async ({ incidentId, onProgress }) => {
+    generateDraft: async ({ incidentId, onProgress, enrichDraft }) => {
       requestedIncidentIds.push(incidentId);
-      await onProgress("Enriching the draft locally.");
+      await onProgress("Running local AI analysis.");
+      await enrichDraft?.({ incident: {}, historical: [], draft: "Rules-based response" });
       return { draft: "Locally enriched example draft", warning: "", reviewed: 0, aiEnriched: true };
     }
   }
@@ -82,14 +90,14 @@ try {
   assert.equal("session" in uiConfig, false);
   assert.equal(await page.locator("#localAiEnabled").isChecked(), false);
   assert.equal(await page.locator("#localAiModel").inputValue(), "qwen3.5:9b");
-  assert.equal(await page.locator("#pullModel").textContent(), "Install default from GitHub");
+  assert.equal(await page.locator("#pullModel").textContent(), "Install default model");
   await page.locator("#localAiEnabled").check();
   await page.locator("#pullModel").click();
-  await page.getByText("Local model qwen3.5:9b is ready.").waitFor();
+  await page.getByText("Model qwen3.5:9b is ready for analysis.").waitFor();
   assert.deepEqual(pulledModels, ["qwen3.5:9b"]);
 
   await page.locator("#localAiModel").fill("slow-model");
-  assert.equal(await page.locator("#pullModel").textContent(), "Download from Ollama registry");
+  assert.equal(await page.locator("#pullModel").textContent(), "Pull selected model");
   await page.locator("#pullModel").click();
   await page.locator("#cancelPull").waitFor();
   await page.reload();
@@ -106,40 +114,42 @@ try {
   assert.equal(starts, 1);
   assert.equal(uiConfig.xsoar.allowedOrigin, "https://xsoar.example.test");
   assert.equal(uiConfig.localAi.enabled, true);
-  await page.getByText("Connected to the current Chrome window.").waitFor({ timeout: 2000 });
+  await page.getByText("Chrome connected.").waitFor({ timeout: 2000 });
   assert.equal(await page.locator("#allowedOrigin").isDisabled(), true);
   assert.equal(await page.locator("#analystName").isDisabled(), true);
   assert.equal(await page.locator("#maxHistoricalIncidents").isDisabled(), true);
   assert.equal(await page.locator("#localAiEnabled").isDisabled(), false);
   await page.locator("#localAiEnabled").uncheck();
-  await page.getByText("Local AI settings saved.").waitFor();
+  await page.getByText("Local AI config saved.").waitFor();
   assert.equal(uiConfig.localAi.enabled, false);
   await page.locator("#localAiEnabled").check();
-  await page.getByText("Local AI settings saved.").waitFor();
+  await page.getByText("Local AI config saved.").waitFor();
   assert.equal(uiConfig.localAi.enabled, true);
   await page.locator("#stop").click();
-  await page.getByText("Chrome and its tabs remain open.").waitFor();
+  await page.getByText("Your browser and tabs are still open.").waitFor();
   assert.equal(sessionRunning, false);
   assert.equal(await page.locator("#allowedOrigin").isDisabled(), false);
 
   await page.locator("#setup").click();
-  await page.getByText("Chrome setup opened.").waitFor();
+  await page.getByText("Chrome access setup opened.").waitFor();
   assert.equal(setupOpens, 1);
-  await page.getByText("This approval must be repeated after Chrome restarts.").waitFor();
+  await page.getByText("Re-approve it after Chrome restarts.").waitFor();
 
-  await page.getByText("Advanced query settings").click();
+  await page.getByText("Advanced XSOAR routing").click();
   await page.locator("#maxHistoricalIncidents").fill("");
   assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "");
   await page.locator("#maxHistoricalIncidents").fill("10");
   await page.locator("#analystName").fill("Example Analyst");
   await page.locator("#save").click();
-  await page.getByText("Settings saved.").waitFor();
+  await page.getByText("XSOAR config saved.").waitFor();
   assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
 
   await page.locator("#incidentId").fill("4300");
   await page.locator("#run").click();
+  await page.waitForFunction((chunk) => (document.querySelector("#aiOutput")?.value || "") === chunk, firstAiChunk);
   await page.locator("#aiDraftAcknowledgement").waitFor();
+  assert.equal(await page.locator("#aiOutput").inputValue(), `${firstAiChunk}${secondAiChunk}`);
   assert.deepEqual(requestedIncidentIds, ["4300"]);
   assert.equal(await page.locator("#copy").isDisabled(), true);
   await page.locator("#aiDraftAcknowledgement").check();

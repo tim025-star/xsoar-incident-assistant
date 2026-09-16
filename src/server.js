@@ -102,8 +102,8 @@ export function createAssistantServer({
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const app = createAssistantServer();
   const url = await app.listen(Number(process.env.XSOAR_ASSISTANT_PORT || 0));
-  console.log("XSOAR Incident Assistant is running on this computer.");
-  console.log("Enable Chrome remote debugging at chrome://inspect/#remote-debugging, connect from the assistant tab, then generate a draft.");
+  console.log("XSOAR Incident Assistant is running locally.");
+  console.log("Approve Chrome access, connect the analyst session, then build an incident response.");
   if (process.env.XSOAR_ASSISTANT_NO_OPEN !== "1") {
     openNormalChromePage(url);
   }

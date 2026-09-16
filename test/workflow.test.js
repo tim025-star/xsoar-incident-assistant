@@ -117,13 +117,13 @@ test("workflow fails closed when XSOAR removes or changes the URL query", async 
   assert.equal(adapter.closed.length, 1);
 });
 
-test("workflow retains the deterministic draft if local enrichment fails", async () => {
+test("workflow retains the rules-based response if local enrichment fails", async () => {
   const result = await runIncidentDraft({
     adapter: createAdapter(), settings,
     enrichDraft: async () => { throw new Error("Ollama offline"); }
   });
   assert.match(result.draft, /Investigation Summary\nx x x/);
-  assert.match(result.warning, /deterministic draft was provided/);
+  assert.match(result.warning, /rules-based response is ready/);
   assert.equal(result.aiEnriched, false);
 });
 

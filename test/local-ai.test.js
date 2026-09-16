@@ -25,21 +25,34 @@ function streamedResponse(lines, delayMs = 0) {
 
 test("local enrichment uses bounded allowlisted evidence and validates structured output", async () => {
   const requests = [];
+  const generated = JSON.stringify({
+    investigationSummary: "Review observed event details.", relatedActivity: "Compare supplied historical incidents.",
+    vendorGuidance: "Use applicable vendor documentation.", recommendations: ["Validate the affected system with its owner."]
+  });
   const client = createOllamaClient({ fetchImplementation: async (url, options = {}) => {
     requests.push({ url, options });
     if (url.endsWith("/api/tags")) return response({ models: [{ name: DEFAULT_OLLAMA_MODEL }] });
     if (url.endsWith("/api/show")) return response({});
-    if (url.endsWith("/api/chat")) return response({ message: { content: JSON.stringify({
-      investigationSummary: "Review observed event details.", relatedActivity: "Compare supplied historical incidents.",
-      vendorGuidance: "Use applicable vendor documentation.", recommendations: ["Validate the affected system with its owner."]
-    }) } });
+    if (url.endsWith("/api/chat")) return streamedResponse([
+      { message: { content: generated.slice(0, 40) }, done: false },
+      { message: { content: generated.slice(40) }, done: false },
+      { message: { content: "" }, done: true }
+    ]);
     throw new Error(`Unexpected URL: ${url}`);
   } });
-  const enrichment = await client.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: { ticketId: "4200", unexpected: "do not send" }, historical: [] });
+  const chunks = [];
+  const enrichment = await client.enrich({
+    model: DEFAULT_OLLAMA_MODEL,
+    incident: { ticketId: "4200", unexpected: "do not send" },
+    historical: [],
+    onToken: (chunk) => chunks.push(chunk)
+  });
   assert.equal(enrichment.recommendations.length, 1);
+  assert.equal(chunks.join(""), generated);
   const body = JSON.parse(requests.find((request) => request.url.endsWith("/api/chat")).options.body);
   assert.equal(JSON.parse(body.messages[1].content).evidence.current.unexpected, undefined);
   assert.equal(body.options.num_ctx, 8192);
+  assert.equal(body.stream, true);
   assert.ok(requests.every((request) => request.options.redirect === "error"));
 });
 
@@ -107,9 +120,10 @@ test("untagged model aliases resolve to the installed latest tag after pull and 
     }
     if (url.endsWith("/api/pull")) return streamedResponse([{ status: "success" }]);
     if (url.endsWith("/api/show")) return response({});
-    if (url.endsWith("/api/chat")) return response({ message: { content: JSON.stringify({
-      investigationSummary: "Summary", relatedActivity: "Activity", vendorGuidance: "Guidance", recommendations: []
-    }) } });
+    if (url.endsWith("/api/chat")) return streamedResponse([
+      { message: { content: JSON.stringify({ investigationSummary: "Summary", relatedActivity: "Activity", vendorGuidance: "Guidance", recommendations: [] }) }, done: false },
+      { message: { content: "" }, done: true }
+    ]);
     throw new Error(`Unexpected URL: ${url}`);
   } });
 
@@ -158,9 +172,9 @@ test("Ollama JSON endpoints reject oversized bodies before schema parsing", asyn
   const chat = createOllamaClient({ fetchImplementation: async (url) => {
     if (url.endsWith("/api/tags")) return response({ models: [{ name: DEFAULT_OLLAMA_MODEL }] });
     if (url.endsWith("/api/show")) return response({});
-    return new Response(JSON.stringify({ padding: "x".repeat(70 * 1024) }), { headers: { "Content-Type": "application/json" } });
+    return new Response(`${JSON.stringify({ message: { content: "x".repeat(70 * 1024) }, done: false })}\n`, { headers: { "Content-Type": "application/x-ndjson" } });
   } });
-  await assert.rejects(() => chat.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: {}, historical: [] }), /draft request response was too large/);
+  await assert.rejects(() => chat.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: {}, historical: [] }), /too much AI analysis data/);
 });
 
 test("redirect responses cannot forward incident evidence away from loopback", async () => {

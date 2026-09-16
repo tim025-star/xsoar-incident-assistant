@@ -208,7 +208,7 @@ test("shared operation locking and draft versions survive identical AI draft tex
   try {
     const first = client.draft.generate({ incidentId: "" });
     await draftStarted.promise;
-    await assert.rejects(() => client.localAi.pull({ model: "qwen3.5:9b" }), /Cannot start model download while draft generation is running/);
+    await assert.rejects(() => client.localAi.pull({ model: "qwen3.5:9b" }), /Cannot start model download while response build is running/);
     draftDone.resolve();
     const firstResult = await first;
     const secondResult = await client.draft.generate({ incidentId: "" });
@@ -217,7 +217,7 @@ test("shared operation locking and draft versions survive identical AI draft tex
     assert.equal(secondResult.draftVersion, 2);
     const pull = client.localAi.pull({ model: "qwen3.5:9b" });
     await pullStarted.promise;
-    await assert.rejects(() => client.draft.generate({ incidentId: "" }), /Cannot start draft generation while model download is running/);
+    await assert.rejects(() => client.draft.generate({ incidentId: "" }), /Cannot start response build while model download is running/);
     pullDone.resolve();
     await pull;
   } finally { await closeServer(app.server); }
@@ -287,7 +287,7 @@ test("local oRPC API requires the process token and exact origin", async () => {
       headers: { "X-Assistant-Token": "test-token", Origin: origin }
     }));
     const authorised = await client.status();
-    assert.match(authorised.detail, /Configure the assistant/);
+    assert.match(authorised.detail, /Set the XSOAR tenant/);
     const invalidHostStatus = await new Promise((resolve, reject) => {
       const request = http.request({
         hostname: launchUrl.hostname,
