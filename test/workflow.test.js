@@ -109,6 +109,26 @@ test("workflow closes an explicitly requested tab when XSOAR redirects to anothe
   assert.deepEqual(adapter.focused, []);
 });
 
+test("workflow uses a configured incident route with the ID in the final path segment", async () => {
+  const adapter = createAdapter();
+  const routedSettings = resolveSettings({
+    allowedOrigin: "https://xsoar.example.test",
+    incidentUrlPattern: "\\/Custom\\/case\\/\\d+\\/?$",
+    incidentPathTemplate: "/Custom/case/{id}",
+    maxHistoricalIncidents: 3
+  });
+
+  const result = await runIncidentDraft({ adapter, settings: routedSettings, incidentId: "4200" });
+
+  assert.equal(adapter.opened[0], "https://xsoar.example.test/Custom/case/4200");
+  assert.deepEqual(adapter.opened.slice(2).sort(), [
+    "https://xsoar.example.test/Custom/case/4199",
+    "https://xsoar.example.test/Custom/case/4198",
+    "https://xsoar.example.test/Custom/case/4197"
+  ].sort());
+  assert.equal(result.reviewed, 3);
+});
+
 test("workflow fails closed when XSOAR removes or changes the URL query", async () => {
   const adapter = createAdapter({ searchRedirect: "https://xsoar.example.test/incidents" });
 

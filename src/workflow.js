@@ -120,7 +120,7 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
           historyTab = await adapter.openTab(historicalUrl);
           temporaryTabs.add(historyTab);
           const finalUrl = await adapter.getTabUrl(historyTab.id);
-          assertIncidentUrl(finalUrl, settings, "Historical incident navigation");
+          assertIncidentUrl(finalUrl, settings, "Related incident navigation");
           const detail = await adapter.extractIncident(historyTab.id, settings);
           if (String(detail.ticketId) !== String(ticketId)) {
             throw new Error("XSOAR opened a different related incident than requested.");

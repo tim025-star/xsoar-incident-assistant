@@ -189,7 +189,7 @@ test("redirect responses cannot forward incident evidence away from loopback", a
       }
       throw new Error(`Unexpected URL: ${url}`);
     } });
-    await assert.rejects(() => client.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: { ticketId: "sensitive" }, historical: [] }), new RegExp(`draft request failed \\(${status}\\)`));
+    await assert.rejects(() => client.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: { ticketId: "sensitive" }, historical: [] }), new RegExp(`analysis request failed \\(${status}\\)`));
     assert.equal(redirectedBody, undefined);
   }
 });

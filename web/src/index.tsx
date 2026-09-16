@@ -237,7 +237,7 @@ function App() {
                     </label>
                     <label class="field">Incident URL template
                       <input id="incidentPathTemplate" class="control font-mono text-sm" value={settings().xsoar.incidentPathTemplate} onInput={(event) => updateTextSetting("incidentPathTemplate", event.currentTarget.value)} />
-                      <span class="helper">Put <code>{"{id}"}</code> where XSOAR expects the Incident ID.</span>
+                      <span class="helper">End the path with <code>{"/{id}"}</code>; the Incident ID must be the final path segment.</span>
                     </label>
                     <div class="grid gap-4 sm:grid-cols-2">
                       <label class="field">Incident list path

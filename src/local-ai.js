@@ -137,7 +137,7 @@ async function requestJson(fetchImplementation, pathname, options, action, { max
 async function requestChatStream(fetchImplementation, body, onToken) {
   const response = await request(fetchImplementation, "/api/chat", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
-  }, "draft request", { timeoutMs: OLLAMA_TIMEOUT_MS });
+  }, "analysis request", { timeoutMs: OLLAMA_TIMEOUT_MS });
   const declaredLength = Number(response.headers?.get?.("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > MAX_CHAT_RESPONSE_BYTES) {
     throw new Error("Ollama returned too much AI analysis data.");
