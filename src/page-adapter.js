@@ -249,19 +249,16 @@ export async function extractSearchResultsFromPage(options) {
   };
   const ticketPattern = /\/(?:incident|investigation)\/(\d+)\/?(?:[?#].*)?$/i;
   const ticketIds = new Set();
-  let filterLoadingStarted = false;
-  let filterLoadingFinished = false;
+  let initialLoadFinished = false;
   const collect = () => {
     assertCurrentUrl();
     const root = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page")
       || document.body;
     const busy = Array.from(root.querySelectorAll("[aria-busy='true'],.loading,.spinner"))
       .some(isVisible);
-    if (!filterLoadingFinished && busy) {
-      filterLoadingStarted = true;
+    if (!initialLoadFinished && busy) {
       ticketIds.clear();
     } else if (!busy) {
-      if (filterLoadingStarted) filterLoadingFinished = true;
       for (const link of root.querySelectorAll("a[href]")) {
         if (!isVisible(link)) continue;
         let url;
@@ -273,6 +270,7 @@ export async function extractSearchResultsFromPage(options) {
         const ticketId = url.pathname.match(ticketPattern)?.[1];
         if (ticketId && url.origin === location.origin) ticketIds.add(ticketId);
       }
+      initialLoadFinished = true;
     }
     const paging = normalize(document.querySelector(".table-paging-message")?.textContent);
     const empty = Array.from(document.querySelectorAll(".no-data,.empty-table,.no-results"))
