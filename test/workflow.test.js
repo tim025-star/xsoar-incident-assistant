@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { resolveSettings } from "../src/domain.js";
 import { runIncidentDraft } from "../src/workflow.js";
 
-function createAdapter({ searchRedirect, incidentRedirect } = {}) {
+function createAdapter({ searchRedirect, incidentRedirect, currentIncident = {}, historicalIncidents = {} } = {}) {
   const tabs = new Map([[1, "https://xsoar.example.test/Custom/GenericLayout/4200"]]);
   const opened = [];
   const closed = [];
@@ -38,14 +38,22 @@ function createAdapter({ searchRedirect, incidentRedirect } = {}) {
           ruleName: "Example Rule",
           caseType: "Endpoint",
           customerName: "Example Organisation",
-          tabUrls: []
+          tabUrls: [],
+          ...currentIncident
         };
       }
       activeHistoricalReads += 1;
       maxHistoricalConcurrency = Math.max(maxHistoricalConcurrency, activeHistoricalReads);
       await new Promise((resolve) => setTimeout(resolve, 10));
       activeHistoricalReads -= 1;
-      return { ticketId, classification: "Benign", closeNotes: `Reviewed incident ${ticketId}` };
+      return {
+        ticketId,
+        classification: "Benign",
+        closeNotes: `Reviewed incident ${ticketId}`,
+        ruleName: "Example Rule",
+        caseType: "Endpoint",
+        ...historicalIncidents[ticketId]
+      };
     },
     async extractSearchResults(id, options) {
       this.searchOptions = options;
@@ -70,7 +78,7 @@ test("workflow searches through the URL, excludes the current incident, and rest
 
   const searchUrl = new URL(adapter.opened[0]);
   assert.equal(searchUrl.pathname, "/incidents");
-  assert.match(searchUrl.searchParams.get("query"), /name:"Example Rule" and type:"Endpoint"/);
+  assert.match(searchUrl.searchParams.get("query"), /rawName:"Example Rule" and rawType:"Endpoint"/);
   assert.equal(adapter.searchOptions.maxResults, 4);
   assert.deepEqual(adapter.opened.slice(1).sort(), [
     "https://xsoar.example.test/Custom/GenericLayout/4199",
@@ -150,7 +158,7 @@ test("workflow retains the source-field response if local processing fails", asy
 test("workflow inserts factual local processing without changing browser concurrency", async () => {
   let enrichmentInput;
   const result = await runIncidentDraft({
-    adapter: createAdapter(), settings,
+    adapter: createAdapter({ currentIncident: { customerName: "" } }), settings,
     enrichDraft: async (input) => {
       enrichmentInput = input;
       return {
@@ -162,7 +170,25 @@ test("workflow inserts factual local processing without changing browser concurr
   assert.deepEqual(Object.keys(enrichmentInput), ["incident"]);
   assert.match(result.draft, /The source record names endpoint-01/);
   assert.match(result.draft, /Source IP: 192\.0\.2\.10/);
+  assert.doesNotMatch(result.draft, /Hello n\/a|Event info breakdown/i);
   assert.doesNotMatch(result.draft, /Recommended Actions|Vendor Guidance/);
   assert.ok(result.draft.indexOf("Source IP: 192.0.2.10") < result.draft.indexOf("#4199: Reviewed incident 4199"));
   assert.equal(result.aiEnriched, true);
+});
+
+test("workflow rejects queue results that do not match the current rule and type", async () => {
+  const result = await runIncidentDraft({
+    adapter: createAdapter({
+      historicalIncidents: {
+        4198: { ruleName: "Unrelated Rule" },
+        4197: { caseType: "Unrelated Type" }
+      }
+    }),
+    settings
+  });
+
+  assert.equal(result.reviewed, 1);
+  assert.match(result.draft, /#4199: Reviewed incident 4199/);
+  assert.doesNotMatch(result.draft, /#4198|#4197/);
+  assert.match(result.warning, /Ignored 2 unrelated search results/);
 });

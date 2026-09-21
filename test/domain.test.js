@@ -38,6 +38,8 @@ test("searches are encoded in the incidents page URL and verified after navigati
   const query = buildSearchQuery('Rule "Quoted"', "Endpoint", 'created:>="7 days ago"');
   const url = buildIncidentSearchUrl(resolved, query);
 
+  assert.match(query, /^rawName:/);
+  assert.match(query, /rawType:"Endpoint"/);
   assert.equal(new URL(url).searchParams.get("query"), query);
   assert.equal(assertSearchUrl(url, resolved, query).origin, resolved.allowedOrigin);
   assert.throws(
@@ -134,10 +136,12 @@ test("draft output contains configured identity only when the user supplies it",
   };
   const anonymous = buildDraft(base, settings().template);
   const named = buildDraft(base, { ...settings().template, analystName: "Example Analyst" });
+  const missingCustomer = buildDraft({ ...base, customerName: "" }, settings().template);
 
   assert.doesNotMatch(anonymous, /Example Analyst/);
   assert.doesNotMatch(anonymous, /Security Analyst$/);
   assert.match(named, /Example Analyst\nSecurity Analyst$/);
+  assert.doesNotMatch(missingCustomer, /Hello n\/a/i);
 });
 
 test("processed output presents source facts without analysis, guidance, or recommendations", () => {
@@ -153,8 +157,9 @@ test("processed output presents source facts without analysis, guidance, or reco
   });
 
   assert.match(draft, /Incident ID: 4200/);
-  assert.match(draft, /Processed Incident Data\nEvent Summary: The source record names endpoint-01\./);
-  assert.match(draft, /Observed Facts:\n- Account: example\.user\n- Source IP: 192\.0\.2\.10/);
+  assert.match(draft, /Event Summary\nThe source record names endpoint-01\./);
+  assert.match(draft, /Observed Facts\n- Account: example\.user\n- Source IP: 192\.0\.2\.10/);
+  assert.doesNotMatch(draft, /Event info breakdown|n\/a/i);
   assert.doesNotMatch(draft, /Investigation Summary|Related Activity|Recommended Actions|Vendor Guidance/);
 });
 

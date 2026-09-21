@@ -249,25 +249,33 @@ export async function extractSearchResultsFromPage(options) {
   };
   const ticketPattern = /\/(?:incident|investigation)\/(\d+)\/?(?:[?#].*)?$/i;
   const ticketIds = new Set();
+  let filterLoadingStarted = false;
+  let filterLoadingFinished = false;
   const collect = () => {
     assertCurrentUrl();
     const root = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page")
       || document.body;
-    for (const link of root.querySelectorAll("a[href]")) {
-      if (!isVisible(link)) continue;
-      let url;
-      try {
-        url = new URL(link.getAttribute("href"), location.href);
-      } catch {
-        continue;
+    const busy = Array.from(root.querySelectorAll("[aria-busy='true'],.loading,.spinner"))
+      .some(isVisible);
+    if (!filterLoadingFinished && busy) {
+      filterLoadingStarted = true;
+      ticketIds.clear();
+    } else if (!busy) {
+      if (filterLoadingStarted) filterLoadingFinished = true;
+      for (const link of root.querySelectorAll("a[href]")) {
+        if (!isVisible(link)) continue;
+        let url;
+        try {
+          url = new URL(link.getAttribute("href"), location.href);
+        } catch {
+          continue;
+        }
+        const ticketId = url.pathname.match(ticketPattern)?.[1];
+        if (ticketId && url.origin === location.origin) ticketIds.add(ticketId);
       }
-      const ticketId = url.pathname.match(ticketPattern)?.[1];
-      if (ticketId && url.origin === location.origin) ticketIds.add(ticketId);
     }
     const paging = normalize(document.querySelector(".table-paging-message")?.textContent);
     const empty = Array.from(document.querySelectorAll(".no-data,.empty-table,.no-results"))
-      .some(isVisible);
-    const busy = Array.from(root.querySelectorAll("[aria-busy='true'],.loading,.spinner"))
       .some(isVisible);
     return { root, paging, empty, busy };
   };

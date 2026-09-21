@@ -236,8 +236,8 @@ export function buildSearchQuery(ruleName, caseType, lookbackQuery = "") {
     throw new Error("The incident must expose both Rule Name and Type before a related-case search can run.");
   }
   const parts = [
-    `name:"${escapeQueryValue(ruleName)}"`,
-    `type:"${escapeQueryValue(caseType)}"`
+    `rawName:"${escapeQueryValue(ruleName)}"`,
+    `rawType:"${escapeQueryValue(caseType)}"`
   ];
   if (cleanText(lookbackQuery)) parts.push(`(${cleanText(lookbackQuery)})`);
   return parts.join(" and ");
@@ -305,10 +305,52 @@ function selectRelatedResolution(item = {}) {
   );
 }
 
-export function buildDraft(output, templateInput = {}, enrichment = {}) {
+function buildRelatedResolutions(historical) {
+  return historical
+    .map((item) => ({ ticketId: item.ticketId, recommendation: selectRelatedResolution(item) }))
+    .filter((item) => item.recommendation)
+    .map((item, index) => `${index + 1}. #${item.ticketId || "unknown"}: ${item.recommendation}`);
+}
+
+function buildSignature(template) {
+  return [
+    template.signOff,
+    template.analystName,
+    template.analystName ? template.analystTitle : ""
+  ].filter(Boolean).join("\n");
+}
+
+function buildAiDraft(output, template, historical, enrichment) {
+  const customerName = firstAvailable(output.customerName);
+  const heading = [
+    customerName ? `${template.greeting} ${customerName},` : "",
+    firstAvailable(output.ticketId) ? `Incident ID: ${firstAvailable(output.ticketId)}` : "",
+    firstAvailable(output.incidentName) ? `Incident: ${firstAvailable(output.incidentName)}` : ""
+  ].filter(Boolean).join("\n");
+  const eventSummary = firstAvailable(enrichment.eventSummary);
+  const observedFacts = Array.isArray(enrichment.observedFacts)
+    ? [...new Set(enrichment.observedFacts.map(cleanText).filter(isAvailable))].slice(0, 10)
+    : [];
+  const relatedResolutions = buildRelatedResolutions(historical);
+  const signature = buildSignature(template);
+  const sections = [
+    heading,
+    `Event Summary\n${eventSummary || "No additional source facts were extracted."}`,
+    `Observed Facts\n${observedFacts.length ? observedFacts.map((item) => `- ${item}`).join("\n") : "No additional source facts were extracted."}`,
+    `Related Ticket Records\n${relatedResolutions.length ? relatedResolutions.join("\n") : "No related ticket resolution was available."}`,
+    `${template.contactText}${signature ? `\n\n${signature}` : ""}`
+  ].filter(Boolean);
+  return sections.join("\n\n");
+}
+
+export function buildDraft(output, templateInput = {}, enrichment = null) {
   const template = { ...DEFAULT_SETTINGS.template, ...templateInput };
   const historical = (output.historical || []).filter((item) => item && !item.error);
-  const pastRatings = historical.map((item) => cleanText(item.classification)).filter(isAvailable);
+  if (enrichment && typeof enrichment === "object") {
+    return buildAiDraft(output, template, historical, enrichment);
+  }
+
+  const pastRatings = [...new Set(historical.map((item) => cleanText(item.classification)).filter(isAvailable))];
   const relatedClassifications = pastRatings.length ? pastRatings.join(", ") : "n/a";
   const subjectIdentity = firstAvailable(
     output.deviceHostname,
@@ -317,22 +359,12 @@ export function buildDraft(output, templateInput = {}, enrichment = {}) {
     output.sourceUsername,
     output.clientUserName
   ) || "n/a";
-  const relatedResolutions = historical
-    .map((item) => ({ ticketId: item.ticketId, recommendation: selectRelatedResolution(item) }))
-    .filter((item) => item.recommendation)
-    .map((item, index) => `${index + 1}. #${item.ticketId || "unknown"}: ${item.recommendation}`);
-  const observedFacts = Array.isArray(enrichment.observedFacts)
-    ? enrichment.observedFacts.map(cleanText).filter(isAvailable).slice(0, 10)
-    : [];
-  const eventSummary = firstAvailable(enrichment.eventSummary) || "No additional source facts were extracted.";
-  const signature = [
-    template.signOff,
-    template.analystName,
-    template.analystName ? template.analystTitle : ""
-  ].filter(Boolean).join("\n");
+  const relatedResolutions = buildRelatedResolutions(historical);
+  const signature = buildSignature(template);
+  const customerName = firstAvailable(output.customerName);
+  const greeting = customerName ? `${template.greeting} ${customerName},\n` : "";
 
-  return `${template.greeting} ${firstAvailable(output.customerName) || "n/a"},
-Incident ID: ${firstAvailable(output.ticketId) || "n/a"}
+  return `${greeting}Incident ID: ${firstAvailable(output.ticketId) || "n/a"}
 Incident: ${firstAvailable(output.incidentName) || "n/a"}
 Affected entity: ${subjectIdentity}
 Recorded related classifications: ${relatedClassifications}
@@ -351,9 +383,9 @@ Error / Service Message: ${firstAvailable(output.serviceMessage, output.eventInf
 ----------------------------------------------------------
 
 Processed Incident Data
-Event Summary: ${eventSummary}
+Event Summary: No additional source facts were extracted.
 Observed Facts:
-${observedFacts.length ? observedFacts.map((item) => `- ${item}`).join("\n") : "No additional source facts were extracted."}
+No additional source facts were extracted.
 -----
 
 Related Ticket Records
