@@ -162,12 +162,56 @@ test("submits historic queries through the visible XSOAR incidents query bar", a
     ["evaluate", { observationKey: "__xsoarIncidentAssistantHistoricSearch" }],
     ["press", "Enter"],
     ["waitForFunction", {
+      expectedOrigin: "https://xsoar.example.test",
+      expectedPath: "/incidents",
       expectedQuery: 'rawName:"Example Rule" and rawType:"Endpoint"',
-      queryParameter: "query",
-      observationKey: "__xsoarIncidentAssistantHistoricSearch"
+      observationKey: "__xsoarIncidentAssistantHistoricSearch",
+      queryBar: input
     }, { timeout: 20000 }],
     ["evaluate", { observationKey: "__xsoarIncidentAssistantHistoricSearch" }]
   ]);
+});
+
+test("extracts historic results when XSOAR keeps the accepted query out of the URL", async () => {
+  const input = {
+    isConnected: true,
+    value: "",
+    fill: async (value) => { input.value = value; },
+    press: async () => {}
+  };
+  let waitCalls = 0;
+  let extractionOptions;
+  const page = {
+    url: () => "https://xsoar.example.test/incidents",
+    waitForFunction: async () => {
+      waitCalls += 1;
+      return waitCalls === 1 ? { asElement: () => input } : undefined;
+    },
+    evaluate: async (_callback, argument) => {
+      if (argument?.incidentUrlPattern) {
+        extractionOptions = argument;
+        return { ticketIds: ["4199"], truncated: false };
+      }
+      return undefined;
+    }
+  };
+  const context = { pages: () => [] };
+  const browser = { contexts: () => [context], once: () => {}, close: async () => {} };
+  const manager = new BrowserSessionManager({
+    chromiumApi: { connectOverCDP: async () => browser },
+    currentChromeEndpoint: async () => "ws://127.0.0.1:43127/devtools/browser/01234567-89ab-cdef-0123-456789abcdef"
+  });
+  await manager.start();
+  const adapter = manager.adapter(resolveSettings({ allowedOrigin: "https://xsoar.example.test" }));
+
+  const result = await adapter.extractSearchResults(page, {
+    expectedQuery: 'rawName:"Example Rule" and rawType:"Endpoint"',
+    maxResults: 5,
+    timeoutMs: 1000
+  });
+
+  assert.deepEqual(result, { ticketIds: ["4199"], truncated: false });
+  assert.equal(extractionOptions.expectedPath, "/incidents");
 });
 
 test("historic search validates the incidents path before touching the search input", async () => {

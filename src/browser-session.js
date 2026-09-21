@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { chromium } from "playwright-core";
 
-import { assertIncidentUrl, assertSearchUrl, assertTrustedUrl } from "./domain.js";
+import { assertIncidentUrl, assertTrustedUrl } from "./domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "./page-adapter.js";
 
 const CHROME_SETUP_URL = "chrome://inspect/#remote-debugging";
@@ -87,21 +87,28 @@ export async function submitHistoricSearch(page, options) {
   await input.press("Enter");
   try {
     await page.waitForFunction(
-      ({ expectedQuery: query, queryParameter, observationKey }) => {
+      ({ expectedOrigin, expectedPath, expectedQuery: query, observationKey, queryBar }) => {
         const current = new URL(window.location.href);
         const observation = window[observationKey];
-        return String(current.searchParams.get(queryParameter) || "").trim() === query
-          && (!observation || observation.changed);
+        const normalizedPath = (value) => value.length > 1 ? value.replace(/\/+$/, "") : value;
+        const queryValue = "value" in queryBar ? queryBar.value : queryBar.textContent;
+        return current.origin === expectedOrigin
+          && normalizedPath(current.pathname) === normalizedPath(expectedPath)
+          && queryBar.isConnected
+          && String(queryValue || "").trim() === query
+          && Boolean(observation?.changed);
       },
       {
+        expectedOrigin: options.expectedOrigin,
+        expectedPath: options.expectedPath,
         expectedQuery,
-        queryParameter: options.queryParameter,
-        observationKey: HISTORIC_SEARCH_OBSERVATION_KEY
+        observationKey: HISTORIC_SEARCH_OBSERVATION_KEY,
+        queryBar: input
       },
       { timeout }
     );
   } catch (error) {
-    throw new Error("XSOAR did not apply the historic query submitted through its main search input.", { cause: error });
+    throw new Error("XSOAR did not confirm the historic query in the incidents page.", { cause: error });
   } finally {
     await page.evaluate(({ observationKey }) => {
       window[observationKey]?.observer?.disconnect();
@@ -224,7 +231,6 @@ class PlaywrightBrowserAdapter {
       expectedPath: new URL(this.settings.incidentsPath, this.settings.allowedOrigin).pathname,
       queryParameter: this.settings.searchQueryParameter
     });
-    assertSearchUrl(page.url(), this.settings, options.expectedQuery);
     return page.evaluate(extractSearchResultsFromPage, {
       ...options,
       expectedOrigin: this.settings.allowedOrigin,

@@ -320,15 +320,14 @@ export async function extractIncidentFromPage(settings) {
 
 export async function extractSearchResultsFromPage(options) {
   const normalizedPath = (value) => value.length > 1 ? value.replace(/\/+$/, "") : value;
-  const assertCurrentUrl = () => {
+  const assertCurrentPage = () => {
     const currentUrl = new URL(location.href);
     if (currentUrl.origin !== options.expectedOrigin
-      || normalizedPath(currentUrl.pathname) !== normalizedPath(options.expectedPath)
-      || currentUrl.searchParams.get(options.queryParameter)?.trim() !== String(options.expectedQuery || "").trim()) {
+      || normalizedPath(currentUrl.pathname) !== normalizedPath(options.expectedPath)) {
       throw new Error("Historic search extraction refused an unexpected page URL.");
     }
   };
-  assertCurrentUrl();
+  assertCurrentPage();
   const normalize = (value) => String(value || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
   const isVisible = (element) => {
     if (!element) return false;
@@ -351,7 +350,7 @@ export async function extractSearchResultsFromPage(options) {
   let initialBusyObserved = false;
   const initialSettleDeadline = Date.now() + 500;
   const collect = () => {
-    assertCurrentUrl();
+    assertCurrentPage();
     const root = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page")
       || document.body;
     const busy = Array.from(root.querySelectorAll("[aria-busy='true'],.loading,.spinner"))
@@ -416,7 +415,7 @@ export async function extractSearchResultsFromPage(options) {
   const maxResults = Math.max(1, Number(options.maxResults) || 5);
   const allTicketIds = [...ticketIds].sort((left, right) => Number(right) - Number(left));
   const sortedTicketIds = allTicketIds.slice(0, maxResults);
-  assertCurrentUrl();
+  assertCurrentPage();
   return {
     ticketIds: sortedTicketIds,
     truncated: allTicketIds.length > maxResults
