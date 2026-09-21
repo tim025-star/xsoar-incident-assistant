@@ -65,6 +65,12 @@ const SENSITIVE_ALERT_KEYS = new Set([
   "secret", "clientsecret", "apikey", "accesstoken", "refreshtoken", "idtoken", "csrftoken", "sessiontoken"
 ]);
 
+function isSensitiveAlertKey(key) {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return SENSITIVE_ALERT_KEYS.has(normalized)
+    || /(?:authorization|cookie|password|passwd|secret|privatekey|apikey|token|credential)/.test(normalized);
+}
+
 function sanitizeAlertJson(value, state = { nodes: 0 }, depth = 0) {
   if (depth > 30 || ++state.nodes > 10000) {
     throw new Error("The complete detailed alert JSON is too complex for safe local processing.");
@@ -72,7 +78,7 @@ function sanitizeAlertJson(value, state = { nodes: 0 }, depth = 0) {
   if (Array.isArray(value)) return value.map((item) => sanitizeAlertJson(item, state, depth + 1));
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => !SENSITIVE_ALERT_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, "")))
+    .filter(([key]) => !isSensitiveAlertKey(key))
     .map(([key, item]) => [key, sanitizeAlertJson(item, state, depth + 1)]));
 }
 

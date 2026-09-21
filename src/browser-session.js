@@ -6,10 +6,67 @@ import path from "node:path";
 
 import { chromium } from "playwright-core";
 
-import { assertIncidentUrl, assertTrustedUrl } from "./domain.js";
+import { assertIncidentUrl, assertSearchUrl, assertTrustedUrl } from "./domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "./page-adapter.js";
 
 const CHROME_SETUP_URL = "chrome://inspect/#remote-debugging";
+const INCIDENT_SEARCH_INPUT = 'input[placeholder="Search in Incidents"], input.header-search-input.search-input';
+const HISTORIC_SEARCH_OBSERVATION_KEY = "__xsoarIncidentAssistantHistoricSearch";
+
+export async function submitHistoricSearch(page, options) {
+  const expectedQuery = String(options.expectedQuery || "").trim();
+  if (!expectedQuery) throw new Error("A historic incident query is required.");
+  const currentUrl = new URL(page.url());
+  const normalizePath = (value) => value.length > 1 ? value.replace(/\/+$/, "") : value;
+  if (currentUrl.origin !== options.expectedOrigin
+    || normalizePath(currentUrl.pathname) !== normalizePath(options.expectedPath)
+    || currentUrl.hash
+    || [...currentUrl.searchParams.values()].some((value) => String(value).trim())) {
+    throw new Error("Historic search refused to interact with a page outside the configured incidents page.");
+  }
+  const timeout = Math.min(Math.max(Number(options.timeoutMs) || 20000, 1000), 120000);
+  const input = page.locator(INCIDENT_SEARCH_INPUT).first();
+  try {
+    await input.waitFor({ state: "visible", timeout });
+  } catch (error) {
+    throw new Error("XSOAR's main incidents search input did not become ready before the timeout.", { cause: error });
+  }
+  await input.fill(expectedQuery);
+  await page.evaluate(({ observationKey }) => {
+    window[observationKey]?.observer?.disconnect();
+    const results = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page");
+    const target = results?.parentElement || document.body;
+    const state = { changed: false, observer: null };
+    const observer = new MutationObserver(() => { state.changed = true; });
+    observer.observe(target, { attributes: true, characterData: true, childList: true, subtree: true });
+    state.observer = observer;
+    window[observationKey] = state;
+  }, { observationKey: HISTORIC_SEARCH_OBSERVATION_KEY });
+  await input.press("Enter");
+  try {
+    await page.waitForFunction(
+      ({ expectedQuery: query, queryParameter, observationKey }) => {
+        const current = new URL(window.location.href);
+        const observation = window[observationKey];
+        return String(current.searchParams.get(queryParameter) || "").trim() === query
+          && (!observation || observation.changed);
+      },
+      {
+        expectedQuery,
+        queryParameter: options.queryParameter,
+        observationKey: HISTORIC_SEARCH_OBSERVATION_KEY
+      },
+      { timeout }
+    );
+  } catch (error) {
+    throw new Error("XSOAR did not apply the historic query submitted through its main search input.", { cause: error });
+  } finally {
+    await page.evaluate(({ observationKey }) => {
+      window[observationKey]?.observer?.disconnect();
+      delete window[observationKey];
+    }, { observationKey: HISTORIC_SEARCH_OBSERVATION_KEY }).catch(() => {});
+  }
+}
 
 function chromeExecutableCandidates() {
   const roots = [process.env.ProgramFiles, process.env["ProgramFiles(x86)"], process.env.LOCALAPPDATA]
@@ -119,6 +176,13 @@ class PlaywrightBrowserAdapter {
   }
 
   async extractSearchResults(page, options) {
+    await submitHistoricSearch(page, {
+      ...options,
+      expectedOrigin: this.settings.allowedOrigin,
+      expectedPath: new URL(this.settings.incidentsPath, this.settings.allowedOrigin).pathname,
+      queryParameter: this.settings.searchQueryParameter
+    });
+    assertSearchUrl(page.url(), this.settings, options.expectedQuery);
     return page.evaluate(extractSearchResultsFromPage, {
       ...options,
       expectedOrigin: this.settings.allowedOrigin,

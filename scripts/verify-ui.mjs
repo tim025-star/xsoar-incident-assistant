@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 
+import { submitHistoricSearch } from "../src/browser-session.js";
 import { createAssistantServer } from "../src/server.js";
 import { resolveAppConfig } from "../src/config.js";
 import { resolveSettings } from "../src/domain.js";
@@ -277,9 +278,16 @@ try {
   const historicQuery = 'rawName:"Example detection" and rawType:"Endpoint" and (created:>="3 months ago")';
   await searchPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
     contentType: "text/html",
-    body: `<div id="incidents-page" role="grid"><a href="/Custom/GenericLayout/4199">4199</a></div><div class="table-paging-message">1-1 of 1</div>`
+    body: `<input autocomplete="off" placeholder="Search in Incidents" type="text" class="xsoar-input search-input header-search-input"><div id="incidents-page" role="grid"></div><div class="table-paging-message"></div><script>document.querySelector("input").addEventListener("keydown", (event) => { if (event.key !== "Enter") return; const query = event.currentTarget.value; history.replaceState({}, "", "/incidents?query=" + encodeURIComponent(query)); document.querySelector("#incidents-page").innerHTML = '<a href="/Custom/GenericLayout/4199">4199</a>'; document.querySelector(".table-paging-message").textContent = "1-1 of 1"; });</script>`
   }));
-  await searchPage.goto(`https://xsoar.example.test/incidents?query=${encodeURIComponent(historicQuery)}`);
+  await searchPage.goto("https://xsoar.example.test/incidents");
+  await submitHistoricSearch(searchPage, {
+    expectedOrigin: "https://xsoar.example.test",
+    expectedPath: "/incidents",
+    expectedQuery: historicQuery,
+    queryParameter: "query",
+    timeoutMs: 2000
+  });
   const historicResults = await searchPage.evaluate(extractSearchResultsFromPage, {
     expectedOrigin: "https://xsoar.example.test",
     expectedPath: "/incidents",
@@ -307,7 +315,7 @@ try {
   assert.equal(delayedIncident.ruleName, "Delayed Rule");
   assert.equal(delayedIncident.caseType, "Endpoint");
 
-  console.log("Current-Chrome-only UI, upgrade migration, and URL-based extraction verification passed.");
+  console.log("Current-Chrome-only UI, upgrade migration, main-search submission, and extraction verification passed.");
 } finally {
   await browser?.close();
   app.server.closeAllConnections?.();

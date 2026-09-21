@@ -1,6 +1,5 @@
 import {
   assertIncidentUrl,
-  assertSearchUrl,
   buildDraft,
   buildHistoricalIncidentUrl,
   buildIncidentUrlFromId,
@@ -45,10 +44,18 @@ async function extractIncidentViews({
   temporaryTabs,
   initialDetail,
   requiredFields = [],
+  requiredAnyFields = [],
+  requireAlertJson = false,
   onView = async () => {}
 }) {
   const expectedTicketId = ticketIdFromIncidentUrl(primaryUrl, settings, "Incident view extraction");
-  const initial = initialDetail || await adapter.extractIncident(primaryTab.id, { ...settings, requiredFields });
+  const initial = initialDetail || await adapter.extractIncident(primaryTab.id, {
+    ...settings,
+    requiredFields,
+    requiredAnyFields,
+    requireAlertJson,
+    allowTabDiscovery: true
+  });
   const views = [initial];
   for (const url of uniqueTrustedTabUrls(initial, settings)) {
     if (url === primaryUrl) continue;
@@ -59,7 +66,20 @@ async function extractIncidentViews({
       const finalUrl = await adapter.getTabUrl(tab.id);
       const finalTicketId = ticketIdFromIncidentUrl(finalUrl, settings, "Incident view navigation");
       if (finalTicketId !== expectedTicketId) throw new Error("XSOAR opened a different incident view than requested.");
-      views.push(await adapter.extractIncident(tab.id, { ...settings, requiredFields: [] }));
+      const merged = mergeIncidentDetails(...views);
+      const remainingRequiredFields = requiredFields.filter((key) => !cleanText(merged[key]));
+      const remainingAnyFields = requiredAnyFields.some((key) => cleanText(merged[key]))
+        ? []
+        : requiredAnyFields;
+      const stillRequiresAlertJson = requireAlertJson
+        && !(merged.alertJsonComplete && Array.isArray(merged.alertJson) && merged.alertJson.length > 0);
+      views.push(await adapter.extractIncident(tab.id, {
+        ...settings,
+        requiredFields: remainingRequiredFields,
+        requiredAnyFields: remainingAnyFields,
+        requireAlertJson: stillRequiresAlertJson,
+        allowTabDiscovery: false
+      }));
     } finally {
       await adapter.closeTab(tab.id).catch(() => {});
       temporaryTabs.delete(tab);
@@ -83,7 +103,8 @@ async function readHistoricCandidate({ adapter, settings, incident, originalTab,
       primaryTab: tab,
       primaryUrl: finalUrl.toString(),
       temporaryTabs,
-      requiredFields: ["customerName", "ruleName", "caseType"]
+      requiredFields: ["customerName", "ruleName", "caseType"],
+      requiredAnyFields: ["historicalRecommendations", "closeNotes", "incidentOutcome"]
     });
     if (String(detail.ticketId) !== String(ticketId)) {
       throw new Error("XSOAR opened a different historic incident than requested.");
@@ -109,9 +130,8 @@ async function readHistoricCandidate({ adapter, settings, incident, originalTab,
 async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs }) {
   try {
     const query = buildSearchQuery(incident.ruleName, incident.caseType, HISTORIC_LOOKBACK_QUERY);
-    const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, query));
+    const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, ""));
     temporaryTabs.add(searchTab);
-    assertSearchUrl(await adapter.getTabUrl(searchTab.id), settings, query);
     const result = await adapter.extractSearchResults(searchTab.id, {
       expectedQuery: query,
       maxResults: HISTORIC_SEARCH_SAFETY_LIMIT,
@@ -133,7 +153,7 @@ async function collectHistoric({ adapter, settings, incident, originalTab, tempo
     }
     const warnings = [];
     if (failed) warnings.push(`Could not read ${failed} historic incident(s).`);
-    if (result.truncated) warnings.push("Historic search reached its 1,000-result safety limit; older matches may be omitted.");
+    if (result.truncated) warnings.push("Historic search results were incomplete; older matches may be omitted.");
     return {
       items,
       warning: warnings.join(" ")
@@ -189,7 +209,11 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
     }
 
     await onProgress(requestedIncidentId ? `Collecting evidence from incident ${requestedIncidentId}.` : "Collecting evidence from the open XSOAR incident.");
-    const initial = await adapter.extractIncident(originalTab.id, settings);
+    const initial = await adapter.extractIncident(originalTab.id, {
+      ...settings,
+      requireAlertJson: Boolean(enrichDraft),
+      allowTabDiscovery: true
+    });
     if (requestedIncidentId && String(initial.ticketId) !== requestedIncidentId) {
       throw new Error("XSOAR opened a different incident than the requested Incident ID.");
     }
@@ -200,6 +224,7 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
       primaryUrl: originalTab.url,
       temporaryTabs,
       initialDetail: initial,
+      requireAlertJson: Boolean(enrichDraft),
       onView: () => onProgress("Collecting evidence from another incident view.")
     });
     await onProgress("Processing the selected alert and searching three months of history.");

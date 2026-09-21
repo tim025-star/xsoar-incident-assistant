@@ -49,6 +49,9 @@ export async function extractIncidentFromPage(settings) {
     .filter((part) => part && !/^\d+$/.test(part))
     .join(".");
   const collectJsonEvidence = () => {
+    const maximumDocumentCharacters = 96 * 1024;
+    const maximumCandidates = 100;
+    const maximumTableRows = 1000;
     const pairs = [];
     const documents = [];
     const seen = new Set();
@@ -72,26 +75,87 @@ export async function extractIncidentFromPage(settings) {
       const text = normalize(typeof value === "string" ? value : String(value));
       if (jsonPath && available(text)) pairs.push([jsonPath, text]);
     };
-    const candidates = Array.from(document.querySelectorAll(
-      "[data-testid*='json' i],[class*='json' i],.field-wrapper pre,.field-wrapper code,.field-wrapper textarea,.field-wrapper .preplacer,.field-wrapper .value-wrapper,.field-wrapper .markdown"
-    )).filter(isVisible).slice(0, 100);
-    for (const element of candidates) {
-      const raw = String(element.value ?? element.textContent ?? "").trim();
-      if (!raw || seen.has(raw)
-        || !((raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]")))) continue;
+    const appendDocument = (value, serialized = "") => {
+      let raw = serialized;
+      try { raw ||= JSON.stringify(value); } catch {
+        complete = false;
+        return;
+      }
+      if (!raw || seen.has(raw)) return;
       seen.add(raw);
-      if (raw.length > 96 * 1024) {
+      if (raw.length > maximumDocumentCharacters
+        || documentCharacters + raw.length > maximumDocumentCharacters) {
+        complete = false;
+        return;
+      }
+      documents.push(value);
+      documentCharacters += raw.length;
+      visit(value, [], 0);
+    };
+    const parseNestedValue = (raw) => {
+      if (!((raw.startsWith("{") && raw.endsWith("}"))
+        || (raw.startsWith("[") && raw.endsWith("]")))) return raw;
+      try { return JSON.parse(raw); } catch { return raw; }
+    };
+
+    const sectionLabels = new Set(["json events", "source events"]);
+    const observedSectionLabels = new Set();
+    for (const heading of Array.from(document.querySelectorAll("h3")).filter(isVisible)) {
+      const sectionLabel = normalizeLabel(heading.innerText || heading.textContent);
+      if (!sectionLabels.has(sectionLabel)) continue;
+      observedSectionLabels.add(sectionLabel);
+      const table = heading.parentElement?.querySelector("table");
+      if (!table || !isVisible(table)) {
         complete = false;
         continue;
       }
-      try {
-        const parsed = JSON.parse(raw);
-        visit(parsed, [], 0);
-        if (documentCharacters + raw.length <= 96 * 1024) {
-          documents.push(parsed);
-          documentCharacters += raw.length;
-        } else complete = false;
-      } catch {}
+      const rows = Array.from(table.querySelectorAll("tr")).filter(isVisible);
+      if (rows.length > maximumTableRows) complete = false;
+      const document = {};
+      let retainedRows = 0;
+      for (const row of rows.slice(0, maximumTableRows)) {
+        const cells = Array.from(row.querySelectorAll("td"));
+        if (!cells.length) continue;
+        if (cells.length !== 2) {
+          complete = false;
+          continue;
+        }
+        const key = normalize(cells[0].innerText || cells[0].textContent);
+        if (!key) {
+          complete = false;
+          continue;
+        }
+        const rawValue = String(cells[1].innerText ?? cells[1].textContent ?? "").trim();
+        const value = parseNestedValue(rawValue);
+        if (Object.hasOwn(document, key)) {
+          document[key] = Array.isArray(document[key])
+            ? [...document[key], value]
+            : [document[key], value];
+        } else document[key] = value;
+        retainedRows += 1;
+      }
+      if (!retainedRows) {
+        complete = false;
+        continue;
+      }
+      appendDocument(document);
+    }
+    if (observedSectionLabels.size
+      && [...sectionLabels].some((label) => !observedSectionLabels.has(label))) complete = false;
+
+    const rawCandidates = Array.from(document.querySelectorAll(
+      "[data-testid*='json' i],[class*='json' i],.field-wrapper pre,.field-wrapper code,.field-wrapper textarea,.field-wrapper .preplacer,.field-wrapper .value-wrapper,.field-wrapper .markdown"
+    )).filter(isVisible).map((element) => String(element.value ?? element.textContent ?? "").trim())
+      .filter((raw) => (raw.startsWith("{") && raw.endsWith("}"))
+        || (raw.startsWith("[") && raw.endsWith("]")));
+    if (rawCandidates.length > maximumCandidates) complete = false;
+    for (const raw of rawCandidates.slice(0, maximumCandidates)) {
+      if (seen.has(raw)) continue;
+      if (raw.length > maximumDocumentCharacters) {
+        complete = false;
+        continue;
+      }
+      try { appendDocument(JSON.parse(raw), raw); } catch { complete = false; }
     }
     return { pairs, documents, complete };
   };
@@ -224,7 +288,7 @@ export async function extractIncidentFromPage(settings) {
     };
   };
 
-  const deadline = Date.now() + Math.min(Number(settings.pageReadyTimeoutMs) || 20000, 10000);
+  const deadline = Date.now() + Math.min(Number(settings.pageReadyTimeoutMs) || 20000, 120000);
   let previous = "";
   let stableSince = Date.now();
   let result = read();
@@ -235,11 +299,18 @@ export async function extractIncidentFromPage(settings) {
       stableSince = Date.now();
     } else if (Date.now() - stableSince >= 500 && result.ticketId) {
       const requiredFields = Array.isArray(settings.requiredFields) ? settings.requiredFields : [];
-      const requiredReady = requiredFields.length
-        ? requiredFields.every((key) => available(result[key])) || result.tabUrls.length > 0
-        : Object.entries(result).some(([key, value]) =>
+      const requiredAnyFields = Array.isArray(settings.requiredAnyFields) ? settings.requiredAnyFields : [];
+      const hasRequirements = requiredFields.length || requiredAnyFields.length || settings.requireAlertJson;
+      const allFieldsReady = requiredFields.every((key) => available(result[key]));
+      const anyFieldReady = !requiredAnyFields.length
+        || requiredAnyFields.some((key) => available(result[key]));
+      const alertJsonReady = !settings.requireAlertJson
+        || (result.alertJsonComplete && result.alertJson.length > 0);
+      const defaultReady = Object.entries(result).some(([key, value]) =>
           !["ticketId", "tabUrls", "alertJson", "alertJsonComplete", "incidentName"].includes(key) && available(value));
-      if (requiredReady) break;
+      const requiredReady = allFieldsReady && anyFieldReady && alertJsonReady;
+      if (hasRequirements ? requiredReady
+        : defaultReady || (settings.allowTabDiscovery && result.tabUrls.length > 0)) break;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
     result = read();
@@ -276,15 +347,23 @@ export async function extractSearchResultsFromPage(options) {
   }
   const ticketIds = new Set();
   let initialLoadFinished = false;
+  let initialBusyObserved = false;
+  const initialSettleDeadline = Date.now() + 500;
   const collect = () => {
     assertCurrentUrl();
     const root = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page")
       || document.body;
     const busy = Array.from(root.querySelectorAll("[aria-busy='true'],.loading,.spinner"))
       .some(isVisible);
-    if (!initialLoadFinished && busy) {
-      ticketIds.clear();
-    } else if (!busy) {
+    if (!initialLoadFinished) {
+      if (busy) {
+        ticketIds.clear();
+        initialBusyObserved = true;
+      } else if (initialBusyObserved || Date.now() >= initialSettleDeadline) {
+        initialLoadFinished = true;
+      }
+    }
+    if (initialLoadFinished && !busy) {
       for (const link of root.querySelectorAll("a[href]")) {
         if (!isVisible(link)) continue;
         let url;
@@ -295,12 +374,16 @@ export async function extractSearchResultsFromPage(options) {
         const ticketId = url.pathname.match(ticketPattern)?.[1] || configuredTicketId;
         if (ticketId && url.origin === location.origin) ticketIds.add(ticketId);
       }
-      initialLoadFinished = true;
     }
     const paging = normalize(document.querySelector(".table-paging-message")?.textContent);
+    const pagingMatch = paging.match(/([\d,]+)\s*[-–]\s*([\d,]+)\s+of\s+([\d,]+)/i);
+    const pagingEnd = pagingMatch ? Number(pagingMatch[2].replace(/,/g, "")) : 0;
+    const pagingTotal = pagingMatch ? Number(pagingMatch[3].replace(/,/g, "")) : 0;
+    const pagingComplete = Boolean(pagingTotal && pagingEnd >= pagingTotal);
+    const pagingUnknown = Boolean(paging && !pagingMatch);
     const empty = Array.from(document.querySelectorAll(".no-data,.empty-table,.no-results"))
       .some(isVisible);
-    return { root, paging, empty, busy };
+    return { root, paging, pagingComplete, pagingEnd, pagingTotal, pagingUnknown, empty, busy };
   };
 
   const deadline = Date.now() + Math.min(Number(options.timeoutMs) || 20000, 120000);
@@ -308,16 +391,19 @@ export async function extractSearchResultsFromPage(options) {
   let stableSince = Date.now();
   let state = collect();
   while (Date.now() < deadline) {
-    const signature = `${state.paging}|${state.empty}|${[...ticketIds].join(",")}`;
+    const signature = `${initialLoadFinished}|${state.paging}|${state.empty}|${[...ticketIds].join(",")}`;
     if (signature !== previous) {
       previous = signature;
       stableSince = Date.now();
-    } else if (!state.busy && (state.empty || ticketIds.size > 0 || state.paging)
+    } else if (initialLoadFinished && !state.busy
+      && (state.empty || state.pagingComplete || state.pagingUnknown || (!state.paging && ticketIds.size > 0))
       && Date.now() - stableSince >= 750) {
       break;
     }
-    const scrollHost = state.root.querySelector(".fixedDataTableLayout_rowsContainer,[role='rowgroup']") || state.root;
-    if ("scrollTop" in scrollHost) scrollHost.scrollTop += Math.max(300, scrollHost.clientHeight || 0);
+    if (initialLoadFinished) {
+      const scrollHost = state.root.querySelector(".fixedDataTableLayout_rowsContainer,[role='rowgroup']") || state.root;
+      if ("scrollTop" in scrollHost) scrollHost.scrollTop += Math.max(300, scrollHost.clientHeight || 0);
+    }
     await new Promise((resolve) => setTimeout(resolve, 150));
     state = collect();
   }
@@ -328,5 +414,10 @@ export async function extractSearchResultsFromPage(options) {
   const allTicketIds = [...ticketIds].sort((left, right) => Number(right) - Number(left));
   const sortedTicketIds = allTicketIds.slice(0, maxResults);
   assertCurrentUrl();
-  return { ticketIds: sortedTicketIds, truncated: allTicketIds.length > maxResults };
+  return {
+    ticketIds: sortedTicketIds,
+    truncated: allTicketIds.length > maxResults
+      || Boolean(state.pagingTotal && state.pagingEnd < state.pagingTotal)
+      || state.pagingUnknown
+  };
 }
