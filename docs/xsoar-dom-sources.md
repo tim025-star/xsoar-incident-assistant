@@ -36,6 +36,7 @@ The extractor deliberately rejects arbitrary `td` elements, unrelated multi-colu
 - Playwright fills that input and presses Enter so XSOAR's own event handlers update the search state.
 - The configured query parameter is checked only after submission to confirm XSOAR applied the exact query. Setting the URL parameter directly is not supported because XSOAR can overwrite it from the main search control's state.
 - Results remain scoped to the configured same-origin incidents path and same-origin incident links.
+- Current XSOAR result links can use `/incident<view-id>/<ticket-id>/overview`; the second numeric segment is the incident ticket ID. Legacy `/incident/<ticket-id>` and configured custom-layout routes remain supported.
 
 ## Readiness and completeness
 

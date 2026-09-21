@@ -336,7 +336,8 @@ export async function extractSearchResultsFromPage(options) {
     return style.display !== "none" && style.visibility !== "hidden"
       && Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
   };
-  const ticketPattern = /\/(?:incident|investigation)\/(\d+)\/?(?:[?#].*)?$/i;
+  const ticketPattern = /\/(?:incident|investigation)\/(\d+)\/?$/i;
+  const incidentOverviewPattern = /\/incident\d+\/(\d+)\/overview\/?$/i;
   let configuredIncidentPattern;
   try {
     configuredIncidentPattern = options.incidentUrlPattern
@@ -371,7 +372,9 @@ export async function extractSearchResultsFromPage(options) {
         const configuredTicketId = configuredIncidentPattern?.test(`${url.pathname}${url.search}${url.hash}`)
           ? url.pathname.match(/\/(\d+)\/?$/)?.[1]
           : "";
-        const ticketId = url.pathname.match(ticketPattern)?.[1] || configuredTicketId;
+        const ticketId = url.pathname.match(ticketPattern)?.[1]
+          || url.pathname.match(incidentOverviewPattern)?.[1]
+          || configuredTicketId;
         if (ticketId && url.origin === location.origin) ticketIds.add(ticketId);
       }
     }
