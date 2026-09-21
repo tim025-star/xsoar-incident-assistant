@@ -30,6 +30,8 @@ const requestedIncidentIds = [];
 const firstAiChunk = `{"eventSummary":"${Array.from({ length: 60 }, (_, index) => `field-${index + 1}`).join("\\n")}`;
 const secondAiChunk = '","observedFacts":[]}';
 const generatedDraft = Array.from({ length: 60 }, (_, index) => `Evidence field ${index + 1}: observed value`).join("\n");
+let finishFirstAiResponse;
+const firstAiResponseCanFinish = new Promise((resolve) => { finishFirstAiResponse = resolve; });
 const sessions = {
   status: () => ({ running: sessionRunning }),
   openSetup: () => { setupOpens += 1; },
@@ -66,7 +68,7 @@ const app = createAssistantServer({
       status: async () => ({ available: true, models: ["qwen3.5:9b"], detail: "Ollama is online and ready." }),
       enrich: async ({ onToken }) => {
         onToken(firstAiChunk);
-        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await firstAiResponseCanFinish;
         onToken(secondAiChunk);
         return {};
       }
@@ -203,6 +205,7 @@ try {
   assert.ok(liveReadingPosition > 0, "the live response fixture must overflow its text area");
   await page.waitForTimeout(700);
   assert.equal(await page.locator("#draft").evaluate((element) => element.scrollTop), liveReadingPosition, "status refreshes must preserve the reader's live-output scroll position");
+  finishFirstAiResponse();
   await page.locator("#aiDraftAcknowledgement").waitFor();
   assert.equal(await page.locator("#aiOutput").count(), 0, "live AI output belongs in the processed-data field, not a separate field");
   assert.equal(await page.locator("#draft").inputValue(), generatedDraft);

@@ -6,6 +6,7 @@ import {
   buildIncidentUrlFromId,
   buildIncidentSearchUrl,
   buildSearchQuery,
+  cleanText,
   mergeIncidentDetails,
   resolveSettings
 } from "./domain.js";
@@ -41,9 +42,22 @@ function uniqueTrustedTabUrls(details, settings) {
   return [...urls];
 }
 
-function historicalWarning(items) {
+function historicalWarning(items, unrelatedCount = 0) {
   const failed = items.filter((item) => item?.error).length;
-  return failed ? `Could not read ${failed} related incident(s).` : "";
+  return [
+    failed ? `Could not read ${failed} related incident(s).` : "",
+    unrelatedCount ? `Ignored ${unrelatedCount} unrelated search result${unrelatedCount === 1 ? "" : "s"} that did not match the current rule and type.` : ""
+  ].filter(Boolean).join(" ");
+}
+
+function isRelatedIncident(current, candidate) {
+  const normalize = (value) => cleanText(value).toLocaleLowerCase();
+  return Boolean(
+    normalize(current.ruleName)
+    && normalize(current.caseType)
+    && normalize(candidate.ruleName) === normalize(current.ruleName)
+    && normalize(candidate.caseType) === normalize(current.caseType)
+  );
 }
 
 export async function runIncidentDraft({ adapter, settings: inputSettings, incidentId = "", onProgress = async () => {}, enrichDraft }) {
@@ -109,7 +123,7 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
     const historicalTicketIds = searchResult.ticketIds
       .filter((ticketId) => String(ticketId) !== String(incident.ticketId))
       .slice(0, settings.maxHistoricalIncidents);
-    const historical = await mapWithConcurrency(
+    const historicalCandidates = await mapWithConcurrency(
       historicalTicketIds,
       HISTORICAL_READ_CONCURRENCY,
       async (ticketId) => {
@@ -125,6 +139,9 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
           if (String(detail.ticketId) !== String(ticketId)) {
             throw new Error("XSOAR opened a different related incident than requested.");
           }
+          if (!isRelatedIncident(incident, detail)) {
+            return { ticketId: String(ticketId), unrelated: true };
+          }
           return detail;
         } catch (error) {
           return {
@@ -139,6 +156,8 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
         }
       }
     );
+    const unrelatedCount = historicalCandidates.filter((item) => item?.unrelated).length;
+    const historical = historicalCandidates.filter((item) => !item?.unrelated);
 
     const output = { ...incident, historical };
     await onProgress("Building the processed incident data.");
@@ -149,6 +168,10 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
       await onProgress("Running local AI data processing.");
       try {
         const enrichment = await enrichDraft({ incident });
+        const hasProcessedFacts = cleanText(enrichment?.eventSummary)
+          || (Array.isArray(enrichment?.observedFacts)
+            && enrichment.observedFacts.some((item) => cleanText(item)));
+        if (!hasProcessedFacts) throw new Error("Local AI returned no processed facts.");
         draft = buildDraft(output, settings.template, enrichment);
         aiEnriched = true;
       } catch {
@@ -157,7 +180,7 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
     }
     return {
       draft,
-      warning: [historicalWarning(historical), enrichmentWarning].filter(Boolean).join(" "),
+      warning: [historicalWarning(historical, unrelatedCount), enrichmentWarning].filter(Boolean).join(" "),
       reviewed: historical.filter((item) => !item.error).length,
       aiEnriched
     };

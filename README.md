@@ -30,7 +30,7 @@ Requirements: Windows 11 x64 and Google Chrome 144 or newer.
 
 ### Optional local AI
 
-The tool always builds a deterministic source-field response. When Local AI is enabled, Ollama transforms allowlisted source evidence into an event summary and explicitly observed facts. Its schema and prompt exclude conclusions, classifications, guidance, and recommended actions. The default `qwen3.5:9b` model is suitable for a CPU-only workstation with 32 GB RAM.
+Without Local AI, the tool builds a deterministic source-field response. When Local AI is enabled and processing succeeds, Ollama transforms allowlisted source evidence into a concise event summary and non-repeating observed facts; that processed response replaces the deterministic field breakdown instead of being appended to it. Missing values are omitted rather than rendered as placeholders. Its schema and prompt exclude conclusions, classifications, guidance, and recommended actions. The default `qwen3.5:9b` model is suitable for a CPU-only workstation with 32 GB RAM.
 
 The optional installer task downloads the official Ollama `0.34.0` Windows installer and the default `qwen3.5:9b` Q4_K_M model from pinned GitHub Release assets. A fresh installation downloads about 8.2 GB; the model itself is about 6.6 GB. Allow at least 16 GB of free disk space while the model is assembled and imported. The task is unchecked and failure does not affect the core installation. It launches `OllamaSetup.exe` directly and uses the application's bundled Node.js runtime for the model import, so the end-user path does not invoke PowerShell or WinGet.
 
@@ -57,7 +57,7 @@ If launch reports a startup error, reinstall the current release. The launcher d
 
 The separate **Configuration** page includes the tenant URL, analyst identity, incident route regex, incident URL template, incident list path, search parameter, related-case lookback, review limit, page timeout, local AI, output wording, and JSON log mappings. Each mapping accepts JSON keys or dotted paths such as `source.ip` or `events.actor.user_name`; array indexes are ignored. Existing XSOAR field labels and two-column log tables remain supported as fallbacks. No analyst name is hard-coded.
 
-XSOAR routes vary by deployment. Before operational use, run a harmless search manually, confirm the query remains in the browser address bar, configure that path and parameter, then test against synthetic incidents. Automation stops if navigation leaves the configured HTTPS origin, an incident path does not match, or the final search URL does not retain the exact expected query.
+XSOAR routes vary by deployment. Before operational use, run a harmless search manually, confirm the query remains in the browser address bar, configure that path and parameter, then test against synthetic incidents. Related-ticket searches use exact `rawName` and `rawType` matches. Every opened result is checked again against the current incident's Rule Name and Type, and mismatches are omitted with a warning. Automation stops if navigation leaves the configured HTTPS origin, an incident path does not match, or the final search URL does not retain the exact expected query.
 
 ## Credentials and data
 

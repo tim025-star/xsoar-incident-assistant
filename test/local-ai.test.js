@@ -66,6 +66,8 @@ test("local processing uses bounded allowlisted evidence and a factual-only sche
   assert.match(body.messages[0].content, /data transformation component, not an investigator or decision maker/i);
   assert.match(body.messages[0].content, /Do not infer causes, intent, relationships, risk, severity, impact, outcomes, classifications, conclusions, or recommendations/i);
   assert.match(body.messages[0].content, /empty string or array when the evidence does not state/i);
+  assert.match(body.messages[0].content, /do not repeat any fact/i);
+  assert.match(body.messages[0].content, /Never emit placeholders such as N\/A/i);
   assert.doesNotMatch(JSON.stringify(body.format), /recommendations|vendorGuidance|investigationSummary|relatedActivity/);
   assert.equal(body.options.num_ctx, 8192);
   assert.equal(body.stream, true);
