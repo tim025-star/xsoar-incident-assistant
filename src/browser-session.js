@@ -123,7 +123,8 @@ class PlaywrightBrowserAdapter {
       ...options,
       expectedOrigin: this.settings.allowedOrigin,
       expectedPath: new URL(this.settings.incidentsPath, this.settings.allowedOrigin).pathname,
-      queryParameter: this.settings.searchQueryParameter
+      queryParameter: this.settings.searchQueryParameter,
+      incidentUrlPattern: this.settings.incidentUrlPattern
     });
   }
 

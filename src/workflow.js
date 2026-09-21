@@ -108,7 +108,7 @@ async function readHistoricCandidate({ adapter, settings, incident, originalTab,
 
 async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs }) {
   try {
-    const query = buildSearchQuery(incident.incidentName, incident.caseType, HISTORIC_LOOKBACK_QUERY);
+    const query = buildSearchQuery(incident.ruleName, incident.caseType, HISTORIC_LOOKBACK_QUERY);
     const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, query));
     temporaryTabs.add(searchTab);
     assertSearchUrl(await adapter.getTabUrl(searchTab.id), settings, query);
@@ -139,9 +139,13 @@ async function collectHistoric({ adapter, settings, incident, originalTab, tempo
       warning: warnings.join(" ")
     };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const safeMessage = message.includes("XSOAR historic search results did not become ready before the timeout")
+      ? "XSOAR historic search results did not become ready before the timeout."
+      : message.split(/\r?\n/)[0];
     return {
       items: [],
-      warning: `Historic incident lookup was unavailable: ${error instanceof Error ? error.message : String(error)}`
+      warning: `Historic incident lookup was unavailable: ${safeMessage}`
     };
   }
 }
@@ -208,8 +212,16 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
             && enrichment.observedFacts.some((item) => cleanText(item)));
         if (!hasProcessedFacts) throw new Error("Local AI returned no processed facts.");
         return { enrichment, warning: "", aiEnriched: true };
-      } catch {
-        return { enrichment: null, warning: "Local AI did not return valid processed fields. The source-field response is ready.", aiEnriched: false };
+      } catch (error) {
+        const message = cleanText(error instanceof Error ? error.message : "");
+        const safeDetail = /^The (?:complete )?detailed alert JSON (?:was not available|exceeds|could not be serialized|is too complex)/.test(message)
+          ? ` ${message}`
+          : "";
+        return {
+          enrichment: null,
+          warning: `Local AI did not return valid processed fields.${safeDetail} The source-field response is ready.`,
+          aiEnriched: false
+        };
       }
     })();
     const historicPromise = collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs });
