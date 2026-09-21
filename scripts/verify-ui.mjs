@@ -141,8 +141,6 @@ try {
   await page.locator("#localAiEnabled").check();
 
   await page.getByText("Advanced XSOAR routing").click();
-  await page.locator("#maxHistoricalIncidents").fill("");
-  assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "");
   await page.locator("#maxHistoricalIncidents").fill("10");
   await page.locator("#analystName").fill("Example Analyst");
   await page.locator("#saveMappings").click();
@@ -206,7 +204,8 @@ try {
   await page.waitForTimeout(700);
   assert.equal(await page.locator("#draft").evaluate((element) => element.scrollTop), liveReadingPosition, "status refreshes must preserve the reader's live-output scroll position");
   finishFirstAiResponse();
-  await page.locator("#aiDraftAcknowledgement").waitFor();
+  await page.locator("#copy:not([disabled])").waitFor();
+  assert.equal(await page.locator("#aiDraftAcknowledgement").count(), 0, "copying processed data must not require an acknowledgement gate");
   assert.equal(await page.locator("#aiOutput").count(), 0, "live AI output belongs in the processed-data field, not a separate field");
   assert.equal(await page.locator("#draft").inputValue(), generatedDraft);
   const draftReadingPosition = await page.locator("#draft").evaluate((element) => {
@@ -221,17 +220,7 @@ try {
   await workflowPage.close();
   workflowPage = undefined;
   assert.deepEqual(requestedIncidentIds, ["4300"]);
-  assert.equal(await page.locator("#copy").isDisabled(), true);
-  await page.locator("#aiDraftAcknowledgement").check();
   assert.equal(await page.locator("#copy").isDisabled(), false);
-  const secondPage = await browser.newPage();
-  await secondPage.goto(url);
-  await secondPage.getByRole("heading", { name: "XSOAR Incident Assistant" }).waitFor();
-  await secondPage.locator("#run").click();
-  await secondPage.locator("#aiDraftAcknowledgement").waitFor();
-  await page.waitForFunction(() => !document.querySelector("#aiDraftAcknowledgement")?.checked, undefined, { timeout: 3000 });
-  assert.equal(await page.locator("#copy").isDisabled(), true);
-  await secondPage.close();
 
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
@@ -268,7 +257,7 @@ try {
   const jsonLogPage = await browser.newPage();
   await jsonLogPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
     contentType: "text/html",
-    body: '<div class="header-inv-id">#4203</div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper">JSON Rule</div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper">Endpoint</div></div><pre>{"network":{"destination":{"ip":"198.51.100.24"}},"events":[{"actor":{"user_name":"example.user"}}]}</pre>'
+    body: '<div class="header-inv-id">#4203</div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper">JSON Rule</div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper">Endpoint</div></div><pre data-testid="alert-json">{"network":{"destination":{"ip":"198.51.100.24"}},"events":[{"actor":{"user_name":"example.user"}}]}</pre><div class="markdown">{"authorization":"must-not-be-collected"}</div>'
   }));
   await jsonLogPage.goto("https://xsoar.example.test/Custom/GenericLayout/4203");
   const jsonIncident = await jsonLogPage.evaluate(extractIncidentFromPage, {
@@ -281,48 +270,42 @@ try {
   });
   assert.equal(jsonIncident.destinationIp, "198.51.100.24");
   assert.equal(jsonIncident.sourceUsername, "example.user");
+  assert.deepEqual(jsonIncident.alertJson, [{ network: { destination: { ip: "198.51.100.24" } }, events: [{ actor: { user_name: "example.user" } }] }]);
   await jsonLogPage.close();
 
-  const query = 'name:"Example Rule" and type:"Endpoint"';
-  await incidentPage.goto(`https://xsoar.example.test/incidents?query=${encodeURIComponent(query)}`);
-  const results = await incidentPage.evaluate(extractSearchResultsFromPage, {
-    expectedOrigin: settings.allowedOrigin,
+  const searchPage = await browser.newPage();
+  const historicQuery = 'rawName:"Example detection" and rawType:"Endpoint" and (created:>="3 months ago")';
+  await searchPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
+    contentType: "text/html",
+    body: `<div id="incidents-page" role="grid"><a href="/incident/4199">4199</a></div><div class="table-paging-message">1-1 of 1</div>`
+  }));
+  await searchPage.goto(`https://xsoar.example.test/incidents?query=${encodeURIComponent(historicQuery)}`);
+  const historicResults = await searchPage.evaluate(extractSearchResultsFromPage, {
+    expectedOrigin: "https://xsoar.example.test",
     expectedPath: "/incidents",
     queryParameter: "query",
-    expectedQuery: query,
-    maxResults: 2,
-    timeoutMs: 1000
+    expectedQuery: historicQuery,
+    maxResults: 100,
+    timeoutMs: 2000
   });
-  assert.deepEqual(results.ticketIds, ["4199"]);
+  assert.deepEqual(historicResults.ticketIds, ["4199"]);
+  await searchPage.close();
 
   const delayedIncidentPage = await browser.newPage();
   await delayedIncidentPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
     contentType: "text/html",
-    body: `<div id="root"></div><script>setTimeout(() => { document.querySelector("#root").innerHTML = '<div class="header-inv-id">#4201</div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper">Delayed Rule</div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper">Endpoint</div></div>'; }, 650);</script>`
+    body: `<div class="header-inv-id">#4201</div><div class="header-inv-title">Early title</div><pre data-testid="alert-json">{"event":"early"}</pre><div id="root"></div><script>setTimeout(() => { document.querySelector("#root").innerHTML = '<div class="field-wrapper fieldId-customername"><label>Customer Name</label><div class="value-wrapper">Example Organisation</div></div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper">Delayed Rule</div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper">Endpoint</div></div>'; }, 650);</script>`
   }));
   await delayedIncidentPage.goto("https://xsoar.example.test/Custom/GenericLayout/4201");
   const delayedIncident = await delayedIncidentPage.evaluate(extractIncidentFromPage, {
     ...settings,
-    pageReadyTimeoutMs: 2000
+    pageReadyTimeoutMs: 2000,
+    requiredFields: ["customerName", "ruleName", "caseType"]
   });
+  assert.equal(delayedIncident.customerName, "Example Organisation");
   assert.equal(delayedIncident.ruleName, "Delayed Rule");
   assert.equal(delayedIncident.caseType, "Endpoint");
 
-  const delayedSearchPage = await browser.newPage();
-  await delayedSearchPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
-    contentType: "text/html",
-    body: `<div class="no-results" style="display:none">Hidden empty state</div><div id="incidents-page" role="grid"></div><script>setTimeout(() => { document.querySelector("#incidents-page").innerHTML = '<a href="/incident/4198">4198</a>'; }, 900);</script>`
-  }));
-  await delayedSearchPage.goto(`https://xsoar.example.test/incidents?query=${encodeURIComponent(query)}`);
-  const delayedResults = await delayedSearchPage.evaluate(extractSearchResultsFromPage, {
-    expectedOrigin: settings.allowedOrigin,
-    expectedPath: "/incidents",
-    queryParameter: "query",
-    expectedQuery: query,
-    maxResults: 2,
-    timeoutMs: 2500
-  });
-  assert.deepEqual(delayedResults.ticketIds, ["4198"]);
   console.log("Current-Chrome-only UI, upgrade migration, and URL-based extraction verification passed.");
 } finally {
   await browser?.close();

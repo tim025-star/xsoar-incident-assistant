@@ -11,23 +11,139 @@ import {
   resolveSettings
 } from "./domain.js";
 
-const HISTORICAL_READ_CONCURRENCY = 2;
+const HISTORIC_LOOKBACK_QUERY = 'created:>="3 months ago"';
+const HISTORIC_READ_CONCURRENCY = 2;
+const HISTORIC_SEARCH_SAFETY_LIMIT = 1000;
 
-async function mapWithConcurrency(items, limit, worker) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-  const runWorker = async () => {
-    while (nextIndex < items.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await worker(items[index]);
+function isSameClientAndAlertType(current, candidate) {
+  const normalize = (value) => cleanText(value).toLowerCase();
+  return Boolean(
+    normalize(current.customerName)
+    && normalize(current.ruleName)
+    && normalize(current.caseType)
+    && normalize(candidate.customerName) === normalize(current.customerName)
+    && normalize(candidate.ruleName) === normalize(current.ruleName)
+    && normalize(candidate.caseType) === normalize(current.caseType)
+  );
+}
+
+function hasHistoricResolution(candidate) {
+  return Boolean(cleanText(candidate?.historicalRecommendations)
+    || cleanText(candidate?.closeNotes)
+    || cleanText(candidate?.incidentOutcome));
+}
+
+function ticketIdFromIncidentUrl(value, settings, description) {
+  return assertIncidentUrl(value, settings, description).pathname.match(/\/(\d+)\/?$/)?.[1] || "";
+}
+
+async function extractIncidentViews({
+  adapter,
+  settings,
+  primaryTab,
+  primaryUrl,
+  temporaryTabs,
+  initialDetail,
+  requiredFields = [],
+  onView = async () => {}
+}) {
+  const expectedTicketId = ticketIdFromIncidentUrl(primaryUrl, settings, "Incident view extraction");
+  const initial = initialDetail || await adapter.extractIncident(primaryTab.id, { ...settings, requiredFields });
+  const views = [initial];
+  for (const url of uniqueTrustedTabUrls(initial, settings)) {
+    if (url === primaryUrl) continue;
+    await onView();
+    const tab = await adapter.openTab(url);
+    temporaryTabs.add(tab);
+    try {
+      const finalUrl = await adapter.getTabUrl(tab.id);
+      const finalTicketId = ticketIdFromIncidentUrl(finalUrl, settings, "Incident view navigation");
+      if (finalTicketId !== expectedTicketId) throw new Error("XSOAR opened a different incident view than requested.");
+      views.push(await adapter.extractIncident(tab.id, { ...settings, requiredFields: [] }));
+    } finally {
+      await adapter.closeTab(tab.id).catch(() => {});
+      temporaryTabs.delete(tab);
     }
-  };
-  await Promise.all(Array.from(
-    { length: Math.min(limit, items.length) },
-    () => runWorker()
-  ));
-  return results;
+  }
+  return mergeIncidentDetails(...views);
+}
+
+async function readHistoricCandidate({ adapter, settings, incident, originalTab, temporaryTabs, ticketId }) {
+  let tab;
+  try {
+    const requestedUrl = buildHistoricalIncidentUrl(originalTab.url, ticketId, settings);
+    tab = await adapter.openTab(requestedUrl);
+    temporaryTabs.add(tab);
+    const finalUrl = assertIncidentUrl(await adapter.getTabUrl(tab.id), settings, "Historic incident navigation");
+    const finalTicketId = finalUrl.pathname.match(/\/(\d+)\/?$/)?.[1];
+    if (finalTicketId !== String(ticketId)) throw new Error("XSOAR opened a different historic incident than requested.");
+    const detail = await extractIncidentViews({
+      adapter,
+      settings,
+      primaryTab: tab,
+      primaryUrl: finalUrl.toString(),
+      temporaryTabs,
+      requiredFields: ["customerName", "ruleName", "caseType"]
+    });
+    if (String(detail.ticketId) !== String(ticketId)) {
+      throw new Error("XSOAR opened a different historic incident than requested.");
+    }
+    if (!isSameClientAndAlertType(incident, detail)) return { unrelated: true };
+    const candidate = {
+      ticketId: detail.ticketId,
+      historicalRecommendations: detail.historicalRecommendations,
+      closeNotes: detail.closeNotes,
+      incidentOutcome: detail.incidentOutcome
+    };
+    return hasHistoricResolution(candidate) ? candidate : { unresolved: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    if (tab) {
+      await adapter.closeTab(tab.id).catch(() => {});
+      temporaryTabs.delete(tab);
+    }
+  }
+}
+
+async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs }) {
+  try {
+    const query = buildSearchQuery(incident.incidentName, incident.caseType, HISTORIC_LOOKBACK_QUERY);
+    const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, query));
+    temporaryTabs.add(searchTab);
+    assertSearchUrl(await adapter.getTabUrl(searchTab.id), settings, query);
+    const result = await adapter.extractSearchResults(searchTab.id, {
+      expectedQuery: query,
+      maxResults: HISTORIC_SEARCH_SAFETY_LIMIT,
+      timeoutMs: settings.pageReadyTimeoutMs
+    });
+    const ticketIds = result.ticketIds.filter((ticketId) => String(ticketId) !== String(incident.ticketId));
+    const items = [];
+    let failed = 0;
+    for (let index = 0; index < ticketIds.length && items.length < settings.maxHistoricalIncidents; index += HISTORIC_READ_CONCURRENCY) {
+      const batch = ticketIds.slice(index, index + HISTORIC_READ_CONCURRENCY);
+      const candidates = await Promise.all(batch.map((ticketId) => readHistoricCandidate({
+        adapter, settings, incident, originalTab, temporaryTabs, ticketId
+      })));
+      failed += candidates.filter((item) => item?.error).length;
+      for (const candidate of candidates) {
+        if (candidate && !candidate.error && !candidate.unrelated && !candidate.unresolved) items.push(candidate);
+        if (items.length >= settings.maxHistoricalIncidents) break;
+      }
+    }
+    const warnings = [];
+    if (failed) warnings.push(`Could not read ${failed} historic incident(s).`);
+    if (result.truncated) warnings.push("Historic search reached its 1,000-result safety limit; older matches may be omitted.");
+    return {
+      items,
+      warning: warnings.join(" ")
+    };
+  } catch (error) {
+    return {
+      items: [],
+      warning: `Historic incident lookup was unavailable: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
 }
 
 function uniqueTrustedTabUrls(details, settings) {
@@ -40,24 +156,6 @@ function uniqueTrustedTabUrls(details, settings) {
     }
   }
   return [...urls];
-}
-
-function historicalWarning(items, unrelatedCount = 0) {
-  const failed = items.filter((item) => item?.error).length;
-  return [
-    failed ? `Could not read ${failed} related incident(s).` : "",
-    unrelatedCount ? `Ignored ${unrelatedCount} unrelated search result${unrelatedCount === 1 ? "" : "s"} that did not match the current rule and type.` : ""
-  ].filter(Boolean).join(" ");
-}
-
-function isRelatedIncident(current, candidate) {
-  const normalize = (value) => cleanText(value).toLocaleLowerCase();
-  return Boolean(
-    normalize(current.ruleName)
-    && normalize(current.caseType)
-    && normalize(candidate.ruleName) === normalize(current.ruleName)
-    && normalize(candidate.caseType) === normalize(current.caseType)
-  );
 }
 
 export async function runIncidentDraft({ adapter, settings: inputSettings, incidentId = "", onProgress = async () => {}, enrichDraft }) {
@@ -91,98 +189,37 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
     if (requestedIncidentId && String(initial.ticketId) !== requestedIncidentId) {
       throw new Error("XSOAR opened a different incident than the requested Incident ID.");
     }
-    const views = [initial];
-    for (const url of uniqueTrustedTabUrls(initial, settings)) {
-      if (url === originalTab.url) continue;
-      await onProgress("Collecting evidence from another incident view.");
-      const tab = await adapter.openTab(url);
-      temporaryTabs.add(tab);
-      const finalUrl = await adapter.getTabUrl(tab.id);
-      assertIncidentUrl(finalUrl, settings, "Incident view navigation");
-      views.push(await adapter.extractIncident(tab.id, settings));
-      await adapter.closeTab(tab.id);
-      temporaryTabs.delete(tab);
-    }
-
-    const incident = mergeIncidentDetails(...views);
-    const query = buildSearchQuery(incident.ruleName, incident.caseType, settings.lookbackQuery);
-    const searchUrl = buildIncidentSearchUrl(settings, query);
-    await onProgress("Running the related-incident search.");
-    const searchTab = await adapter.openTab(searchUrl);
-    temporaryTabs.add(searchTab);
-    const finalSearchUrl = await adapter.getTabUrl(searchTab.id);
-    assertSearchUrl(finalSearchUrl, settings, query);
-    const searchResult = await adapter.extractSearchResults(searchTab.id, {
-      expectedQuery: query,
-      // The current incident can appear in the result set, so collect one
-      // extra candidate before excluding it below.
-      maxResults: settings.maxHistoricalIncidents + 1,
-      timeoutMs: settings.pageReadyTimeoutMs
+    const incident = await extractIncidentViews({
+      adapter,
+      settings,
+      primaryTab: originalTab,
+      primaryUrl: originalTab.url,
+      temporaryTabs,
+      initialDetail: initial,
+      onView: () => onProgress("Collecting evidence from another incident view.")
     });
-
-    const historicalTicketIds = searchResult.ticketIds
-      .filter((ticketId) => String(ticketId) !== String(incident.ticketId))
-      .slice(0, settings.maxHistoricalIncidents);
-    const historicalCandidates = await mapWithConcurrency(
-      historicalTicketIds,
-      HISTORICAL_READ_CONCURRENCY,
-      async (ticketId) => {
-        let historyTab;
-        try {
-          await onProgress("Reviewing a related incident.");
-          const historicalUrl = buildHistoricalIncidentUrl(originalTab.url, ticketId, settings);
-          historyTab = await adapter.openTab(historicalUrl);
-          temporaryTabs.add(historyTab);
-          const finalUrl = await adapter.getTabUrl(historyTab.id);
-          assertIncidentUrl(finalUrl, settings, "Related incident navigation");
-          const detail = await adapter.extractIncident(historyTab.id, settings);
-          if (String(detail.ticketId) !== String(ticketId)) {
-            throw new Error("XSOAR opened a different related incident than requested.");
-          }
-          if (!isRelatedIncident(incident, detail)) {
-            return { ticketId: String(ticketId), unrelated: true };
-          }
-          return detail;
-        } catch (error) {
-          return {
-            ticketId: String(ticketId),
-            error: error instanceof Error ? error.message : String(error)
-          };
-        } finally {
-          if (historyTab) {
-            await adapter.closeTab(historyTab.id).catch(() => {});
-            temporaryTabs.delete(historyTab);
-          }
-        }
-      }
-    );
-    const unrelatedCount = historicalCandidates.filter((item) => item?.unrelated).length;
-    const historical = historicalCandidates.filter((item) => !item?.unrelated);
-
-    const output = { ...incident, historical };
-    await onProgress("Building the processed incident data.");
-    let draft = buildDraft(output, settings.template);
-    let enrichmentWarning = "";
-    let aiEnriched = false;
-    if (enrichDraft) {
-      await onProgress("Running local AI data processing.");
+    await onProgress("Processing the selected alert and searching three months of history.");
+    const enrichmentPromise = (async () => {
+      if (!enrichDraft) return { enrichment: null, warning: "", aiEnriched: false };
       try {
         const enrichment = await enrichDraft({ incident });
         const hasProcessedFacts = cleanText(enrichment?.eventSummary)
           || (Array.isArray(enrichment?.observedFacts)
             && enrichment.observedFacts.some((item) => cleanText(item)));
         if (!hasProcessedFacts) throw new Error("Local AI returned no processed facts.");
-        draft = buildDraft(output, settings.template, enrichment);
-        aiEnriched = true;
+        return { enrichment, warning: "", aiEnriched: true };
       } catch {
-        enrichmentWarning = "Local AI did not return valid processed fields. The source-field response is ready.";
+        return { enrichment: null, warning: "Local AI did not return valid processed fields. The source-field response is ready.", aiEnriched: false };
       }
-    }
+    })();
+    const historicPromise = collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs });
+    const [processed, historic] = await Promise.all([enrichmentPromise, historicPromise]);
+    const draft = buildDraft({ ...incident, historical: historic.items }, settings.template, processed.enrichment);
     return {
       draft,
-      warning: [historicalWarning(historical, unrelatedCount), enrichmentWarning].filter(Boolean).join(" "),
-      reviewed: historical.filter((item) => !item.error).length,
-      aiEnriched
+      warning: [processed.warning, historic.warning].filter(Boolean).join(" "),
+      reviewed: historic.items.length,
+      aiEnriched: processed.aiEnriched
     };
   } finally {
     for (const tab of [...temporaryTabs].reverse()) {

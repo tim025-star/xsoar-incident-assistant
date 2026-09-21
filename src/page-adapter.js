@@ -48,10 +48,13 @@ export async function extractIncidentFromPage(settings) {
     .split(/[^a-z0-9]+/)
     .filter((part) => part && !/^\d+$/.test(part))
     .join(".");
-  const collectJsonPairs = () => {
+  const collectJsonEvidence = () => {
     const pairs = [];
+    const documents = [];
     const seen = new Set();
     let visitedNodes = 0;
+    let documentCharacters = 0;
+    let complete = true;
     const visit = (value, path, depth) => {
       if (depth > 10 || visitedNodes >= 5000) return;
       visitedNodes += 1;
@@ -70,18 +73,27 @@ export async function extractIncidentFromPage(settings) {
       if (jsonPath && available(text)) pairs.push([jsonPath, text]);
     };
     const candidates = Array.from(document.querySelectorAll(
-      "pre,code,textarea,.preplacer,.value-wrapper,.markdown,[data-testid*='json' i],[class*='json' i],td"
+      "[data-testid*='json' i],[class*='json' i],.field-wrapper pre,.field-wrapper code,.field-wrapper textarea"
     )).filter(isVisible).slice(0, 100);
     for (const element of candidates) {
       const raw = String(element.value ?? element.textContent ?? "").trim();
-      if (!raw || raw.length > 256 * 1024 || seen.has(raw)
+      if (!raw || seen.has(raw)
         || !((raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]")))) continue;
       seen.add(raw);
+      if (raw.length > 96 * 1024) {
+        complete = false;
+        continue;
+      }
       try {
-        visit(JSON.parse(raw), [], 0);
+        const parsed = JSON.parse(raw);
+        visit(parsed, [], 0);
+        if (documentCharacters + raw.length <= 96 * 1024) {
+          documents.push(parsed);
+          documentCharacters += raw.length;
+        } else complete = false;
       } catch {}
     }
-    return pairs;
+    return { pairs, documents, complete };
   };
 
   const read = () => {
@@ -113,7 +125,7 @@ export async function extractIncidentFromPage(settings) {
       }
       fields[key] = available(value) ? normalize(value) : "";
     }
-    const jsonPairs = collectJsonPairs();
+    const { pairs: jsonPairs, documents: alertJson, complete: alertJsonComplete } = collectJsonEvidence();
     const findJsonValue = (candidates = []) => {
       for (const candidate of candidates.map(normalizeJsonPath).filter(Boolean)) {
         const exact = jsonPairs.find(([path, value]) => path === candidate && available(value));
@@ -206,6 +218,8 @@ export async function extractIncidentFromPage(settings) {
       ...combinedFields,
       sourceIp: first(combinedFields.sourceIp, combinedFields.clientIp),
       sourceUsername: first(combinedFields.sourceUsername, combinedFields.clientUserName),
+      alertJson,
+      alertJsonComplete,
       tabUrls: [...new Set(tabUrls)]
     };
   };
@@ -219,9 +233,13 @@ export async function extractIncidentFromPage(settings) {
     if (signature !== previous) {
       previous = signature;
       stableSince = Date.now();
-    } else if (Date.now() - stableSince >= 500
-      && result.ruleName && result.caseType) {
-      break;
+    } else if (Date.now() - stableSince >= 500 && result.ticketId) {
+      const requiredFields = Array.isArray(settings.requiredFields) ? settings.requiredFields : [];
+      const requiredReady = requiredFields.length
+        ? requiredFields.every((key) => available(result[key])) || result.tabUrls.length > 0
+        : Object.entries(result).some(([key, value]) =>
+          !["ticketId", "tabUrls", "alertJson", "alertJsonComplete", "incidentName"].includes(key) && available(value));
+      if (requiredReady) break;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
     result = read();
@@ -236,7 +254,7 @@ export async function extractSearchResultsFromPage(options) {
     if (currentUrl.origin !== options.expectedOrigin
       || normalizedPath(currentUrl.pathname) !== normalizedPath(options.expectedPath)
       || currentUrl.searchParams.get(options.queryParameter)?.trim() !== String(options.expectedQuery || "").trim()) {
-      throw new Error("Search extraction refused an unexpected page URL.");
+      throw new Error("Historic search extraction refused an unexpected page URL.");
     }
   };
   assertCurrentUrl();
@@ -262,11 +280,7 @@ export async function extractSearchResultsFromPage(options) {
       for (const link of root.querySelectorAll("a[href]")) {
         if (!isVisible(link)) continue;
         let url;
-        try {
-          url = new URL(link.getAttribute("href"), location.href);
-        } catch {
-          continue;
-        }
+        try { url = new URL(link.getAttribute("href"), location.href); } catch { continue; }
         const ticketId = url.pathname.match(ticketPattern)?.[1];
         if (ticketId && url.origin === location.origin) ticketIds.add(ticketId);
       }
@@ -297,11 +311,11 @@ export async function extractSearchResultsFromPage(options) {
     state = collect();
   }
   if (!state.empty && !ticketIds.size && !state.paging) {
-    throw new Error("XSOAR search results did not become ready before the timeout.");
+    throw new Error("XSOAR historic search results did not become ready before the timeout.");
   }
-  const sortedTicketIds = [...ticketIds]
-    .sort((left, right) => Number(right) - Number(left))
-    .slice(0, Math.max(1, Number(options.maxResults) || 5));
+  const maxResults = Math.max(1, Number(options.maxResults) || 5);
+  const allTicketIds = [...ticketIds].sort((left, right) => Number(right) - Number(left));
+  const sortedTicketIds = allTicketIds.slice(0, maxResults);
   assertCurrentUrl();
-  return { ticketIds: sortedTicketIds };
+  return { ticketIds: sortedTicketIds, truncated: allTicketIds.length > maxResults };
 }

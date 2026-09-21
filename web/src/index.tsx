@@ -7,13 +7,13 @@ import "./styles.css";
 type AppConfig = Awaited<ReturnType<typeof rpc.config.get>>;
 type Status = Awaited<ReturnType<typeof rpc.status>>;
 type LocalAiStatus = Awaited<ReturnType<typeof rpc.localAi.status>>;
-type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "searchQueryParameter" | "lookbackQuery";
+type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "searchQueryParameter";
 type NumberSetting = "maxHistoricalIncidents" | "pageReadyTimeoutMs";
 type TemplateSetting = keyof AppConfig["xsoar"]["template"];
 type FieldLabelSetting = keyof AppConfig["xsoar"]["fieldLabels"];
 
 const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting; name: string; use: string }> = [
-  { key: "customerName", name: "Customer name", use: "customer.name → greeting" },
+  { key: "customerName", name: "Customer name", use: "customer.name → greeting and historic match" },
   { key: "occurred", name: "Time stamp", use: "@timestamp → event breakdown" },
   { key: "sourceUsername", name: "Source user", use: "source.user.name → user and source" },
   { key: "clientUserName", name: "Client user", use: "client.user.name → fallback user" },
@@ -28,11 +28,11 @@ const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting; name: string; use: string 
   { key: "serviceMessage", name: "Service message", use: "message → error / service message" },
   { key: "eventInfo", name: "Event info", use: "event.original → fallback message" },
   { key: "errorMessage", name: "Error message", use: "error.message → fallback message" },
-  { key: "ruleName", name: "Rule name", use: "rule.name → related-incident search" },
-  { key: "caseType", name: "Case type", use: "event.category → related-incident search" },
-  { key: "classification", name: "Classification", use: "classification → recorded related rating" },
-  { key: "incidentOutcome", name: "Incident outcome", use: "event.outcome → related ticket records" },
-  { key: "closeNotes", name: "Close notes", use: "close.notes → related ticket records" },
+  { key: "ruleName", name: "Rule name", use: "rule.name → alert context and historic match" },
+  { key: "caseType", name: "Case type", use: "event.category → alert context and historic match" },
+  { key: "classification", name: "Classification", use: "classification → recorded classification" },
+  { key: "incidentOutcome", name: "Incident outcome", use: "event.outcome → factual AI context" },
+  { key: "closeNotes", name: "Close notes", use: "close.notes → factual AI context" },
   { key: "descriptionLong", name: "Long description", use: "event.description → factual AI context" }
 ];
 
@@ -54,7 +54,6 @@ function App() {
   const [localAiStatus, setLocalAiStatus] = createSignal<LocalAiStatus>();
   const [pullingModel, setPullingModel] = createSignal(false);
   const [incidentId, setIncidentId] = createSignal("");
-  const [acknowledgedDraftVersion, setAcknowledgedDraftVersion] = createSignal<number>();
   const [message, setMessage] = createSignal(sessionToken
     ? "Loading console status…"
     : "Restart the app to open a valid local console.");
@@ -143,7 +142,6 @@ function App() {
 
   const refresh = async () => {
     const next = await rpc.status();
-    if (!next.aiDraft || next.draftVersion !== acknowledgedDraftVersion()) setAcknowledgedDraftVersion(undefined);
     setStatus(next);
     setMessage(next.detail);
   };
@@ -185,7 +183,6 @@ function App() {
   };
 
   const generateDraft = () => runAction(async () => {
-    setAcknowledgedDraftVersion(undefined);
     followLiveOutput = true;
     await rpc.draft.generate({ incidentId: incidentId().trim() });
   });
@@ -215,9 +212,6 @@ function App() {
   const copyDraft = async () => {
     const draft = status()?.draft || "";
     if (!draft) return setMessage("Process incident data before copying it.");
-    if (status()?.aiDraft && acknowledgedDraftVersion() !== status()?.draftVersion) {
-      return setMessage("Review and confirm the AI-processed data before copying it.");
-    }
     try {
       await navigator.clipboard.writeText(draft);
       setMessage("Processed incident data copied.");
@@ -301,15 +295,9 @@ function App() {
         </details>
         <label class="field">Processed incident data
           <textarea ref={draftElement} id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="Processed source fields appear here." value={processedResponse()} onScroll={updateLiveOutputFollow} />
-          <span class="helper">During Local AI processing, structured output streams here. The final data replaces it only after schema validation. The model is instructed to extract stated facts only; related ticket records are appended afterward by the app.</span>
+          <span class="helper">The model extracts facts from the selected alert only. In parallel, the app searches three months of matching XSOAR history and appends past resolutions under Historic.</span>
         </label>
-        <Show when={status()?.aiDraft}>
-          <label class="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
-            <input id="aiDraftAcknowledgement" class="mt-1 h-4 w-4" type="checkbox" checked={acknowledgedDraftVersion() === status()?.draftVersion} onChange={(event) => setAcknowledgedDraftVersion(event.currentTarget.checked ? status()?.draftVersion : undefined)} />
-            <span><span class="block font-bold">I reviewed the AI-processed data.</span><span class="helper mt-1 block">Confirm every field accurately reflects the source evidence before copying it into XSOAR.</span></span>
-          </label>
-        </Show>
-        <button id="copy" class="button button-secondary mt-4" type="button" disabled={busy() || !status()?.draft || (status()?.aiDraft && acknowledgedDraftVersion() !== status()?.draftVersion)} onClick={copyDraft}>Copy processed data</button>
+        <button id="copy" class="button button-secondary mt-4" type="button" disabled={busy() || !status()?.draft} onClick={copyDraft}>Copy processed data</button>
       </section>
     </div>
   );
@@ -351,12 +339,10 @@ function App() {
                   <input id="searchQueryParameter" class="control" value={settings().xsoar.searchQueryParameter} onInput={(event) => updateTextSetting("searchQueryParameter", event.currentTarget.value)} />
                 </label>
               </div>
-              <label class="field">Related-case lookback
-                <input id="lookbackQuery" class="control" value={settings().xsoar.lookbackQuery} onInput={(event) => updateTextSetting("lookbackQuery", event.currentTarget.value)} />
-              </label>
               <div class="grid gap-4 sm:grid-cols-2">
-                <label class="field">Related cases to review
+                <label class="field">Historic resolutions to include
                   <input id="maxHistoricalIncidents" class="control" type="number" min="1" max="20" value={settings().xsoar.maxHistoricalIncidents} onInput={(event) => updateNumberSetting("maxHistoricalIncidents", event.currentTarget.valueAsNumber)} />
+                  <span class="helper">Searches the previous three months for the same client, rule, and alert type.</span>
                 </label>
                 <label class="field">Page load timeout (ms)
                   <input id="pageReadyTimeoutMs" class="control" type="number" min="1000" max="120000" value={settings().xsoar.pageReadyTimeoutMs} onInput={(event) => updateNumberSetting("pageReadyTimeoutMs", event.currentTarget.valueAsNumber)} />
@@ -383,8 +369,8 @@ function App() {
               </label>
             )}</For>
             <label class="field rounded-xl border border-line bg-slate-50 p-4">
-              <span>Historical resolution data</span>
-              <span class="text-xs font-normal text-muted">JSON paths or XSOAR labels used for related ticket records</span>
+              <span>Historic resolution data</span>
+              <span class="text-xs font-normal text-muted">JSON paths or XSOAR labels that describe how matching incidents were resolved</span>
               <input id="historicalRecommendationLabels" class="control mt-1 font-mono text-sm" placeholder="resolution.summary, close.notes" value={settings().xsoar.historicalRecommendationLabels.join(", ")} onInput={(event) => updateHistoricalRecommendationLabels(event.currentTarget.value)} />
             </label>
           </div>
@@ -412,7 +398,7 @@ function App() {
               updateLocalAi("enabled", event.currentTarget.checked);
               void runAction(persistLocalAiSettings);
             }} />
-            <span><span class="block font-bold">Enable local AI field processing</span><span class="helper mt-1 block">Sends allowlisted fields from the original incident to Ollama on this workstation for factual extraction only. Related tickets never go to the model.</span></span>
+            <span><span class="block font-bold">Enable local AI field processing</span><span class="helper mt-1 block">Sends allowlisted fields from the selected alert to Ollama on this workstation for factual extraction only.</span></span>
           </label>
           <label class="field mt-4">Local model
             <input id="localAiModel" class="control font-mono text-sm" list="localAiModels" autocomplete="off" value={settings().localAi.model} onInput={(event) => updateLocalAi("model", event.currentTarget.value)} />

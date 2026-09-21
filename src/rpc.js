@@ -69,7 +69,7 @@ export function createAssistantRouter({
           onProgress: async (detail) => { activity = { ...activity, detail, aiDraft: false, draftVersion }; }
         });
         activity = {
-          detail: result.warning || `Processed incident data ready. Reviewed ${result.reviewed} related incident(s).`,
+          detail: result.warning || `Processed incident data ready. Found ${result.reviewed} historic resolution(s).`,
           draft: result.draft,
           aiOutput: activity.aiOutput,
           aiDraft: result.aiEnriched,

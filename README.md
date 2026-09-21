@@ -1,6 +1,6 @@
 # XSOAR Incident Assistant
 
-XSOAR Incident Assistant is a local Windows data-processing tool for SOC analysts. It collects source fields from a Cortex XSOAR incident, reviews a bounded set of related cases, and formats the important data for analyst review. It does not decide what happened, recommend actions, update XSOAR, or submit forms.
+XSOAR Incident Assistant is a local Windows data-processing tool for SOC analysts. It collects the selected Cortex XSOAR alert, searches three months of same-client and same-alert-type history for past resolutions, and formats the evidence for analyst review. It does not decide what happened, recommend actions, update XSOAR, or submit forms.
 
 This is an independent community project. It is not affiliated with or endorsed by Palo Alto Networks.
 
@@ -30,7 +30,7 @@ Requirements: Windows 11 x64 and Google Chrome 144 or newer.
 
 ### Optional local AI
 
-Without Local AI, the tool builds a deterministic source-field response. When Local AI is enabled and processing succeeds, Ollama transforms allowlisted source evidence into a concise event summary and non-repeating observed facts; that processed response replaces the deterministic field breakdown instead of being appended to it. Missing values are omitted rather than rendered as placeholders. Its schema and prompt exclude conclusions, classifications, guidance, and recommended actions. The default `qwen3.5:9b` model is suitable for a CPU-only workstation with 32 GB RAM.
+The tool always builds the same deterministic source-field response. When Local AI is enabled and processing succeeds, Ollama transforms the selected ticket's complete bounded alert JSON and mapped source fields into a concise event summary and non-repeating observed facts inside that response; it does not replace the fixed alert fields. Credential-bearing JSON keys are removed recursively before local processing. If complete alert JSON is unavailable or exceeds the safe local-processing limit, AI enrichment fails closed and the deterministic response remains available. Its schema and prompt exclude conclusions, classifications, guidance, and recommended actions. Historic tickets are processed separately and never sent to the model. The default `qwen3.5:9b` model is suitable for a CPU-only workstation with 32 GB RAM.
 
 The optional installer task downloads the official Ollama `0.34.0` Windows installer and the default `qwen3.5:9b` Q4_K_M model from pinned GitHub Release assets. A fresh installation downloads about 8.2 GB; the model itself is about 6.6 GB. Allow at least 16 GB of free disk space while the model is assembled and imported. The task is unchecked and failure does not affect the core installation. It launches `OllamaSetup.exe` directly and uses the application's bundled Node.js runtime for the model import, so the end-user path does not invoke PowerShell or WinGet.
 
@@ -46,31 +46,31 @@ Cloud and remote model aliases are blocked. Before Ollama receives incident evid
 2. Select **Connect Chrome**. If the app detects that Chrome access needs attention, use the setup action it displays, approve remote debugging, then connect again.
 3. Keep the intended XSOAR incident open in Chrome. Expand **Target a specific incident** only when you need to enter an Incident ID.
 4. Select **Process data** in the local console.
-5. When processing is complete, the app returns to the local console automatically. If Local AI is enabled, review the validated output in **Processed incident data**.
-6. If Local AI processing was used, confirm that the fields match the source evidence, then select **Copy processed data**.
+5. When processing is complete, the app returns to the local console automatically. Review the alert fields in **Processed incident data** and use the key details for your own investigation.
+6. Select **Copy processed data** when you need the alert details on the clipboard.
 
-When Incident ID is blank, the tool uses the only open incident tab. If several are open, enter the intended ID to avoid triaging the wrong case. An entered ID opens through the configured incident URL template. The tool closes temporary incident, search, and related-case tabs after evidence collection.
+When Incident ID is blank, the tool uses the only open incident tab. If several are open, enter the intended ID to avoid triaging the wrong case. An entered ID opens through the configured incident URL template. While Local AI processes the current alert, the tool searches the previous three months for matching incidents. It closes temporary views, search tabs, and historic incident tabs after evidence collection.
 
 If launch reports a startup error, reinstall the current release. The launcher displays an error instead of failing silently.
 
 ## Configure and verify your tenant
 
-The separate **Configuration** page includes the tenant URL, analyst identity, incident route regex, incident URL template, incident list path, search parameter, related-case lookback, review limit, page timeout, local AI, output wording, and JSON log mappings. Each mapping accepts JSON keys or dotted paths such as `source.ip` or `events.actor.user_name`; array indexes are ignored. Existing XSOAR field labels and two-column log tables remain supported as fallbacks. No analyst name is hard-coded.
+The separate **Configuration** page includes the tenant URL, analyst identity, incident routes, historic result limit, page timeout, local AI, output wording, and JSON log mappings. Each mapping accepts JSON keys or dotted paths such as `source.ip` or `events.actor.user_name`; array indexes are ignored. Existing XSOAR field labels and two-column log tables remain supported as fallbacks. No analyst name is hard-coded.
 
-XSOAR routes vary by deployment. Before operational use, run a harmless search manually, confirm the query remains in the browser address bar, configure that path and parameter, then test against synthetic incidents. Related-ticket searches use exact `rawName` and `rawType` matches. Every opened result is checked again against the current incident's Rule Name and Type, and mismatches are omitted with a warning. Automation stops if navigation leaves the configured HTTPS origin, an incident path does not match, or the final search URL does not retain the exact expected query.
+XSOAR routes vary by deployment. Before operational use, confirm the configured incident route, URL template, incident list path, and search parameter against synthetic incidents. Historic searches use exact `rawName` and `rawType` values plus a fixed three-month creation window. Each candidate is then checked against the selected ticket's customer, rule, and type before its resolution is included. Automation stops or omits the candidate if navigation leaves the configured HTTPS origin or an incident path does not match.
 
 ## Credentials and data
 
 The application never asks for or stores a password or API token, and it does not export Playwright `storageState` or copy Chrome profile files. Authentication remains in the normal Chrome profile. While connected, Playwright can inspect and control tabs exposed by Chrome's approved debugging session, so connect only this trusted local application and disconnect when finished.
 
-Configuration is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. It may include a tenant hostname, analyst identity, Local AI setting, selected model name, output wording, and field-label mappings, but it must not contain credentials or incident content. Processed data stays in memory and reaches the clipboard only after the analyst selects **Copy processed data**. The tool requires review confirmation before it copies AI-processed fields. Only a bounded allowlist from the original incident goes to loopback Ollama. Related-ticket records are appended locally after AI processing and are never sent to the model.
+Configuration is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. It may include a tenant hostname, analyst identity, Local AI setting, selected model name, output wording, and field-label mappings, but it must not contain credentials or incident content. Processed data stays in memory and reaches the clipboard only after the analyst selects **Copy processed data**. Only bounded evidence from the selected incident goes to loopback Ollama. Matching historic resolutions are appended locally after processing.
 
 An organisation must review and approve the tool against its own browser, identity, information-handling, and software policies. See [SECURITY.md](SECURITY.md).
 
 ## Architecture
 
 - `src/domain.js`: validation, URL construction, data merging, and draft generation.
-- `src/workflow.js`: browser-independent incident/search/history orchestration.
+- `src/workflow.js`: parallel selected-alert processing and bounded historic-resolution orchestration.
 - `src/page-adapter.js`: bounded JSON log parsing plus fallback XSOAR DOM extraction.
 - `src/browser-session.js`: user-approved current-Chrome connection and the browser adapter.
 - `src/local-ai.js`: loopback-only Ollama client, bounded evidence construction, and strict enrichment validation.
