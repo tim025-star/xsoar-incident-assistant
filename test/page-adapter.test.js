@@ -3,18 +3,11 @@ import assert from "node:assert/strict";
 
 import { extractSearchResultsFromPage } from "../src/page-adapter.js";
 
-test("search extraction discards queue rows rendered before the filter finishes loading", async () => {
-  const original = {
-    document: globalThis.document,
-    location: globalThis.location,
-    window: globalThis.window
-  };
+test("historic search discards rows rendered before the filter finishes loading", async () => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
   const started = Date.now();
   const visible = { offsetWidth: 1, offsetHeight: 1, getClientRects: () => [1] };
-  const link = (ticketId) => ({
-    ...visible,
-    getAttribute: () => `/incident/${ticketId}`
-  });
+  const link = (ticketId) => ({ ...visible, getAttribute: () => `/incident/${ticketId}` });
   const root = {
     ...visible,
     clientHeight: 500,
@@ -56,12 +49,8 @@ test("search extraction discards queue rows rendered before the filter finishes 
   }
 });
 
-test("search extraction preserves collected rows across pagination loading", async () => {
-  const original = {
-    document: globalThis.document,
-    location: globalThis.location,
-    window: globalThis.window
-  };
+test("historic search preserves collected rows across pagination loading", async () => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
   const visible = { offsetWidth: 1, offsetHeight: 1, getClientRects: () => [1] };
   const link = (ticketId) => ({ ...visible, getAttribute: () => `/incident/${ticketId}` });
   let paginationStarted = 0;

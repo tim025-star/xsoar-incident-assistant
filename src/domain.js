@@ -33,7 +33,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   incidentPathTemplate: "/Custom/GenericLayout/{id}",
   incidentsPath: "/incidents",
   searchQueryParameter: "query",
-  lookbackQuery: "created:>=\"7 days ago\"",
+  lookbackQuery: "created:>=\"3 months ago\"",
   maxHistoricalIncidents: 5,
   pageReadyTimeoutMs: 20000,
   incidentInfoTabLabel: "Incident Info",
@@ -231,12 +231,12 @@ function escapeQueryValue(value) {
   return cleanText(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-export function buildSearchQuery(ruleName, caseType, lookbackQuery = "") {
-  if (!isAvailable(ruleName) || !isAvailable(caseType)) {
-    throw new Error("The incident must expose both Rule Name and Type before a related-case search can run.");
+export function buildSearchQuery(incidentName, caseType, lookbackQuery = "") {
+  if (!isAvailable(incidentName) || !isAvailable(caseType)) {
+    throw new Error("The incident must expose both Incident Name and Type before a historic search can run.");
   }
   const parts = [
-    `rawName:"${escapeQueryValue(ruleName)}"`,
+    `rawName:"${escapeQueryValue(incidentName)}"`,
     `rawType:"${escapeQueryValue(caseType)}"`
   ];
   if (cleanText(lookbackQuery)) parts.push(`(${cleanText(lookbackQuery)})`);
@@ -253,7 +253,7 @@ export function buildIncidentSearchUrl(settings, query) {
 }
 
 export function assertSearchUrl(value, settings, expectedQuery) {
-  const url = assertTrustedUrl(value, settings, "Incident search");
+  const url = assertTrustedUrl(value, settings, "Historic incident search");
   const configuredUrl = new URL(settings.incidentsPath, settings.allowedOrigin);
   const normalizePath = (path) => path.length > 1 ? path.replace(/\/+$/, "") : path;
   if (normalizePath(url.pathname) !== normalizePath(configuredUrl.pathname)) {
@@ -261,7 +261,7 @@ export function assertSearchUrl(value, settings, expectedQuery) {
   }
   const actualQuery = cleanText(url.searchParams.get(settings.searchQueryParameter));
   if (actualQuery !== cleanText(expectedQuery)) {
-    throw new Error("XSOAR did not retain the expected query in the page URL.");
+    throw new Error("XSOAR did not retain the expected historic query in the page URL.");
   }
   return url;
 }
@@ -273,8 +273,8 @@ export function buildIncidentUrlFromId(ticketId, settings) {
 }
 
 export function buildHistoricalIncidentUrl(currentIncidentUrl, ticketId, settings) {
-  const source = assertIncidentUrl(currentIncidentUrl, settings, "Related incident URL construction");
-  if (!/^\d+$/.test(String(ticketId))) throw new Error("Related incident ID must be numeric.");
+  const source = assertIncidentUrl(currentIncidentUrl, settings, "Historic incident URL construction");
+  if (!/^\d+$/.test(String(ticketId))) throw new Error("Historic incident ID must be numeric.");
   const replaced = source.pathname.replace(
     /\/\d+(\/?)$/,
     (_match, trailingSlash) => `/${ticketId}${trailingSlash}`
@@ -283,7 +283,7 @@ export function buildHistoricalIncidentUrl(currentIncidentUrl, ticketId, setting
   source.pathname = replaced;
   source.search = "";
   source.hash = "";
-  return assertIncidentUrl(source.toString(), settings, "Related incident URL construction").toString();
+  return assertIncidentUrl(source.toString(), settings, "Historic incident URL construction").toString();
 }
 
 export function mergeIncidentDetails(...details) {
@@ -291,25 +291,39 @@ export function mergeIncidentDetails(...details) {
   for (const detail of details.filter(Boolean)) {
     for (const [key, value] of Object.entries(detail)) {
       if (key === "tabUrls") continue;
+      if (key === "alertJson") {
+        const existing = Array.isArray(merged.alertJson) ? merged.alertJson : [];
+        const incoming = Array.isArray(value) ? value : [];
+        const seen = new Set(existing.map((item) => JSON.stringify(item)));
+        merged.alertJson = [...existing];
+        for (const item of incoming) {
+          const serialized = JSON.stringify(item);
+          if (!seen.has(serialized)) {
+            merged.alertJson.push(item);
+            seen.add(serialized);
+          }
+        }
+        continue;
+      }
+      if (key === "alertJsonComplete") {
+        merged.alertJsonComplete = merged.alertJsonComplete !== false && value !== false;
+        continue;
+      }
       if (!isAvailable(merged[key]) && isAvailable(value)) merged[key] = cleanText(value);
     }
   }
   return merged;
 }
 
-function selectRelatedResolution(item = {}) {
-  return firstAvailable(
-    item.historicalRecommendations,
-    item.closeNotes,
-    item.incidentOutcome
-  );
+function selectHistoricResolution(item = {}) {
+  return firstAvailable(item.historicalRecommendations, item.closeNotes, item.incidentOutcome);
 }
 
-function buildRelatedResolutions(historical) {
+function buildHistoric(historical = []) {
   return historical
-    .map((item) => ({ ticketId: item.ticketId, recommendation: selectRelatedResolution(item) }))
-    .filter((item) => item.recommendation)
-    .map((item, index) => `${index + 1}. #${item.ticketId || "unknown"}: ${item.recommendation}`);
+    .map((item) => ({ ticketId: item.ticketId, resolution: selectHistoricResolution(item) }))
+    .filter((item) => item.resolution)
+    .map((item, index) => `${index + 1}. #${item.ticketId || "unknown"}: ${item.resolution}`);
 }
 
 function buildSignature(template) {
@@ -320,38 +334,8 @@ function buildSignature(template) {
   ].filter(Boolean).join("\n");
 }
 
-function buildAiDraft(output, template, historical, enrichment) {
-  const customerName = firstAvailable(output.customerName);
-  const heading = [
-    customerName ? `${template.greeting} ${customerName},` : "",
-    firstAvailable(output.ticketId) ? `Incident ID: ${firstAvailable(output.ticketId)}` : "",
-    firstAvailable(output.incidentName) ? `Incident: ${firstAvailable(output.incidentName)}` : ""
-  ].filter(Boolean).join("\n");
-  const eventSummary = firstAvailable(enrichment.eventSummary);
-  const observedFacts = Array.isArray(enrichment.observedFacts)
-    ? [...new Set(enrichment.observedFacts.map(cleanText).filter(isAvailable))].slice(0, 10)
-    : [];
-  const relatedResolutions = buildRelatedResolutions(historical);
-  const signature = buildSignature(template);
-  const sections = [
-    heading,
-    `Event Summary\n${eventSummary || "No additional source facts were extracted."}`,
-    `Observed Facts\n${observedFacts.length ? observedFacts.map((item) => `- ${item}`).join("\n") : "No additional source facts were extracted."}`,
-    `Related Ticket Records\n${relatedResolutions.length ? relatedResolutions.join("\n") : "No related ticket resolution was available."}`,
-    `${template.contactText}${signature ? `\n\n${signature}` : ""}`
-  ].filter(Boolean);
-  return sections.join("\n\n");
-}
-
 export function buildDraft(output, templateInput = {}, enrichment = null) {
   const template = { ...DEFAULT_SETTINGS.template, ...templateInput };
-  const historical = (output.historical || []).filter((item) => item && !item.error);
-  if (enrichment && typeof enrichment === "object") {
-    return buildAiDraft(output, template, historical, enrichment);
-  }
-
-  const pastRatings = [...new Set(historical.map((item) => cleanText(item.classification)).filter(isAvailable))];
-  const relatedClassifications = pastRatings.length ? pastRatings.join(", ") : "n/a";
   const subjectIdentity = firstAvailable(
     output.deviceHostname,
     output.sourceHostname,
@@ -359,15 +343,19 @@ export function buildDraft(output, templateInput = {}, enrichment = null) {
     output.sourceUsername,
     output.clientUserName
   ) || "n/a";
-  const relatedResolutions = buildRelatedResolutions(historical);
+  const eventSummary = firstAvailable(enrichment?.eventSummary) || "No additional source facts were extracted.";
+  const observedFacts = Array.isArray(enrichment?.observedFacts)
+    ? [...new Set(enrichment.observedFacts.map(cleanText).filter(isAvailable))].slice(0, 10)
+    : [];
   const signature = buildSignature(template);
+  const historic = buildHistoric(output.historical);
   const customerName = firstAvailable(output.customerName);
   const greeting = customerName ? `${template.greeting} ${customerName},\n` : "";
 
   return `${greeting}Incident ID: ${firstAvailable(output.ticketId) || "n/a"}
 Incident: ${firstAvailable(output.incidentName) || "n/a"}
 Affected entity: ${subjectIdentity}
-Recorded related classifications: ${relatedClassifications}
+Recorded classification: ${firstAvailable(output.classification) || "n/a"}
 -----------------------------------------------------------------
 
 Event info breakdown is as follows:
@@ -383,14 +371,13 @@ Error / Service Message: ${firstAvailable(output.serviceMessage, output.eventInf
 ----------------------------------------------------------
 
 Processed Incident Data
-Event Summary: No additional source facts were extracted.
+Event Summary: ${eventSummary}
 Observed Facts:
-No additional source facts were extracted.
+${observedFacts.length ? observedFacts.map((item) => `- ${item}`).join("\n") : "No additional source facts were extracted."}
 -----
 
-Related Ticket Records
-${relatedResolutions.length ? relatedResolutions.join("\n") : "No related ticket resolution was available."}
------
+${template.contactText}${signature ? `\n\n${signature}` : ""}
 
-${template.contactText}${signature ? `\n\n${signature}` : ""}`;
+Historic
+${historic.length ? historic.join("\n") : "No matching historic resolutions were found."}`;
 }

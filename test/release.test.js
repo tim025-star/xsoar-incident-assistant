@@ -47,8 +47,8 @@ test("XSOAR settings persist without browser-mode settings", async () => {
     headers: { "X-Assistant-Token": "settings-test-token", Origin: origin }
   }));
   try {
-    const saved = await client.config.save({ ...stored, xsoar: { ...stored.xsoar, lookbackQuery: "status:closed" } });
-    assert.equal(saved.xsoar.lookbackQuery, "status:closed");
+    const saved = await client.config.save({ ...stored, xsoar: { ...stored.xsoar, pageReadyTimeoutMs: 30000 } });
+    assert.equal(saved.xsoar.pageReadyTimeoutMs, 30000);
     assert.equal("session" in saved, false);
     assert.deepEqual((await client.status()).session, { running: false });
   } finally {

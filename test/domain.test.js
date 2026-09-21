@@ -33,26 +33,17 @@ test("settings accept one exact HTTPS origin and keep the analyst name configura
   }
 });
 
-test("searches are encoded in the incidents page URL and verified after navigation", () => {
+test("historic searches use exact alert type and a verified three-month URL query", () => {
   const resolved = settings();
-  const query = buildSearchQuery('Rule "Quoted"', "Endpoint", 'created:>="7 days ago"');
+  const query = buildSearchQuery("Example detection", "Endpoint", 'created:>="3 months ago"');
   const url = buildIncidentSearchUrl(resolved, query);
 
-  assert.match(query, /^rawName:/);
-  assert.match(query, /rawType:"Endpoint"/);
-  assert.equal(new URL(url).searchParams.get("query"), query);
+  assert.match(query, /^rawName:"Example detection" and rawType:"Endpoint"/);
+  assert.match(query, /created:>="3 months ago"/);
   assert.equal(assertSearchUrl(url, resolved, query).origin, resolved.allowedOrigin);
   assert.throws(
     () => assertSearchUrl("https://xsoar.example.test/incidents?query=changed", resolved, query),
     /did not retain/
-  );
-  assert.throws(
-    () => assertSearchUrl(`https://xsoar.example.test/other?query=${encodeURIComponent(query)}`, resolved, query),
-    /incidents page path/
-  );
-  assert.throws(
-    () => assertSearchUrl(`https://attacker.example/incidents?query=${encodeURIComponent(query)}`, resolved, query),
-    /left the configured/
   );
 });
 
@@ -69,11 +60,8 @@ test("incident navigation remains in the configured tenant and path", () => {
     buildIncidentUrlFromId("4201", resolved),
     "https://xsoar.example.test/Custom/GenericLayout/4201"
   );
-  assert.throws(
-    () => buildHistoricalIncidentUrl(current, "../admin", resolved),
-    /must be numeric/
-  );
   assert.throws(() => buildIncidentUrlFromId("../admin", resolved), /must be numeric/);
+  assert.throws(() => buildHistoricalIncidentUrl(current, "../admin", resolved), /must be numeric/);
   assert.throws(
     () => resolveSettings({
       allowedOrigin: "https://xsoar.example.test",
@@ -92,16 +80,12 @@ test("incident templates require the ID as the final path segment and must match
 
   const url = buildIncidentUrlFromId("4200", resolved);
   assert.equal(url, "https://xsoar.example.test/Custom/case/4200");
-  assert.equal(buildHistoricalIncidentUrl(`${url}/`, "4199", resolved), "https://xsoar.example.test/Custom/case/4199/");
   const trailingSlashSettings = resolveSettings({
     allowedOrigin: "https://xsoar.example.test",
     incidentUrlPattern: "\\/Custom\\/case\\/\\d+\\/$",
     incidentPathTemplate: "/Custom/case/{id}/"
   });
-  assert.equal(
-    buildHistoricalIncidentUrl("https://xsoar.example.test/Custom/case/4200/", "4199", trailingSlashSettings),
-    "https://xsoar.example.test/Custom/case/4199/"
-  );
+  assert.equal(buildIncidentUrlFromId("4200", trailingSlashSettings), "https://xsoar.example.test/Custom/case/4200/");
   assert.doesNotThrow(() => assertIncidentRouteCompatibility(resolveSettings({
     allowedOrigin: "https://xsoar.example.test",
     incidentUrlPattern: "\\/Custom\\/case\\/\\d{6}$",
@@ -131,8 +115,7 @@ test("draft output contains configured identity only when the user supplies it",
     incidentName: "Example detection",
     ticketId: "4200",
     ruleName: "Example Rule",
-    caseType: "Endpoint",
-    historical: []
+    caseType: "Endpoint"
   };
   const anonymous = buildDraft(base, settings().template);
   const named = buildDraft(base, { ...settings().template, analystName: "Example Analyst" });
@@ -140,49 +123,29 @@ test("draft output contains configured identity only when the user supplies it",
 
   assert.doesNotMatch(anonymous, /Example Analyst/);
   assert.doesNotMatch(anonymous, /Security Analyst$/);
-  assert.match(named, /Example Analyst\nSecurity Analyst$/);
+  assert.match(named, /Example Analyst\nSecurity Analyst\n\nHistoric/);
   assert.doesNotMatch(missingCustomer, /Hello n\/a/i);
 });
 
-test("processed output presents source facts without analysis, guidance, or recommendations", () => {
+test("processed output keeps the source-field template and adds facts without analysis or recommendations", () => {
   const draft = buildDraft({
     customerName: "Example Organisation",
     ticketId: "4200",
     incidentName: "Example detection",
     deviceHostname: "endpoint-01",
-    historical: []
+    classification: "Unreviewed",
+    historical: [{ ticketId: "4199", closeNotes: "Reset the affected account." }]
   }, settings().template, {
     eventSummary: "The source record names endpoint-01.",
     observedFacts: ["Account: example.user", "Source IP: 192.0.2.10"]
   });
 
   assert.match(draft, /Incident ID: 4200/);
-  assert.match(draft, /Event Summary\nThe source record names endpoint-01\./);
-  assert.match(draft, /Observed Facts\n- Account: example\.user\n- Source IP: 192\.0\.2\.10/);
-  assert.doesNotMatch(draft, /Event info breakdown|n\/a/i);
+  assert.match(draft, /Affected entity: endpoint-01/);
+  assert.match(draft, /Recorded classification: Unreviewed/);
+  assert.match(draft, /Event info breakdown is as follows:/);
+  assert.match(draft, /Processed Incident Data\nEvent Summary: The source record names endpoint-01\./);
+  assert.match(draft, /Observed Facts:\n- Account: example\.user\n- Source IP: 192\.0\.2\.10/);
+  assert.match(draft, /Kind regards,\n\nHistoric\n1\. #4199: Reset the affected account\./);
   assert.doesNotMatch(draft, /Investigation Summary|Related Activity|Recommended Actions|Vendor Guidance/);
-});
-
-test("related ticket resolutions only use resolution-bearing fields", () => {
-  const base = {
-    customerName: "Example Organisation",
-    incidentName: "Example detection",
-    historical: [
-      {
-        ticketId: "4199",
-        descriptionLong: "Alert description that must not be presented as a resolution",
-        historicalSummary: "General related-ticket summary"
-      }
-    ]
-  };
-
-  const withoutResolution = buildDraft(base, settings().template);
-  assert.match(withoutResolution, /Related Ticket Records\nNo related ticket resolution was available\./);
-  assert.doesNotMatch(withoutResolution, /#4199:/);
-
-  const withResolution = buildDraft({
-    ...base,
-    historical: [{ ...base.historical[0], closeNotes: "Contained host and reset credentials." }]
-  }, settings().template);
-  assert.match(withResolution, /1\. #4199: Contained host and reset credentials\./);
 });

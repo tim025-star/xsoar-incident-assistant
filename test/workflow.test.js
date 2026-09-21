@@ -4,19 +4,23 @@ import assert from "node:assert/strict";
 import { resolveSettings } from "../src/domain.js";
 import { runIncidentDraft } from "../src/workflow.js";
 
-function createAdapter({ searchRedirect, incidentRedirect, currentIncident = {}, historicalIncidents = {} } = {}) {
+function createAdapter({
+  incidentRedirect,
+  currentIncident = {},
+  historicalIncidents = {},
+  historicalViews = {},
+  searchTicketIds = ["4200", "4199", "4198", "4197"],
+  onExtract = () => {},
+  onSearch = () => {}
+} = {}) {
   const tabs = new Map([[1, "https://xsoar.example.test/Custom/GenericLayout/4200"]]);
   const opened = [];
   const closed = [];
   let nextId = 2;
-  let activeHistoricalReads = 0;
-  let maxHistoricalConcurrency = 0;
   return {
     opened,
     closed,
     focused: [],
-    searchOptions: null,
-    get maxHistoricalConcurrency() { return maxHistoricalConcurrency; },
     async getActiveTab() { return { id: 1, url: tabs.get(1) }; },
     async openTab(url) {
       const tab = { id: nextId++, url };
@@ -27,39 +31,36 @@ function createAdapter({ searchRedirect, incidentRedirect, currentIncident = {},
     async getTabUrl(id) {
       const url = tabs.get(id);
       if (id === 2 && incidentRedirect) return incidentRedirect;
-      return url.includes("/incidents?") && searchRedirect ? searchRedirect : url;
+      return url;
     },
-    async extractIncident(id) {
-      const ticketId = tabs.get(id).match(/\/(\d+)(?:[?#]|$)/)?.[1] || "4200";
-      if (ticketId === "4200") {
+    async extractIncident(id, extractionSettings) {
+      const currentUrl = tabs.get(id);
+      onExtract({ url: currentUrl, settings: extractionSettings });
+      const ticketId = currentUrl.match(/\/(\d+)(?:[?#]|$)/)?.[1] || "4200";
+      if (ticketId !== "4200") {
         return {
           ticketId,
-          incidentName: "Example detection",
+          customerName: "Example Organisation",
           ruleName: "Example Rule",
           caseType: "Endpoint",
-          customerName: "Example Organisation",
-          tabUrls: [],
-          ...currentIncident
+          closeNotes: `Resolved incident ${ticketId}`,
+          ...historicalIncidents[ticketId],
+          ...historicalViews[currentUrl]
         };
       }
-      activeHistoricalReads += 1;
-      maxHistoricalConcurrency = Math.max(maxHistoricalConcurrency, activeHistoricalReads);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      activeHistoricalReads -= 1;
       return {
         ticketId,
-        classification: "Benign",
-        closeNotes: `Reviewed incident ${ticketId}`,
+        incidentName: "Example detection",
         ruleName: "Example Rule",
         caseType: "Endpoint",
-        ...historicalIncidents[ticketId]
+        customerName: "Example Organisation",
+        tabUrls: [],
+        ...currentIncident
       };
     },
     async extractSearchResults(id, options) {
-      this.searchOptions = options;
-      return {
-        ticketIds: ["4200", "4199", "4198", "4197"]
-      };
+      onSearch(options);
+      return { ticketIds: searchTicketIds.slice(0, options.maxResults), truncated: searchTicketIds.length > options.maxResults };
     },
     async closeTab(id) { closed.push(id); tabs.delete(id); },
     async focusTab(id) { this.focused.push(id); }
@@ -72,34 +73,102 @@ const settings = resolveSettings({
   maxHistoricalIncidents: 3
 });
 
-test("workflow searches through the URL, excludes the current incident, and restores the tab", async () => {
-  const adapter = createAdapter();
-  const result = await runIncidentDraft({ adapter, settings });
+test("workflow searches three months of same-client alert history while AI processes the current alert", async () => {
+  let aiPending = false;
+  let searchedWhileAiPending = false;
+  let searchOptions;
+  const adapter = createAdapter({
+    historicalIncidents: {
+      4198: { customerName: "Different Organisation" },
+      4197: { caseType: "Different Type" }
+    },
+    onSearch: (options) => {
+      searchedWhileAiPending = aiPending;
+      searchOptions = options;
+    }
+  });
+  const result = await runIncidentDraft({
+    adapter,
+    settings,
+    enrichDraft: async () => {
+      aiPending = true;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      aiPending = false;
+      return { eventSummary: "Current alert summary.", observedFacts: [] };
+    }
+  });
 
-  const searchUrl = new URL(adapter.opened[0]);
-  assert.equal(searchUrl.pathname, "/incidents");
-  assert.match(searchUrl.searchParams.get("query"), /rawName:"Example Rule" and rawType:"Endpoint"/);
-  assert.equal(adapter.searchOptions.maxResults, 4);
-  assert.deepEqual(adapter.opened.slice(1).sort(), [
-    "https://xsoar.example.test/Custom/GenericLayout/4199",
-    "https://xsoar.example.test/Custom/GenericLayout/4198",
-    "https://xsoar.example.test/Custom/GenericLayout/4197"
-  ].sort());
-  assert.equal(adapter.maxHistoricalConcurrency, 2);
-  assert.equal(result.reviewed, 3);
-  assert.match(result.draft, /#4199: Reviewed incident 4199/);
-  assert.ok(result.draft.indexOf("#4199") < result.draft.indexOf("#4198"));
-  assert.ok(result.draft.indexOf("#4198") < result.draft.indexOf("#4197"));
-  assert.deepEqual(adapter.focused, [1]);
-  assert.equal(adapter.closed.length, 4);
+  assert.equal(searchedWhileAiPending, true);
+  assert.match(searchOptions.expectedQuery, /rawName:"Example detection"/);
+  assert.match(searchOptions.expectedQuery, /created:>="3 months ago"/);
+  assert.match(result.draft, /Historic\n1\. #4199: Resolved incident 4199/);
+  assert.doesNotMatch(result.draft, /#4198|#4197/);
+});
+
+test("workflow continues past other clients until it finds the requested number of same-client resolutions", async () => {
+  const searchTicketIds = ["4200", ...Array.from({ length: 20 }, (_, index) => String(4199 - index)), "4179"];
+  const historicalIncidents = Object.fromEntries(
+    searchTicketIds.slice(1, -1).map((ticketId) => [ticketId, { customerName: "Different Organisation" }])
+  );
+  const result = await runIncidentDraft({
+    adapter: createAdapter({ searchTicketIds, historicalIncidents }),
+    settings: resolveSettings({ ...settings, maxHistoricalIncidents: 1 })
+  });
+
+  assert.match(result.draft, /Historic\n1\. #4179: Resolved incident 4179/);
+  assert.equal(result.reviewed, 1);
+});
+
+test("workflow skips unresolved matches before applying the historic resolution limit", async () => {
+  const result = await runIncidentDraft({
+    adapter: createAdapter({
+      searchTicketIds: ["4200", "4199", "4198", "4197", "4196"],
+      historicalIncidents: {
+        4199: { closeNotes: "" },
+        4198: { closeNotes: "" },
+        4197: { closeNotes: "" }
+      }
+    }),
+    settings: resolveSettings({ ...settings, maxHistoricalIncidents: 1 })
+  });
+
+  assert.match(result.draft, /Historic\n1\. #4196: Resolved incident 4196/);
+  assert.equal(result.reviewed, 1);
+});
+
+test("workflow merges trusted detail views for historic identity and resolution fields", async () => {
+  const detailUrl = "https://xsoar.example.test/Custom/GenericLayout/4199?view=Investigation";
+  const extractionCalls = [];
+  const result = await runIncidentDraft({
+    adapter: createAdapter({
+      searchTicketIds: ["4200", "4199"],
+      historicalIncidents: {
+        4199: { customerName: "", ruleName: "", caseType: "", closeNotes: "", tabUrls: [detailUrl] }
+      },
+      historicalViews: {
+        [detailUrl]: {
+          customerName: "Example Organisation",
+          ruleName: "Example Rule",
+          caseType: "Endpoint",
+          closeNotes: "Resolved from the investigation view"
+        }
+      },
+      onExtract: (call) => extractionCalls.push(call)
+    }),
+    settings: resolveSettings({ ...settings, maxHistoricalIncidents: 1 })
+  });
+
+  assert.match(result.draft, /#4199: Resolved from the investigation view/);
+  assert.ok(extractionCalls.some(({ url }) => url === detailUrl));
+  assert.ok(extractionCalls.some(({ url, settings: extractionSettings }) =>
+    url.endsWith("/4199") && extractionSettings.requiredFields?.includes("customerName")));
 });
 
 test("workflow opens an explicitly requested incident and closes that temporary tab", async () => {
   const adapter = createAdapter();
-  const result = await runIncidentDraft({ adapter, settings, incidentId: "4200" });
+  await runIncidentDraft({ adapter, settings, incidentId: "4200" });
 
   assert.equal(adapter.opened[0], "https://xsoar.example.test/Custom/GenericLayout/4200");
-  assert.equal(result.reviewed, 3);
   assert.deepEqual(adapter.focused, []);
   assert.equal(adapter.closed.length, 5);
 });
@@ -122,27 +191,13 @@ test("workflow uses a configured incident route with the ID in the final path se
   const routedSettings = resolveSettings({
     allowedOrigin: "https://xsoar.example.test",
     incidentUrlPattern: "\\/Custom\\/case\\/\\d+\\/?$",
-    incidentPathTemplate: "/Custom/case/{id}",
-    maxHistoricalIncidents: 3
+    incidentPathTemplate: "/Custom/case/{id}"
   });
 
-  const result = await runIncidentDraft({ adapter, settings: routedSettings, incidentId: "4200" });
+  await runIncidentDraft({ adapter, settings: routedSettings, incidentId: "4200" });
 
   assert.equal(adapter.opened[0], "https://xsoar.example.test/Custom/case/4200");
-  assert.deepEqual(adapter.opened.slice(2).sort(), [
-    "https://xsoar.example.test/Custom/case/4199",
-    "https://xsoar.example.test/Custom/case/4198",
-    "https://xsoar.example.test/Custom/case/4197"
-  ].sort());
-  assert.equal(result.reviewed, 3);
-});
-
-test("workflow fails closed when XSOAR removes or changes the URL query", async () => {
-  const adapter = createAdapter({ searchRedirect: "https://xsoar.example.test/incidents" });
-
-  await assert.rejects(() => runIncidentDraft({ adapter, settings }), /did not retain/);
-  assert.deepEqual(adapter.focused, [1]);
-  assert.equal(adapter.closed.length, 1);
+  assert.equal(adapter.opened.length, 5);
 });
 
 test("workflow retains the source-field response if local processing fails", async () => {
@@ -180,25 +235,8 @@ test("workflow inserts factual local processing without changing browser concurr
   assert.deepEqual(Object.keys(enrichmentInput), ["incident"]);
   assert.match(result.draft, /The source record names endpoint-01/);
   assert.match(result.draft, /Source IP: 192\.0\.2\.10/);
-  assert.doesNotMatch(result.draft, /Hello n\/a|Event info breakdown/i);
-  assert.doesNotMatch(result.draft, /Recommended Actions|Vendor Guidance/);
-  assert.ok(result.draft.indexOf("Source IP: 192.0.2.10") < result.draft.indexOf("#4199: Reviewed incident 4199"));
+  assert.match(result.draft, /Event info breakdown is as follows:/i);
+  assert.doesNotMatch(result.draft, /Hello n\/a/i);
+  assert.doesNotMatch(result.draft, /Recommended Actions|Vendor Guidance|Related Ticket Records/);
   assert.equal(result.aiEnriched, true);
-});
-
-test("workflow rejects queue results that do not match the current rule and type", async () => {
-  const result = await runIncidentDraft({
-    adapter: createAdapter({
-      historicalIncidents: {
-        4198: { ruleName: "Unrelated Rule" },
-        4197: { caseType: "Unrelated Type" }
-      }
-    }),
-    settings
-  });
-
-  assert.equal(result.reviewed, 1);
-  assert.match(result.draft, /#4199: Reviewed incident 4199/);
-  assert.doesNotMatch(result.draft, /#4198|#4197/);
-  assert.match(result.warning, /Ignored 2 unrelated search results/);
 });

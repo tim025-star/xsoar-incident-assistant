@@ -52,8 +52,16 @@ test("local processing uses bounded allowlisted evidence and a factual-only sche
   const chunks = [];
   const enrichment = await client.enrich({
     model: DEFAULT_OLLAMA_MODEL,
-    incident: { ticketId: "4200", unexpected: "do not send" },
-    historical: [{ ticketId: "4199", closeNotes: "RELATED TICKET MUST NOT REACH AI" }],
+    incident: {
+      ticketId: "4200",
+      unexpected: "do not send",
+      alertJson: [{
+        source: { ip: "192.0.2.10" },
+        process: { command_line: "example --flag" },
+        authorization: "Bearer do-not-send",
+        nested: { access_token: "do-not-send", retained: true }
+      }]
+    },
     onToken: (chunk) => chunks.push(chunk)
   });
   assert.equal(enrichment.observedFacts.length, 2);
@@ -61,15 +69,18 @@ test("local processing uses bounded allowlisted evidence and a factual-only sche
   const body = JSON.parse(requests.find((request) => request.url.endsWith("/api/chat")).options.body);
   const prompt = JSON.parse(body.messages[1].content);
   assert.equal(prompt.evidence.current.unexpected, undefined);
-  assert.deepEqual(Object.keys(prompt.evidence), ["current"]);
-  assert.doesNotMatch(body.messages[1].content, /RELATED TICKET MUST NOT REACH AI/);
+  assert.deepEqual(Object.keys(prompt.evidence), ["current", "alertJson"]);
+  assert.equal(prompt.evidence.alertJson[0].process.command_line, "example --flag");
+  assert.equal(prompt.evidence.alertJson[0].authorization, undefined);
+  assert.equal(prompt.evidence.alertJson[0].nested.access_token, undefined);
+  assert.equal(prompt.evidence.alertJson[0].nested.retained, true);
   assert.match(body.messages[0].content, /data transformation component, not an investigator or decision maker/i);
   assert.match(body.messages[0].content, /Do not infer causes, intent, relationships, risk, severity, impact, outcomes, classifications, conclusions, or recommendations/i);
   assert.match(body.messages[0].content, /empty string or array when the evidence does not state/i);
   assert.match(body.messages[0].content, /do not repeat any fact/i);
   assert.match(body.messages[0].content, /Never emit placeholders such as N\/A/i);
   assert.doesNotMatch(JSON.stringify(body.format), /recommendations|vendorGuidance|investigationSummary|relatedActivity/);
-  assert.equal(body.options.num_ctx, 8192);
+  assert.equal(body.options.num_ctx, 32768);
   assert.equal(body.stream, true);
   assert.equal(body.think, false);
   assert.ok(requests.every((request) => request.options.redirect === "error"));
@@ -77,7 +88,7 @@ test("local processing uses bounded allowlisted evidence and a factual-only sche
 
 test("cloud aliases and remote metadata never reach chat or pull", async () => {
   const aliases = createOllamaClient({ fetchImplementation: async () => { throw new Error("No request expected."); } });
-  await assert.rejects(() => aliases.enrich({ model: "qwen3.5:cloud", incident: {}, historical: [] }), /valid local Ollama model name/);
+  await assert.rejects(() => aliases.enrich({ model: "qwen3.5:cloud", incident: {} }), /valid local Ollama model name/);
   const requests = [];
   const remote = createOllamaClient({ fetchImplementation: async (url) => {
     requests.push(url);
@@ -93,7 +104,7 @@ test("cloud aliases and remote metadata never reach chat or pull", async () => {
     if (url.endsWith("/api/show")) return response({ remote_host: "cloud.example.test", remote_model: DEFAULT_OLLAMA_MODEL });
     throw new Error("Chat must not receive incident evidence.");
   } });
-  await assert.rejects(() => showRemote.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: { ticketId: "4200" }, historical: [] }), /not a local Ollama model/);
+  await assert.rejects(() => showRemote.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: { ticketId: "4200" } }), /not a local Ollama model/);
   assert.deepEqual(showRequests, ["http://127.0.0.1:11434/api/tags", "http://127.0.0.1:11434/api/show"]);
 });
 
@@ -147,7 +158,7 @@ test("untagged model aliases resolve to the installed latest tag after pull and 
   } });
 
   assert.deepEqual(await client.pull("qwen3.5"), [installedName]);
-  await client.enrich({ model: "qwen3.5", incident: {}, historical: [] });
+  await client.enrich({ model: "qwen3.5", incident: {} });
   const showBodies = requests.filter(({ url }) => url.endsWith("/api/show")).map(({ options }) => JSON.parse(options.body));
   const chatBody = JSON.parse(requests.find(({ url }) => url.endsWith("/api/chat")).options.body);
   assert.deepEqual(showBodies, [{ name: installedName }, { name: installedName }]);
@@ -186,14 +197,14 @@ test("Ollama JSON endpoints reject oversized bodies before schema parsing", asyn
   const show = createOllamaClient({ fetchImplementation: async (url) => url.endsWith("/api/tags")
     ? response({ models: [{ name: DEFAULT_OLLAMA_MODEL }] })
     : response({}, declaredOversize) });
-  await assert.rejects(() => show.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: {}, historical: [] }), /model verification response was too large/);
+  await assert.rejects(() => show.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: {} }), /model verification response was too large/);
 
   const chat = createOllamaClient({ fetchImplementation: async (url) => {
     if (url.endsWith("/api/tags")) return response({ models: [{ name: DEFAULT_OLLAMA_MODEL }] });
     if (url.endsWith("/api/show")) return response({});
     return new Response(`${JSON.stringify({ message: { content: "x".repeat(70 * 1024) }, done: false })}\n`, { headers: { "Content-Type": "application/x-ndjson" } });
   } });
-  await assert.rejects(() => chat.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: {}, historical: [] }), /too much processed incident data/);
+  await assert.rejects(() => chat.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: {} }), /too much processed incident data/);
 });
 
 test("redirect responses cannot forward incident evidence away from loopback", async () => {
@@ -208,11 +219,19 @@ test("redirect responses cannot forward incident evidence away from loopback", a
       }
       throw new Error(`Unexpected URL: ${url}`);
     } });
-    await assert.rejects(() => client.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: { ticketId: "sensitive" }, historical: [] }), new RegExp(`data-processing request failed \\(${status}\\)`));
+    await assert.rejects(() => client.enrich({ model: DEFAULT_OLLAMA_MODEL, incident: { ticketId: "sensitive" } }), new RegExp(`data-processing request failed \\(${status}\\)`));
     assert.equal(redirectedBody, undefined);
   }
 });
 
 test("evidence is bounded", () => {
   assert.equal(buildEnrichmentEvidence({ descriptionLong: "a".repeat(1000) }, []).current.descriptionLong.length, 300);
+  assert.throws(
+    () => buildEnrichmentEvidence({ alertJson: [], alertJsonComplete: true }),
+    /complete detailed alert JSON was not available/
+  );
+  assert.throws(
+    () => buildEnrichmentEvidence({ alertJson: [{ detail: "a".repeat(100 * 1024) }, { retained: true }] }),
+    /complete detailed alert JSON exceeds/
+  );
 });
