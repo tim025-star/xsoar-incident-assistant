@@ -73,7 +73,7 @@ export async function extractIncidentFromPage(settings) {
       if (jsonPath && available(text)) pairs.push([jsonPath, text]);
     };
     const candidates = Array.from(document.querySelectorAll(
-      "[data-testid*='json' i],[class*='json' i],.field-wrapper pre,.field-wrapper code,.field-wrapper textarea"
+      "[data-testid*='json' i],[class*='json' i],.field-wrapper pre,.field-wrapper code,.field-wrapper textarea,.field-wrapper .preplacer,.field-wrapper .value-wrapper,.field-wrapper .markdown"
     )).filter(isVisible).slice(0, 100);
     for (const element of candidates) {
       const raw = String(element.value ?? element.textContent ?? "").trim();
@@ -266,6 +266,14 @@ export async function extractSearchResultsFromPage(options) {
       && Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length);
   };
   const ticketPattern = /\/(?:incident|investigation)\/(\d+)\/?(?:[?#].*)?$/i;
+  let configuredIncidentPattern;
+  try {
+    configuredIncidentPattern = options.incidentUrlPattern
+      ? new RegExp(options.incidentUrlPattern)
+      : null;
+  } catch {
+    throw new Error("Historic search extraction received an invalid incident URL pattern.");
+  }
   const ticketIds = new Set();
   let initialLoadFinished = false;
   const collect = () => {
@@ -281,7 +289,10 @@ export async function extractSearchResultsFromPage(options) {
         if (!isVisible(link)) continue;
         let url;
         try { url = new URL(link.getAttribute("href"), location.href); } catch { continue; }
-        const ticketId = url.pathname.match(ticketPattern)?.[1];
+        const configuredTicketId = configuredIncidentPattern?.test(`${url.pathname}${url.search}${url.hash}`)
+          ? url.pathname.match(/\/(\d+)\/?$/)?.[1]
+          : "";
+        const ticketId = url.pathname.match(ticketPattern)?.[1] || configuredTicketId;
         if (ticketId && url.origin === location.origin) ticketIds.add(ticketId);
       }
       initialLoadFinished = true;

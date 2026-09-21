@@ -100,3 +100,47 @@ test("historic search preserves collected rows across pagination loading", async
     globalThis.window = original.window;
   }
 });
+
+test("historic search recognises links that use the configured custom incident route", async () => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  const visible = { offsetWidth: 1, offsetHeight: 1, getClientRects: () => [1] };
+  const link = { ...visible, getAttribute: () => "/Custom/GenericLayout/4199" };
+  const root = {
+    ...visible,
+    clientHeight: 500,
+    scrollTop: 0,
+    querySelector: () => null,
+    querySelectorAll(selector) {
+      if (selector === "a[href]") return [link];
+      return [];
+    }
+  };
+
+  globalThis.location = new URL("https://xsoar.example.test/incidents?query=expected");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = {
+    body: root,
+    querySelector(selector) {
+      if (selector === "[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page") return root;
+      return null;
+    },
+    querySelectorAll: () => []
+  };
+
+  try {
+    const result = await extractSearchResultsFromPage({
+      expectedOrigin: "https://xsoar.example.test",
+      expectedPath: "/incidents",
+      queryParameter: "query",
+      expectedQuery: "expected",
+      incidentUrlPattern: "\\/Custom\\/GenericLayout\\/\\d+$",
+      maxResults: 5,
+      timeoutMs: 1000
+    });
+    assert.deepEqual(result.ticketIds, ["4199"]);
+  } finally {
+    globalThis.document = original.document;
+    globalThis.location = original.location;
+    globalThis.window = original.window;
+  }
+});

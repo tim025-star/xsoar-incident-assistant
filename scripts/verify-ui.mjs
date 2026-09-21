@@ -257,7 +257,7 @@ try {
   const jsonLogPage = await browser.newPage();
   await jsonLogPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
     contentType: "text/html",
-    body: '<div class="header-inv-id">#4203</div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper">JSON Rule</div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper">Endpoint</div></div><pre data-testid="alert-json">{"network":{"destination":{"ip":"198.51.100.24"}},"events":[{"actor":{"user_name":"example.user"}}]}</pre><div class="markdown">{"authorization":"must-not-be-collected"}</div>'
+    body: '<div class="header-inv-id">#4203</div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper">JSON Rule</div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper">Endpoint</div></div><div class="field-wrapper"><label>Detailed Alert JSON</label><div class="value-wrapper"><div class="markdown">{"network":{"destination":{"ip":"198.51.100.24"}},"events":[{"actor":{"user_name":"example.user"}}]}</div></div></div><div class="markdown">{"authorization":"must-not-be-collected"}</div>'
   }));
   await jsonLogPage.goto("https://xsoar.example.test/Custom/GenericLayout/4203");
   const jsonIncident = await jsonLogPage.evaluate(extractIncidentFromPage, {
@@ -277,7 +277,7 @@ try {
   const historicQuery = 'rawName:"Example detection" and rawType:"Endpoint" and (created:>="3 months ago")';
   await searchPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
     contentType: "text/html",
-    body: `<div id="incidents-page" role="grid"><a href="/incident/4199">4199</a></div><div class="table-paging-message">1-1 of 1</div>`
+    body: `<div id="incidents-page" role="grid"><a href="/Custom/GenericLayout/4199">4199</a></div><div class="table-paging-message">1-1 of 1</div>`
   }));
   await searchPage.goto(`https://xsoar.example.test/incidents?query=${encodeURIComponent(historicQuery)}`);
   const historicResults = await searchPage.evaluate(extractSearchResultsFromPage, {
@@ -285,6 +285,7 @@ try {
     expectedPath: "/incidents",
     queryParameter: "query",
     expectedQuery: historicQuery,
+    incidentUrlPattern: settings.incidentUrlPattern,
     maxResults: 100,
     timeoutMs: 2000
   });

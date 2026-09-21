@@ -9,6 +9,7 @@ function createAdapter({
   currentIncident = {},
   historicalIncidents = {},
   historicalViews = {},
+  searchError,
   searchTicketIds = ["4200", "4199", "4198", "4197"],
   onExtract = () => {},
   onSearch = () => {}
@@ -60,6 +61,7 @@ function createAdapter({
     },
     async extractSearchResults(id, options) {
       onSearch(options);
+      if (searchError) throw searchError;
       return { ticketIds: searchTicketIds.slice(0, options.maxResults), truncated: searchTicketIds.length > options.maxResults };
     },
     async closeTab(id) { closed.push(id); tabs.delete(id); },
@@ -99,7 +101,7 @@ test("workflow searches three months of same-client alert history while AI proce
   });
 
   assert.equal(searchedWhileAiPending, true);
-  assert.match(searchOptions.expectedQuery, /rawName:"Example detection"/);
+  assert.match(searchOptions.expectedQuery, /rawName:"Example Rule"/);
   assert.match(searchOptions.expectedQuery, /created:>="3 months ago"/);
   assert.match(result.draft, /Historic\n1\. #4199: Resolved incident 4199/);
   assert.doesNotMatch(result.draft, /#4198|#4197/);
@@ -208,6 +210,25 @@ test("workflow retains the source-field response if local processing fails", asy
   assert.match(result.draft, /Processed Incident Data/);
   assert.match(result.warning, /source-field response is ready/);
   assert.equal(result.aiEnriched, false);
+});
+
+test("workflow reports a safe detailed-JSON failure instead of hiding it", async () => {
+  const result = await runIncidentDraft({
+    adapter: createAdapter(), settings,
+    enrichDraft: async () => { throw new Error("The complete detailed alert JSON was not available for local processing."); }
+  });
+  assert.match(result.warning, /complete detailed alert JSON was not available/);
+});
+
+test("workflow removes browser stack traces from historic timeout warnings", async () => {
+  const result = await runIncidentDraft({
+    adapter: createAdapter({
+      searchError: new Error("page.evaluate: Error: XSOAR historic search results did not become ready before the timeout.\n    at <anonymous>:65:11")
+    }),
+    settings
+  });
+  assert.match(result.warning, /Historic incident lookup was unavailable: XSOAR historic search results did not become ready before the timeout\./);
+  assert.doesNotMatch(result.warning, /page\.evaluate|anonymous|\n/);
 });
 
 test("workflow retains the source-field response if local processing returns no facts", async () => {

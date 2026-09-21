@@ -231,12 +231,12 @@ function escapeQueryValue(value) {
   return cleanText(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-export function buildSearchQuery(incidentName, caseType, lookbackQuery = "") {
-  if (!isAvailable(incidentName) || !isAvailable(caseType)) {
-    throw new Error("The incident must expose both Incident Name and Type before a historic search can run.");
+export function buildSearchQuery(ruleName, caseType, lookbackQuery = "") {
+  if (!isAvailable(ruleName) || !isAvailable(caseType)) {
+    throw new Error("The incident must expose both Rule Name and Type before a historic search can run.");
   }
   const parts = [
-    `rawName:"${escapeQueryValue(incidentName)}"`,
+    `rawName:"${escapeQueryValue(ruleName)}"`,
     `rawType:"${escapeQueryValue(caseType)}"`
   ];
   if (cleanText(lookbackQuery)) parts.push(`(${cleanText(lookbackQuery)})`);
