@@ -143,8 +143,9 @@ export function resolveSettings(input = {}) {
     throw new Error("searchQueryParameter contains unsupported characters.");
   }
   const incidentsUrl = new URL(settings.incidentsPath, settings.allowedOrigin);
-  if (incidentsUrl.origin !== settings.allowedOrigin) {
-    throw new Error("incidentsPath must stay on the configured XSOAR origin.");
+  if (!settings.incidentsPath.startsWith("/") || incidentsUrl.origin !== settings.allowedOrigin
+    || incidentsUrl.username || incidentsUrl.password || incidentsUrl.search || incidentsUrl.hash) {
+    throw new Error("incidentsPath must be an absolute path on the configured XSOAR origin without a query or fragment.");
   }
 
   if (!Number.isInteger(settings.maxHistoricalIncidents)
@@ -248,7 +249,8 @@ export function buildIncidentSearchUrl(settings, query) {
   if (url.origin !== settings.allowedOrigin) {
     throw new Error("The incident search URL left the configured XSOAR origin.");
   }
-  url.searchParams.set(settings.searchQueryParameter, cleanText(query));
+  const cleanQuery = cleanText(query);
+  if (cleanQuery) url.searchParams.set(settings.searchQueryParameter, cleanQuery);
   return url.toString();
 }
 

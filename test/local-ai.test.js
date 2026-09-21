@@ -59,7 +59,10 @@ test("local processing uses bounded allowlisted evidence and a factual-only sche
         source: { ip: "192.0.2.10" },
         process: { command_line: "example --flag" },
         authorization: "Bearer do-not-send",
-        nested: { access_token: "do-not-send", retained: true }
+        authToken: "do-not-send",
+        private_key: "do-not-send",
+        credentials: "do-not-send",
+        nested: { access_token: "do-not-send", bearerToken: "do-not-send", retained: true }
       }]
     },
     onToken: (chunk) => chunks.push(chunk)
@@ -72,7 +75,11 @@ test("local processing uses bounded allowlisted evidence and a factual-only sche
   assert.deepEqual(Object.keys(prompt.evidence), ["current", "alertJson"]);
   assert.equal(prompt.evidence.alertJson[0].process.command_line, "example --flag");
   assert.equal(prompt.evidence.alertJson[0].authorization, undefined);
+  assert.equal(prompt.evidence.alertJson[0].authToken, undefined);
+  assert.equal(prompt.evidence.alertJson[0].private_key, undefined);
+  assert.equal(prompt.evidence.alertJson[0].credentials, undefined);
   assert.equal(prompt.evidence.alertJson[0].nested.access_token, undefined);
+  assert.equal(prompt.evidence.alertJson[0].nested.bearerToken, undefined);
   assert.equal(prompt.evidence.alertJson[0].nested.retained, true);
   assert.match(body.messages[0].content, /data transformation component, not an investigator or decision maker/i);
   assert.match(body.messages[0].content, /Do not infer causes, intent, relationships, risk, severity, impact, outcomes, classifications, conclusions, or recommendations/i);

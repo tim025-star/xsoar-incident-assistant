@@ -57,7 +57,7 @@ If launch reports a startup error, reinstall the current release. The launcher d
 
 The separate **Configuration** page includes the tenant URL, analyst identity, incident routes, historic result limit, page timeout, local AI, output wording, and JSON log mappings. Each mapping accepts JSON keys or dotted paths such as `source.ip` or `events.actor.user_name`; array indexes are ignored. Existing XSOAR field labels and two-column log tables remain supported as fallbacks. No analyst name is hard-coded.
 
-XSOAR routes vary by deployment. Before operational use, confirm the configured incident route, URL template, incident list path, and search parameter against synthetic incidents. Historic searches use exact `rawName` and `rawType` values plus a fixed three-month creation window. Each candidate is then checked against the selected ticket's customer, rule, and type before its resolution is included. Automation stops or omits the candidate if navigation leaves the configured HTTPS origin or an incident path does not match.
+XSOAR routes vary by deployment. Before operational use, confirm the configured incident route, URL template, incident list path, and search parameter against synthetic incidents. Historic searches submit exact `rawName` and `rawType` values plus a fixed three-month creation window through XSOAR's main incidents search input. Each candidate is then checked against the selected ticket's customer, rule, and type before its resolution is included. Automation stops or omits the candidate if navigation leaves the configured HTTPS origin or an incident path does not match.
 
 ## Credentials and data
 
@@ -72,6 +72,7 @@ An organisation must review and approve the tool against its own browser, identi
 - `src/domain.js`: validation, URL construction, data merging, and draft generation.
 - `src/workflow.js`: parallel selected-alert processing and bounded historic-resolution orchestration.
 - `src/page-adapter.js`: bounded JSON log parsing plus fallback XSOAR DOM extraction.
+- `docs/xsoar-dom-sources.md`: supported XSOAR elements, detailed-event tables, and extraction boundaries.
 - `src/browser-session.js`: user-approved current-Chrome connection and the browser adapter.
 - `src/local-ai.js`: loopback-only Ollama client, bounded evidence construction, and strict enrichment validation.
 - `src/local-ai-installer.js`: pinned GitHub downloads, checksums, resumable model assembly, and local Ollama import.

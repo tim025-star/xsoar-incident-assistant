@@ -101,6 +101,7 @@ test("workflow searches three months of same-client alert history while AI proce
   });
 
   assert.equal(searchedWhileAiPending, true);
+  assert.equal(new URL(adapter.opened[0]).search, "");
   assert.match(searchOptions.expectedQuery, /rawName:"Example Rule"/);
   assert.match(searchOptions.expectedQuery, /created:>="3 months ago"/);
   assert.match(result.draft, /Historic\n1\. #4199: Resolved incident 4199/);
@@ -164,6 +165,8 @@ test("workflow merges trusted detail views for historic identity and resolution 
   assert.ok(extractionCalls.some(({ url }) => url === detailUrl));
   assert.ok(extractionCalls.some(({ url, settings: extractionSettings }) =>
     url.endsWith("/4199") && extractionSettings.requiredFields?.includes("customerName")));
+  assert.ok(extractionCalls.some(({ url, settings: extractionSettings }) =>
+    url.endsWith("/4199") && extractionSettings.requiredAnyFields?.includes("closeNotes")));
 });
 
 test("workflow opens an explicitly requested incident and closes that temporary tab", async () => {
@@ -243,8 +246,12 @@ test("workflow retains the source-field response if local processing returns no 
 
 test("workflow inserts factual local processing without changing browser concurrency", async () => {
   let enrichmentInput;
+  const extractionCalls = [];
   const result = await runIncidentDraft({
-    adapter: createAdapter({ currentIncident: { customerName: "" } }), settings,
+    adapter: createAdapter({
+      currentIncident: { customerName: "" },
+      onExtract: (call) => extractionCalls.push(call)
+    }), settings,
     enrichDraft: async (input) => {
       enrichmentInput = input;
       return {
@@ -260,4 +267,5 @@ test("workflow inserts factual local processing without changing browser concurr
   assert.doesNotMatch(result.draft, /Hello n\/a/i);
   assert.doesNotMatch(result.draft, /Recommended Actions|Vendor Guidance|Related Ticket Records/);
   assert.equal(result.aiEnriched, true);
+  assert.equal(extractionCalls[0].settings.requireAlertJson, true);
 });

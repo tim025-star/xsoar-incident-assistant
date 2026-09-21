@@ -6,7 +6,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 
 import {
   BrowserSessionManager,
-  readDevToolsWebSocketEndpoint
+  readDevToolsWebSocketEndpoint,
+  submitHistoricSearch
 } from "../src/browser-session.js";
 import { resolveSettings } from "../src/domain.js";
 
@@ -127,4 +128,68 @@ test("closes a temporary tab when its initial navigation fails", async () => {
 
   await assert.rejects(() => adapter.openTab("https://xsoar.example.test/Custom/GenericLayout/4200"), /navigation failed/);
   assert.equal(closed, true);
+});
+
+test("submits historic queries through the visible XSOAR incidents search input", async () => {
+  const calls = [];
+  const input = {
+    waitFor: async (options) => calls.push(["waitFor", options]),
+    fill: async (value) => calls.push(["fill", value]),
+    press: async (key) => calls.push(["press", key])
+  };
+  const page = {
+    url: () => "https://xsoar.example.test/incidents",
+    locator: (selector) => {
+      calls.push(["locator", selector]);
+      return { first: () => input };
+    },
+    evaluate: async (_callback, argument) => calls.push(["evaluate", argument]),
+    waitForFunction: async (callback, argument, options) => {
+      calls.push(["waitForFunction", argument, options]);
+      assert.equal(typeof callback, "function");
+    }
+  };
+
+  await submitHistoricSearch(page, {
+    expectedOrigin: "https://xsoar.example.test",
+    expectedPath: "/incidents",
+    expectedQuery: 'rawName:"Example Rule" and rawType:"Endpoint"',
+    queryParameter: "query",
+    timeoutMs: 20000
+  });
+
+  assert.deepEqual(calls, [
+    ["locator", 'input[placeholder="Search in Incidents"], input.header-search-input.search-input'],
+    ["waitFor", { state: "visible", timeout: 20000 }],
+    ["fill", 'rawName:"Example Rule" and rawType:"Endpoint"'],
+    ["evaluate", { observationKey: "__xsoarIncidentAssistantHistoricSearch" }],
+    ["press", "Enter"],
+    ["waitForFunction", {
+      expectedQuery: 'rawName:"Example Rule" and rawType:"Endpoint"',
+      queryParameter: "query",
+      observationKey: "__xsoarIncidentAssistantHistoricSearch"
+    }, { timeout: 20000 }],
+    ["evaluate", { observationKey: "__xsoarIncidentAssistantHistoricSearch" }]
+  ]);
+});
+
+test("historic search validates the incidents path before touching the search input", async () => {
+  let locatorCalls = 0;
+  const page = {
+    url: () => "https://xsoar.example.test/other-page",
+    locator: () => {
+      locatorCalls += 1;
+      return { first: () => ({ waitFor: async () => {}, fill: async () => {}, press: async () => {} }) };
+    },
+    waitForFunction: async () => {}
+  };
+
+  await assert.rejects(() => submitHistoricSearch(page, {
+    expectedOrigin: "https://xsoar.example.test",
+    expectedPath: "/incidents",
+    expectedQuery: "expected",
+    queryParameter: "query",
+    timeoutMs: 1000
+  }), /incidents page/);
+  assert.equal(locatorCalls, 0);
 });

@@ -40,6 +40,7 @@ test("historic searches use exact alert type and a verified three-month URL quer
 
   assert.match(query, /^rawName:"Example Rule" and rawType:"Endpoint"/);
   assert.match(query, /created:>="3 months ago"/);
+  assert.equal(new URL(buildIncidentSearchUrl(resolved, "")).search, "");
   assert.equal(assertSearchUrl(url, resolved, query).origin, resolved.allowedOrigin);
   assert.throws(
     () => assertSearchUrl("https://xsoar.example.test/incidents?query=changed", resolved, query),
@@ -68,6 +69,10 @@ test("incident navigation remains in the configured tenant and path", () => {
       incidentPathTemplate: "https://attacker.example/{id}"
     }),
     /absolute path on the configured XSOAR origin/
+  );
+  assert.throws(
+    () => resolveSettings({ allowedOrigin: "https://xsoar.example.test", incidentsPath: "/incidents?query=stale" }),
+    /incidentsPath must be an absolute path/
   );
 });
 
