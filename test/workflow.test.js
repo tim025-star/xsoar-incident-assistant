@@ -155,6 +155,16 @@ test("workflow retains the source-field response if local processing fails", asy
   assert.equal(result.aiEnriched, false);
 });
 
+test("workflow retains the source-field response if local processing returns no facts", async () => {
+  const result = await runIncidentDraft({
+    adapter: createAdapter(), settings,
+    enrichDraft: async () => ({ eventSummary: "", observedFacts: [] })
+  });
+  assert.match(result.draft, /Event info breakdown/);
+  assert.match(result.warning, /source-field response is ready/);
+  assert.equal(result.aiEnriched, false);
+});
+
 test("workflow inserts factual local processing without changing browser concurrency", async () => {
   let enrichmentInput;
   const result = await runIncidentDraft({

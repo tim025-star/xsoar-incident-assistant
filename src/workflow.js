@@ -168,6 +168,10 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
       await onProgress("Running local AI data processing.");
       try {
         const enrichment = await enrichDraft({ incident });
+        const hasProcessedFacts = cleanText(enrichment?.eventSummary)
+          || (Array.isArray(enrichment?.observedFacts)
+            && enrichment.observedFacts.some((item) => cleanText(item)));
+        if (!hasProcessedFacts) throw new Error("Local AI returned no processed facts.");
         draft = buildDraft(output, settings.template, enrichment);
         aiEnriched = true;
       } catch {
