@@ -34,7 +34,7 @@ The extractor deliberately rejects arbitrary `td` elements, unrelated multi-colu
 - The historic query is entered through the visible Incidents-page query bar within the workspace containing the results grid. Candidate controls are ranked by query/search semantics and existing query syntax; ambiguous matches fail closed.
 - `.header-search`, `.r-header-actions-container`, and launcher search controls are explicitly excluded. The top-right `Search in Incidents` box is a global search box, not the Incidents-page query bar.
 - Playwright fills that input and presses Enter so XSOAR's own event handlers update the search state.
-- The configured query parameter is checked only after submission to confirm XSOAR applied the exact query. Setting the URL parameter directly is not supported because XSOAR can overwrite it from the main search control's state.
+- Search submission is confirmed only when the exact query remains in that same control and the incidents workspace mutates. Current XSOAR builds can keep search state entirely in the page without mirroring it into the URL.
 - Results remain scoped to the configured same-origin incidents path and same-origin incident links.
 - Current XSOAR result links can use `/incident<view-id>/<ticket-id>/overview`; the second numeric segment is the incident ticket ID. Legacy `/incident/<ticket-id>` and configured custom-layout routes remain supported.
 

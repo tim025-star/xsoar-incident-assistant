@@ -361,7 +361,7 @@ test("historic search recognises links that use the configured custom incident r
   }
 });
 
-test("historic search recognises the incident overview links rendered by current XSOAR", async () => {
+test("historic search recognises current XSOAR overview links without requiring URL query state", async () => {
   const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
   const link = { ...visible, getAttribute: () => "/incident123/4199/overview" };
   const table = {
@@ -372,7 +372,7 @@ test("historic search recognises the incident overview links rendered by current
     querySelectorAll: (selector) => selector === "a[href]" ? [link] : []
   };
 
-  globalThis.location = new URL("https://xsoar.example.test/incidents?query=expected");
+  globalThis.location = new URL("https://xsoar.example.test/incidents");
   globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
   globalThis.document = {
     body: table,
