@@ -10,8 +10,48 @@ import { assertIncidentUrl, assertSearchUrl, assertTrustedUrl } from "./domain.j
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "./page-adapter.js";
 
 const CHROME_SETUP_URL = "chrome://inspect/#remote-debugging";
-const INCIDENT_SEARCH_INPUT = 'input[placeholder="Search in Incidents"], input.header-search-input.search-input';
 const HISTORIC_SEARCH_OBSERVATION_KEY = "__xsoarIncidentAssistantHistoricSearch";
+
+function findIncidentQueryBar() {
+  const selector = 'input:not([type]),input[type="text"],input[type="search"],textarea,[contenteditable="true"]';
+  const results = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page");
+  const incidentsPage = document.querySelector("#incidents-page,.incidents-page,.incidents-container");
+  const workspace = results?.closest("main,[role='main']")
+    || incidentsPage?.closest("main,[role='main']")
+    || incidentsPage
+    || document.querySelector("main,[role='main']");
+  if (!workspace) return null;
+  const candidates = [];
+  for (const element of document.querySelectorAll(selector)) {
+    if (!workspace.contains(element)
+      || element.closest(".header-search,.r-header-actions-container,base-launcher-input-search-bar,xsoar-launcher-input-search-bar")) continue;
+    const style = window.getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden"
+      || !(element.offsetWidth || element.offsetHeight || element.getClientRects().length)) continue;
+    const value = String(element.value ?? element.textContent ?? "").trim();
+    const attributes = ["aria-label", "placeholder", "name", "class", "data-test-id", "data-testid"]
+      .map((name) => element.getAttribute(name) || "").join(" ");
+    const label = element.closest("label")?.textContent || "";
+    let ancestorText = "";
+    for (let ancestor = element.parentElement, depth = 0;
+      ancestor && ancestor !== workspace && depth < 5;
+      ancestor = ancestor.parentElement, depth += 1) {
+      ancestorText += ` ${ancestor.className || ""} ${ancestor.getAttribute("data-test-id") || ""}`;
+    }
+    let score = 0;
+    if (/query|search/i.test(attributes)) score += 8;
+    if (/query|search/i.test(label)) score += 5;
+    if (/query|search|filter/i.test(ancestorText)) score += 5;
+    if (/(?:^|\s)-?(?:status|category|type|rawname|rawtype|created)\s*:/i.test(value)) score += 10;
+    if (element.matches("textarea,[contenteditable='true']")) score += 2;
+    if (/react-select|dropdown|date|picker/i.test(`${attributes} ${ancestorText}`)) score -= 10;
+    candidates.push({ element, score });
+  }
+  candidates.sort((left, right) => right.score - left.score);
+  if (!candidates.length || candidates[0].score < 5
+    || (candidates[1] && candidates[1].score === candidates[0].score)) return null;
+  return candidates[0].element;
+}
 
 export async function submitHistoricSearch(page, options) {
   const expectedQuery = String(options.expectedQuery || "").trim();
@@ -25,11 +65,13 @@ export async function submitHistoricSearch(page, options) {
     throw new Error("Historic search refused to interact with a page outside the configured incidents page.");
   }
   const timeout = Math.min(Math.max(Number(options.timeoutMs) || 20000, 1000), 120000);
-  const input = page.locator(INCIDENT_SEARCH_INPUT).first();
+  let input;
   try {
-    await input.waitFor({ state: "visible", timeout });
+    const handle = await page.waitForFunction(findIncidentQueryBar, undefined, { timeout });
+    input = handle.asElement();
+    if (!input) throw new Error("The incidents query bar was not an editable element.");
   } catch (error) {
-    throw new Error("XSOAR's main incidents search input did not become ready before the timeout.", { cause: error });
+    throw new Error("XSOAR's incidents-page query bar did not become ready before the timeout.", { cause: error });
   }
   await input.fill(expectedQuery);
   await page.evaluate(({ observationKey }) => {

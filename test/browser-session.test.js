@@ -130,23 +130,21 @@ test("closes a temporary tab when its initial navigation fails", async () => {
   assert.equal(closed, true);
 });
 
-test("submits historic queries through the visible XSOAR incidents search input", async () => {
+test("submits historic queries through the visible XSOAR incidents query bar", async () => {
   const calls = [];
   const input = {
-    waitFor: async (options) => calls.push(["waitFor", options]),
     fill: async (value) => calls.push(["fill", value]),
     press: async (key) => calls.push(["press", key])
   };
+  let waitCalls = 0;
   const page = {
     url: () => "https://xsoar.example.test/incidents",
-    locator: (selector) => {
-      calls.push(["locator", selector]);
-      return { first: () => input };
-    },
     evaluate: async (_callback, argument) => calls.push(["evaluate", argument]),
     waitForFunction: async (callback, argument, options) => {
       calls.push(["waitForFunction", argument, options]);
       assert.equal(typeof callback, "function");
+      waitCalls += 1;
+      return waitCalls === 1 ? { asElement: () => input } : undefined;
     }
   };
 
@@ -159,8 +157,7 @@ test("submits historic queries through the visible XSOAR incidents search input"
   });
 
   assert.deepEqual(calls, [
-    ["locator", 'input[placeholder="Search in Incidents"], input.header-search-input.search-input'],
-    ["waitFor", { state: "visible", timeout: 20000 }],
+    ["waitForFunction", undefined, { timeout: 20000 }],
     ["fill", 'rawName:"Example Rule" and rawType:"Endpoint"'],
     ["evaluate", { observationKey: "__xsoarIncidentAssistantHistoricSearch" }],
     ["press", "Enter"],
@@ -177,10 +174,7 @@ test("historic search validates the incidents path before touching the search in
   let locatorCalls = 0;
   const page = {
     url: () => "https://xsoar.example.test/other-page",
-    locator: () => {
-      locatorCalls += 1;
-      return { first: () => ({ waitFor: async () => {}, fill: async () => {}, press: async () => {} }) };
-    },
+    locator: () => { locatorCalls += 1; },
     waitForFunction: async () => {}
   };
 

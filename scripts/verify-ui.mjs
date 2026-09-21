@@ -278,7 +278,7 @@ try {
   const historicQuery = 'rawName:"Example detection" and rawType:"Endpoint" and (created:>="3 months ago")';
   await searchPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
     contentType: "text/html",
-    body: `<input autocomplete="off" placeholder="Search in Incidents" type="text" class="xsoar-input search-input header-search-input"><div id="incidents-page" role="grid"></div><div class="table-paging-message"></div><script>document.querySelector("input").addEventListener("keydown", (event) => { if (event.key !== "Enter") return; const query = event.currentTarget.value; history.replaceState({}, "", "/incidents?query=" + encodeURIComponent(query)); document.querySelector("#incidents-page").innerHTML = '<a href="/Custom/GenericLayout/4199">4199</a>'; document.querySelector(".table-paging-message").textContent = "1-1 of 1"; });</script>`
+    body: `<header><span class="header-search"><input autocomplete="off" placeholder="Search in Incidents" type="text" class="xsoar-input search-input header-search-input"></span></header><main id="incidents-page"><div class="react-select-dropdown-multiple__input"><input type="text"></div><label>Incident query<textarea aria-label="Incident search query">-status:closed -category:job</textarea></label><div role="grid" aria-rowcount="0"></div><div class="table-paging-message"></div></main><script>document.querySelector("textarea").addEventListener("keydown", (event) => { if (event.key !== "Enter") return; event.preventDefault(); const query = event.currentTarget.value; history.replaceState({}, "", "/incidents?query=" + encodeURIComponent(query)); document.querySelector("[role=grid]").innerHTML = '<a href="/Custom/GenericLayout/4199">4199</a>'; document.querySelector("[role=grid]").setAttribute("aria-rowcount", "1"); document.querySelector(".table-paging-message").textContent = "1-1 of 1"; });</script>`
   }));
   await searchPage.goto("https://xsoar.example.test/incidents");
   await submitHistoricSearch(searchPage, {
@@ -288,6 +288,9 @@ try {
     queryParameter: "query",
     timeoutMs: 2000
   });
+  assert.equal(await searchPage.locator(".header-search input").inputValue(), "");
+  assert.equal(await searchPage.locator(".react-select-dropdown-multiple__input input").inputValue(), "");
+  assert.equal(await searchPage.locator("#incidents-page textarea").inputValue(), historicQuery);
   const historicResults = await searchPage.evaluate(extractSearchResultsFromPage, {
     expectedOrigin: "https://xsoar.example.test",
     expectedPath: "/incidents",
@@ -315,7 +318,7 @@ try {
   assert.equal(delayedIncident.ruleName, "Delayed Rule");
   assert.equal(delayedIncident.caseType, "Endpoint");
 
-  console.log("Current-Chrome-only UI, upgrade migration, main-search submission, and extraction verification passed.");
+  console.log("Current-Chrome-only UI, upgrade migration, incidents-query submission, and extraction verification passed.");
 } finally {
   await browser?.close();
   app.server.closeAllConnections?.();
