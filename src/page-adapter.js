@@ -43,6 +43,12 @@ export async function extractIncidentFromPage(settings) {
       .forEach((element) => element.remove());
     return normalize(copy.innerText || copy.textContent);
   };
+  const incidentFieldsBusy = () => {
+    const busySelector = ".loading-spinner,.spinner,[aria-busy='true']";
+    return Array.from(document.querySelectorAll(".field-wrapper")).filter(isVisible).some((wrapper) =>
+      (wrapper.matches?.(busySelector) && isVisible(wrapper))
+      || Array.from(wrapper.querySelectorAll?.(busySelector) || []).some(isVisible));
+  };
   const normalizeJsonPath = (value) => normalize(value).toLowerCase()
     .replace(/\[(?:\d+|\*)\]/g, ".")
     .split(/[^a-z0-9]+/)
@@ -297,7 +303,7 @@ export async function extractIncidentFromPage(settings) {
     if (signature !== previous) {
       previous = signature;
       stableSince = Date.now();
-    } else if (Date.now() - stableSince >= 500 && result.ticketId) {
+    } else if (Date.now() - stableSince >= 500 && result.ticketId && !incidentFieldsBusy()) {
       const requiredFields = Array.isArray(settings.requiredFields) ? settings.requiredFields : [];
       const requiredAnyFields = Array.isArray(settings.requiredAnyFields) ? settings.requiredAnyFields : [];
       const hasRequirements = requiredFields.length || requiredAnyFields.length || settings.requireAlertJson;
@@ -309,11 +315,27 @@ export async function extractIncidentFromPage(settings) {
       const defaultReady = Object.entries(result).some(([key, value]) =>
           !["ticketId", "tabUrls", "alertJson", "alertJsonComplete", "incidentName"].includes(key) && available(value));
       const requiredReady = allFieldsReady && anyFieldReady && alertJsonReady;
-      if (hasRequirements ? requiredReady
+      const readyForViewDiscovery = settings.allowPartialForTabDiscovery
+        && settings.allowTabDiscovery && result.tabUrls.length > 0;
+      if (hasRequirements ? requiredReady || readyForViewDiscovery
         : defaultReady || (settings.allowTabDiscovery && result.tabUrls.length > 0)) break;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
     result = read();
+  }
+  const partialViewDiscovery = settings.allowPartialForTabDiscovery
+    && settings.allowTabDiscovery && result.tabUrls.length > 0;
+  if (incidentFieldsBusy() && !partialViewDiscovery) {
+    throw new Error("XSOAR incident fields did not finish loading before the timeout.");
+  }
+  const missingRequiredFields = (Array.isArray(settings.requiredFields) ? settings.requiredFields : [])
+    .filter((key) => !available(result[key]));
+  if (missingRequiredFields.length && !partialViewDiscovery) {
+    throw new Error(`Required incident fields did not become ready: ${missingRequiredFields.join(", ")}.`);
+  }
+  const requiredAnyFields = Array.isArray(settings.requiredAnyFields) ? settings.requiredAnyFields : [];
+  if (requiredAnyFields.length && !requiredAnyFields.some((key) => available(result[key])) && !partialViewDiscovery) {
+    throw new Error("Required historic resolution fields did not become ready.");
   }
   return result;
 }

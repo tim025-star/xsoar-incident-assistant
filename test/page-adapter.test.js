@@ -26,7 +26,7 @@ function sectionHeading(label, table) {
   };
 }
 
-function incidentPage({ headings = () => [], extraJsonCells = [], tabLinks = [] } = {}) {
+function incidentPage({ headings = () => [], extraJsonCells = [], tabLinks = [], busy = () => false } = {}) {
   const ruleValue = {
     ...visible,
     getAttribute: () => null,
@@ -45,7 +45,10 @@ function incidentPage({ headings = () => [], extraJsonCells = [], tabLinks = [] 
   const fieldWrapper = {
     ...visible,
     matches: (selector) => selector === ".field-wrapper",
-    querySelector: (selector) => selector === ".value-wrapper" ? valueRoot : null
+    querySelector: (selector) => selector === ".value-wrapper" ? valueRoot : null,
+    querySelectorAll: (selector) => selector.includes("spinner") && busy()
+      ? [{ ...visible }]
+      : []
   };
   const allRows = () => headings().flatMap((heading) => heading.parentElement.querySelector("table")?.rows || []);
   const allCells = () => [...allRows().flatMap((row) => row.cells), ...extraJsonCells];
@@ -106,6 +109,71 @@ test("incident extraction reconstructs only the named XSOAR event tables", async
       { "source.ip": "192.0.2.10", enabled: "true" }
     ]);
     assert.equal(result.alertJsonComplete, true);
+  } finally {
+    globalThis.document = original.document;
+    globalThis.location = original.location;
+    globalThis.window = original.window;
+  }
+});
+
+test("incident extraction rejects a settled page that never exposes a required resolution field", async () => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  globalThis.location = new URL("https://xsoar.example.test/Custom/GenericLayout/4199");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = incidentPage();
+
+  try {
+    await assert.rejects(
+      extractIncidentFromPage(incidentSettings({
+        pageReadyTimeoutMs: 25,
+        requiredAnyFields: ["historicalRecommendations", "closeNotes", "incidentOutcome"]
+      })),
+      /required historic resolution fields did not become ready/i
+    );
+  } finally {
+    globalThis.document = original.document;
+    globalThis.location = original.location;
+    globalThis.window = original.window;
+  }
+});
+
+test("incident extraction can defer required fields to a discovered trusted view", async () => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  const tabLink = {
+    ...visible,
+    textContent: "Investigation",
+    getAttribute: () => "/Custom/GenericLayout/4199?view=Investigation",
+    querySelector: () => ({ textContent: "Investigation" })
+  };
+  globalThis.location = new URL("https://xsoar.example.test/Custom/GenericLayout/4199");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = incidentPage({ tabLinks: [tabLink] });
+
+  try {
+    const result = await extractIncidentFromPage(incidentSettings({
+      requiredAnyFields: ["historicalRecommendations", "closeNotes", "incidentOutcome"],
+      allowTabDiscovery: true,
+      allowPartialForTabDiscovery: true
+    }));
+    assert.deepEqual(result.tabUrls, ["https://xsoar.example.test/Custom/GenericLayout/4199?view=Investigation"]);
+  } finally {
+    globalThis.document = original.document;
+    globalThis.location = original.location;
+    globalThis.window = original.window;
+  }
+});
+
+test("incident extraction waits for a visible field spinner to clear", async () => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  const started = Date.now();
+  globalThis.location = new URL("https://xsoar.example.test/Custom/GenericLayout/4199");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = incidentPage({ busy: () => Date.now() - started < 700 });
+
+  try {
+    const result = await extractIncidentFromPage(incidentSettings({ requiredFields: ["ruleName"] }));
+    assert.equal(result.ruleName, "Synthetic Rule");
+    assert.ok(Date.now() - started >= 700);
   } finally {
     globalThis.document = original.document;
     globalThis.location = original.location;

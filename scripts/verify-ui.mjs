@@ -7,6 +7,7 @@ import { createAssistantServer } from "../src/server.js";
 import { resolveAppConfig } from "../src/config.js";
 import { resolveSettings } from "../src/domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "../src/page-adapter.js";
+import { runIncidentDraft } from "../src/workflow.js";
 
 let uiConfig = resolveAppConfig({
   configVersion: 7,
@@ -317,8 +318,83 @@ try {
   assert.equal(delayedIncident.customerName, "Example Organisation");
   assert.equal(delayedIncident.ruleName, "Delayed Rule");
   assert.equal(delayedIncident.caseType, "Endpoint");
+  await delayedIncidentPage.close();
 
-  console.log("Current-Chrome-only UI, upgrade migration, incidents-query submission, and extraction verification passed.");
+  const workflowContext = await browser.newContext();
+  let historicLoads = 0;
+  await workflowContext.route("https://xsoar.example.test/**", async (route) => {
+    const requested = new URL(route.request().url());
+    if (requested.pathname === "/incidents") {
+      await route.fulfill({
+        contentType: "text/html",
+        body: `<main id="incidents-page"><label>Incident query<textarea aria-label="Incident search query"></textarea></label><div role="grid" aria-rowcount="0"></div><div class="table-paging-message"></div></main><script>document.querySelector("textarea").addEventListener("keydown", (event) => { if (event.key !== "Enter") return; event.preventDefault(); const grid = document.querySelector("[role=grid]"); grid.innerHTML = '<div role="row"><a href="/incidents">#4199</a></div>'; grid.setAttribute("aria-rowcount", "1"); document.querySelector(".table-paging-message").textContent = "1-1 of 1"; });</script>`
+      });
+      return;
+    }
+    const ticketId = requested.pathname.match(/\/(\d+)$/)?.[1] || "";
+    if (ticketId === "4199") historicLoads += 1;
+    const resolution = ticketId === "4199" && historicLoads > 1
+      ? '<div class="field-wrapper fieldId-closenotes"><label>Close Notes</label><div class="value-wrapper"><div class="text-field-display-value">Resolved after foreground retry</div></div></div>'
+      : "";
+    await route.fulfill({
+      contentType: "text/html",
+      body: `<div class="header-inv-id">#${ticketId}</div><div class="header-inv-title">Synthetic alert</div><div class="field-wrapper fieldId-customername"><label>Customer Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper"><div class="text-field-display-value">Synthetic Rule</div></div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper"><div class="text-field-display-value">Endpoint</div></div></div>${resolution}`
+    });
+  });
+  const workflowIncidentPage = await workflowContext.newPage();
+  await workflowIncidentPage.goto("https://xsoar.example.test/Custom/GenericLayout/4200");
+  const workflowSettings = resolveSettings({
+    allowedOrigin: "https://xsoar.example.test",
+    incidentUrlPattern: "\\/Custom\\/GenericLayout\\/\\d+$",
+    pageReadyTimeoutMs: 1000,
+    maxHistoricalIncidents: 1
+  });
+  const workflowAdapter = {
+    getActiveTab: async () => ({ id: workflowIncidentPage, url: workflowIncidentPage.url() }),
+    openTab: async (requestedUrl, { focusBeforeNavigation = false } = {}) => {
+      const openedPage = await workflowContext.newPage();
+      if (focusBeforeNavigation) await openedPage.bringToFront();
+      await openedPage.goto(requestedUrl, { waitUntil: "domcontentloaded" });
+      return { id: openedPage, url: openedPage.url() };
+    },
+    reloadTab: async (openedPage, requestedUrl, { focusBeforeNavigation = false } = {}) => {
+      if (focusBeforeNavigation) await openedPage.bringToFront();
+      await openedPage.goto(requestedUrl, { waitUntil: "domcontentloaded" });
+    },
+    getTabUrl: async (openedPage) => openedPage.url(),
+    extractIncident: async (openedPage, extractionSettings) => openedPage.evaluate(
+      extractIncidentFromPage,
+      extractionSettings
+    ),
+    extractSearchResults: async (openedPage, options) => {
+      await submitHistoricSearch(openedPage, {
+        ...options,
+        expectedOrigin: workflowSettings.allowedOrigin,
+        expectedPath: workflowSettings.incidentsPath
+      });
+      return openedPage.evaluate(extractSearchResultsFromPage, {
+        ...options,
+        expectedOrigin: workflowSettings.allowedOrigin,
+        expectedPath: workflowSettings.incidentsPath,
+        incidentUrlPattern: workflowSettings.incidentUrlPattern
+      });
+    },
+    closeTab: async (openedPage) => openedPage.close(),
+    focusTab: async (openedPage) => openedPage.bringToFront()
+  };
+  const workflowProgress = [];
+  const workflowResult = await runIncidentDraft({
+    adapter: workflowAdapter,
+    settings: workflowSettings,
+    onProgress: async (message) => workflowProgress.push(message)
+  });
+  assert.equal(historicLoads, 2, "an incomplete historic render must receive exactly one foreground retry");
+  assert.match(workflowResult.draft, /#4199: Resolved after foreground retry/);
+  assert.ok(workflowProgress.some((message) => /Retrying historic incident #4199/.test(message)));
+  assert.deepEqual(workflowContext.pages(), [workflowIncidentPage], "temporary search and historic tabs must be closed");
+  await workflowContext.close();
+
+  console.log("Current-Chrome-only UI, foreground historic retry workflow, upgrade migration, incidents-query submission, and extraction verification passed.");
 } finally {
   await browser?.close();
   app.server.closeAllConnections?.();
