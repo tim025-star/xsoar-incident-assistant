@@ -31,6 +31,7 @@ The extractor deliberately rejects arbitrary `td` elements, unrelated multi-colu
 ## Historic incident search
 
 - The incidents page is opened at the configured same-origin `incidentsPath` without a query string.
+- `rawName` is populated from the incident header name (`.header-inv-title`), not the separate `Rule Name` field. `rawType` is populated from the incident `Type`/`Case Type` field.
 - The historic query is entered through the visible Incidents-page query bar within the workspace containing the results grid. Candidate controls are ranked by query/search semantics and existing query syntax; ambiguous matches fail closed.
 - `.header-search`, `.r-header-actions-container`, and launcher search controls are explicitly excluded. The top-right `Search in Incidents` box is a global search box, not the Incidents-page query bar.
 - Playwright fills that input and presses Enter so XSOAR's own event handlers update the search state.
