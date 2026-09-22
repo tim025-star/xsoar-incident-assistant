@@ -31,6 +31,7 @@ Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdir
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: checkedonce
 Name: "installollama"; Description: "Install local &Ollama and qwen3.5:9b from GitHub (about 8.2 GB)"; GroupDescription: "Optional local AI:"; Flags: unchecked
+Name: "installlayamapper"; Description: "Install &Laya-mapper for local JSON field mapping"; GroupDescription: "Optional local AI:"; Flags: unchecked
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\XSOAR Incident Assistant.vbs"""; WorkingDir: "{app}"
@@ -38,4 +39,5 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{sys}\wscript.exe"; Parameters: """
 
 [Run]
 Filename: "{app}\runtime\node.exe"; Parameters: """{app}\scripts\install-local-ai.mjs"""; WorkingDir: "{app}"; Description: "Install Ollama and the default local model from GitHub"; Tasks: installollama; Flags: postinstall skipifsilent
+Filename: "{app}\runtime\node.exe"; Parameters: """{app}\scripts\install-laya-mapper.mjs"" --offline-directory ""{src}"""; WorkingDir: "{app}"; Description: "Install Laya-mapper and its local base checkpoint"; Tasks: installlayamapper; Flags: postinstall skipifsilent
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\XSOAR Incident Assistant.vbs"""; WorkingDir: "{app}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent

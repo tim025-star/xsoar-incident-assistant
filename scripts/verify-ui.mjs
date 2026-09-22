@@ -29,6 +29,8 @@ let foregroundPage = "console";
 let registeredConsoleUrl = "";
 const pulledModels = [];
 const requestedIncidentIds = [];
+const layaExamples = [];
+let layaInstalled = false;
 const firstAiChunk = `{"eventSummary":"${Array.from({ length: 60 }, (_, index) => `field-${index + 1}`).join("\\n")}`;
 const secondAiChunk = '","observedFacts":[]}';
 const generatedDraft = Array.from({ length: 60 }, (_, index) => `Evidence field ${index + 1}: observed value`).join("\n");
@@ -84,13 +86,62 @@ const app = createAssistantServer({
         });
       }
     },
+    layaMapper: {
+      status: async () => ({
+        available: layaInstalled,
+        detail: layaInstalled ? "Laya-mapper is ready." : "Laya-mapper is not installed.",
+        checkpoints: []
+      }),
+      mapIncident: async ({ targets, onProgress }) => {
+        onProgress?.({ detail: "Round 1: ranking chunk 1 of 1 for 1 requested field." });
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        return {
+          fields: targets.includes("sourceIp") ? { sourceIp: "203.0.113.8" } : {},
+          paths: targets.includes("sourceIp") ? { sourceIp: "/documents/0/alertEnvelope/network/peer" } : {},
+          provenance: {}, warning: "", complete: true, chunks: 1, leaves: 7
+        };
+      },
+      close: () => {}
+    },
+    layaMapperInstaller: {
+      installInference: async () => { layaInstalled = true; return { installed: true, checkpointId: "base-multilingual" }; },
+      installTrainingTools: async ({ backend = "auto" } = {}) => ({ installed: true, backend: backend === "auto" ? "cpu" : backend })
+    },
+    layaDataset: {
+      list: async () => layaExamples.map(({ id, createdAt, labels }) => ({
+        id,
+        createdAt,
+        mappedFields: Object.keys(labels).filter((key) => labels[key].state === "mapped"),
+        absentFields: Object.keys(labels).filter((key) => labels[key].state === "absent")
+      })),
+      add: async ({ labels }) => {
+        const example = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), labels };
+        layaExamples.push(example);
+        return example;
+      },
+      remove: async (id) => { const index = layaExamples.findIndex((item) => item.id === id); if (index >= 0) layaExamples.splice(index, 1); },
+      get: async (id) => layaExamples.find((item) => item.id === id),
+      clear: async () => { layaExamples.splice(0); },
+      exportJsonl: async () => layaExamples.map(JSON.stringify).join("\n"),
+      importJsonl: async () => layaExamples
+    },
+    layaTraining: {
+      status: async () => ({ trainerInstalled: false, running: false, checkpoints: [], minimumExamples: 50, examples: layaExamples.length }),
+      listCheckpoints: async () => [],
+      start: async () => ({ id: crypto.randomUUID() }),
+      cancel: async () => {},
+      removeCheckpoint: async () => {},
+      importCheckpoint: async () => ({}),
+      exportCheckpoint: async (_id, destination) => destination,
+      exportTrainingBundle: async (destination) => destination
+    },
     generateDraft: async ({ incidentId, onProgress, enrichDraft }) => {
       requestedIncidentIds.push(incidentId);
       await onProgress("Running local AI data processing.");
       await enrichDraft?.({ incident: {} });
       foregroundPage = "workflow";
       await workflowPage?.bringToFront();
-      return { draft: generatedDraft, warning: "", reviewed: 0, aiEnriched: true };
+      return { draft: generatedDraft, warning: "", reviewed: 0, aiEnriched: true, layaMapped: false, processingMode: "Deterministic extraction + Qwen enrichment" };
     }
   }
 });
@@ -122,6 +173,25 @@ try {
   assert.equal(await page.locator("#profileDirectory").count(), 0);
   assert.equal("session" in uiConfig, false);
   assert.equal(await page.locator("#localAiEnabled").isChecked(), false);
+  assert.equal(await page.locator("#layaMapperEnabled").isChecked(), false);
+  assert.equal(await page.locator("#layaCheckpoint").inputValue(), "base-multilingual");
+  await page.locator("#installLayaMapper").click();
+  await page.getByText("Laya-mapper is ready.").waitFor();
+  await page.locator("#layaMapperEnabled").check();
+  await page.getByText("Laya-mapper config saved.").waitFor();
+  assert.equal(uiConfig.layaMapper.enabled, true);
+  await page.locator("#runLayaTest").click();
+  await page.locator("#layaTestProgress").waitFor();
+  await page.locator("#layaTestProgress").getByText(/Laya test: Round 1:/).waitFor();
+  await page.locator("#layaTestResult").waitFor();
+  assert.equal(await page.locator("#layaTestResult").getByText("203.0.113.8", { exact: true }).count(), 1);
+  assert.equal(await page.locator("#layaTestResult").getByText("/documents/0/alertEnvelope/network/peer", { exact: true }).count(), 1);
+  await page.getByText("Fine-tuning dataset and checkpoints").click();
+  await page.locator("#layaTrainingJson").fill('{"event":{"origin":"203.0.113.4"}}');
+  await page.locator("#layaTrainingOutputs").fill('{"sourceIp":"203.0.113.4","destinationIp":null}');
+  await page.locator("#addLayaExample").click();
+  await page.getByText("Stored examples: 1.").waitFor();
+  assert.equal(layaExamples.length, 1);
   assert.equal(await page.locator("#localAiModel").inputValue(), "qwen3.5:9b");
   assert.deepEqual(await page.locator("#localAiModels option").evaluateAll((options) => options.map((option) => option.value)), ["qwen3.5:9b"]);
   assert.equal(await page.locator("#pullModel").textContent(), "Install default model");
@@ -210,6 +280,7 @@ try {
   assert.equal(await page.locator("#aiDraftAcknowledgement").count(), 0, "copying processed data must not require an acknowledgement gate");
   assert.equal(await page.locator("#aiOutput").count(), 0, "live AI output belongs in the processed-data field, not a separate field");
   assert.equal(await page.locator("#draft").inputValue(), generatedDraft);
+  assert.equal(await page.locator("#processingMode").textContent(), "Processing used: Deterministic extraction + Qwen enrichment.");
   const draftReadingPosition = await page.locator("#draft").evaluate((element) => {
     element.scrollTop = Math.floor(element.scrollHeight / 2);
     return element.scrollTop;

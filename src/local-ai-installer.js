@@ -102,6 +102,10 @@ async function isVerifiedFile(filePath, asset, signal) {
   return (await hashFile(filePath, signal)) === asset.sha256;
 }
 
+export async function verifyAssetFile(filePath, asset, signal) {
+  return isVerifiedFile(filePath, asset, signal);
+}
+
 export async function downloadVerifiedAsset(asset, destination, {
   fetchImplementation = globalThis.fetch,
   onProgress = () => {},

@@ -20,7 +20,7 @@ Download `XSOAR-Incident-Assistant-Setup-<version>-x64.exe` from the project's G
 
 Each release includes a matching `.sha256` file. The installer is currently unsigned, so Windows may show an unknown-publisher warning. Compare the checksum before running it.
 
-1. Run the installer and leave **Create a desktop shortcut** and **Launch XSOAR Incident Assistant** selected. **Install local Ollama and qwen3.5:9b from GitHub** is optional and starts unchecked.
+1. Run the installer and leave **Create a desktop shortcut** and **Launch XSOAR Incident Assistant** selected. **Install local Ollama and qwen3.5:9b from GitHub** and **Install Laya-mapper** are optional and start unchecked.
 2. Open **Configuration**, enter the exact HTTPS origin of your XSOAR tenant, review the field mappings, and save.
 3. Return to **Home** and select **Connect Chrome**. If Chrome access needs attention, use the setup action shown there, approve Chrome's prompt, then connect again.
 
@@ -39,6 +39,22 @@ Every runner and model asset has a fixed byte length and SHA-256 digest in `src/
 Select **Install default model** to use the verified GitHub path. If the default model is already present, the tool verifies it locally and does not contact the registry. Analysts can enter another valid local Ollama model and select **Pull selected model**; that path requires access to the Ollama registry. Both paths install the pinned Ollama runner from GitHub when needed.
 
 Cloud and remote model aliases are blocked. Before Ollama receives incident evidence, the selected model must appear on the loopback service at `127.0.0.1:11434` and pass a fresh local-model check. The tool has no cloud AI endpoint or configurable AI URL. Generated output streams in the processed-data field. Invalid or unavailable AI output falls back to the deterministic source-field response.
+
+### Optional Laya-mapper
+
+Laya-mapper is a separate, fully local semantic field mapper for alert sources whose JSON keys vary between products or customers. It mechanically sends every scalar JSON leaf through a two-round Laya comparison: first selecting relevant chunks for each canonical field, then selecting an exact JSON pointer from every relevant chunk. Code does not use aliases, key names, value shapes, or deterministic semantics to shortlist model candidates. The chosen pointer is resolved against the original document; an invalid choice falls back to the existing configured mapping and produces a visible warning.
+
+The bundled base is Laya `0.3.5` with the `laya-multilingual` checkpoint and its 1,024-token context. The base checkpoint works without fine-tuning but is general-purpose, so analysts must review its output. With both local processors enabled, Laya maps the canonical fields first and Qwen receives those fields plus its existing bounded raw evidence. With only Laya enabled, ordinary code renders the fixed template. With neither enabled, existing deterministic extraction is unchanged.
+
+Laya inference receives the complete bounded alert JSON unchanged. It runs as an on-demand child process with Hugging Face and Transformers forced offline, loads only approved local checkpoint directories, and does not log requests, model inputs, selected values, or training examples. No cloud endpoint is used at runtime. If alert JSON is incomplete, all available documents are still mapped and the draft reports incomplete coverage and any deterministic fallback.
+
+An XSOAR tenant is not required to evaluate the mapper. On **Configuration**, expand **Test Laya-mapper without XSOAR**, paste fictional or otherwise approved alert JSON, select the canonical targets, and run the local test. It uses the active production checkpoint and the same complete-coverage mapping path as incident processing, then displays selected values, exact JSON pointers, rankings, provenance, and warnings. While it runs, the page shows elapsed time and live checkpoint, chunking, round-one, round-two, and final-comparison stages without displaying or logging alert values; the run can be cancelled. Start with one target to make accuracy and runtime easy to assess, then add fields deliberately. Diagnostic input and output remain in memory and are not added to the training dataset.
+
+Clients do not install Python, pip, PyTorch, PowerShell modules, WinGet packages, services, drivers, or PATH entries for Laya. The optional installer verifies fixed sizes and SHA-256 hashes, then expands an application-local self-contained runtime with Windows 11's built-in `tar.exe`. Internet-connected installs download only pinned GitHub Release assets. For restricted or disconnected endpoints, IT can place the reviewed manifest assets beside Setup; the same hashes are verified, and trainer archives found there are retained in the application-data `offline-assets` directory until training is requested.
+
+Fine-tuning data is saved only when an analyst explicitly adds an example. It is stored separately beneath `%LOCALAPPDATA%\XSOAR Incident Assistant\laya-mapper`, not in `config.json`. Each example retains the complete bounded alert JSON and mapped, absent, or unlabelled states. Unique values resolve to their exact pointer automatically; repeated values require the analyst to confirm a pointer. Dataset import/export uses JSON Lines.
+
+Training requires at least 50 whole labelled alerts and uses an alert-level 80/20 train/evaluation split. The training tools are a larger, separate verified archive expanded only when requested. Automatic selection uses the CUDA build when `nvidia-smi` confirms an NVIDIA GPU and otherwise uses CPU; an administrator or analyst can override that choice. CPU training is supported but may be extremely slow. Rolling checkpoints and cancellation are supported. A completed checkpoint reports held-out exact-pointer accuracy, per-field coverage, invalid-selection rate, and fallback rate, and remains inactive until an analyst explicitly selects it. Only compatible JSON and `safetensors` checkpoint bundles are accepted; executable and pickle model content is rejected.
 
 ## Use
 
@@ -63,7 +79,7 @@ XSOAR routes vary by deployment. Before operational use, confirm the configured 
 
 The application never asks for or stores a password or API token, and it does not export Playwright `storageState` or copy Chrome profile files. Authentication remains in the normal Chrome profile. While connected, Playwright can inspect and control tabs exposed by Chrome's approved debugging session, so connect only this trusted local application and disconnect when finished.
 
-Configuration is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. It may include a tenant hostname, analyst identity, Local AI setting, selected model name, output wording, and field-label mappings, but it must not contain credentials or incident content. Processed data stays in memory and reaches the clipboard only after the analyst selects **Copy processed data**. Only bounded evidence from the selected incident goes to loopback Ollama. Matching historic resolutions are appended locally after processing.
+Configuration is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. It may include a tenant hostname, analyst identity, Local AI setting, selected model/checkpoint names, output wording, and field-label mappings, but it must not contain credentials or incident content. Explicitly saved Laya training examples and checkpoints use the separate `laya-mapper` directory described above. Processed data stays in memory and reaches the clipboard only after the analyst selects **Copy processed data**. Only bounded evidence from the selected incident goes to loopback Ollama or the local Laya process. Matching historic resolutions are appended locally after processing.
 
 An organisation must review and approve the tool against its own browser, identity, information-handling, and software policies. See [SECURITY.md](SECURITY.md).
 
@@ -76,6 +92,9 @@ An organisation must review and approve the tool against its own browser, identi
 - `src/browser-session.js`: user-approved current-Chrome connection and the browser adapter.
 - `src/local-ai.js`: loopback-only Ollama client, bounded evidence construction, and strict enrichment validation.
 - `src/local-ai-installer.js`: pinned GitHub downloads, checksums, resumable model assembly, and local Ollama import.
+- `src/laya-mapper.js`: lossless flattening, model-only candidate routing, two-round comparison, exact-pointer validation, and sidecar lifecycle.
+- `src/laya-dataset.js`, `src/laya-training.js`: explicit local training examples, safe checkpoint management, and offline fine-tuning orchestration.
+- `src/laya-mapper-installer.js`: verified on-demand inference/checkpoint and training-runtime installation.
 - `src/rpc.js`: typed oRPC operations and local application state.
 - `src/server.js`: Hono loopback server, request security checks, and static delivery.
 - `web/`: Solid and Tailwind configuration/status interface, built by Vite into ignored `dist/` output.
@@ -95,10 +114,11 @@ npm audit --audit-level=high
 
 ### Creating a Windows release
 
-The end-user installer is built only from a version tag. It stages the built application, production dependencies, and a pinned portable Node.js runtime, then packages them with Inno Setup. Ollama and default-model versions, URLs, sizes, and hashes are pinned in `src/local-ai-installer.js`.
+The end-user installer is built only from a version tag. It stages the built application, production dependencies, a pinned portable Node.js runtime, and the reviewed Laya asset manifest, then packages them with Inno Setup. Ollama and default-model versions, URLs, sizes, and hashes are pinned in `src/local-ai-installer.js`; the Laya CPU inference archive, separate CPU and CUDA training archives, and checkpoint files are pinned by size and SHA-256 in the staged release manifest.
 
-1. Update `package.json` with the release version and push a matching `v<version>` tag.
-2. The **Windows release** workflow verifies the project and runtime checksum, builds the unsigned installer, writes its SHA-256 sidecar, and publishes both files to the GitHub Release.
+1. Run the manual **Laya-mapper Windows assets** workflow to build and smoke-test the application-local CPU inference archive, CPU and CUDA trainer archives, and the pinned `laya-multilingual` checkpoint. Review the generated schema-v2 manifest and dependency inventories, then set repository variables `LAYA_MAPPER_MANIFEST_URL` and `LAYA_MAPPER_MANIFEST_SHA256`. For a local package, set `LAYA_MAPPER_MANIFEST_PATH` to that reviewed file. To prepare a disconnected deployment, download every manifest asset into the same directory as the resulting Setup executable; no network access is then required by the Laya installation task.
+2. Update `package.json` with the release version and push a matching `v<version>` tag.
+3. The **Windows release** workflow verifies the project and runtime checksum, builds the unsigned installer, writes its SHA-256 sidecar, and publishes both files to the GitHub Release.
 
 Tests and examples must use fictional data and reserved domains such as `example.test`. Never commit browser profiles, production HTML, screenshots, incident exports, tenant names, credentials, or session data.
 
