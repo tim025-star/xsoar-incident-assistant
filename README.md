@@ -54,6 +54,8 @@ The bounded input limits are 96 KiB, depth 30, and 10,000 visited nodes. CPU mic
 
 Installation uses verified GitHub release assets (fixed size and SHA-256), an inference-only schema-v3 manifest, an app-local `runtime-v2`, and `models/base-english`. The installer starts the installed runtime and performs a protocol-2 inference smoke check before reporting success. No Python installation or trainer download is required for end users. Offline asset packs are supported. Old protocol-1 executables cannot run the new mapper.
 
+Selecting **Install Laya-mapper** downloads about 970 MiB and uses about 1.3 GiB after installation. The measured single-worker process peaks near 2.8 GiB RAM; the automatic mode keeps one model resident and uses the available CPU thread budget while reserving two logical processors for Windows and the application.
+
 See [the baseline implementation and measured results](docs/laya-baseline.md) for evaluation commands, the labelled development/evaluation split, evidence and limitations.
 
 The diagnostics mapper uses exact typed-value grouping with source aliases. It reports value agreement separately from pointer agreement and retains every alias for review. The [measured comparison](docs/laya-improvements.md) explains why richer role context, two-candidate comparisons, and model self-checks were rejected. No vendor-specific semantic mappings or training are present in this baseline.
@@ -96,8 +98,8 @@ An organisation must review and approve the tool against its own browser, identi
 - `src/local-ai-installer.js`: pinned GitHub downloads, checksums, resumable model assembly, and local Ollama import.
 - `src/laya-mapper.js`, `src/laya-targets.js`: stable field records, shared target meanings, exhaustive scoring, complete bucket comparisons, and exact-pointer resolution.
 - `src/laya-worker.js`, `laya-mapper/runner.py`: protocol-2 workers, cancellation, token-safe independent batching, and pinned English CPU inference.
-- `src/laya-dataset.js`, `src/laya-training.js`: explicit local training examples, safe checkpoint management, and offline fine-tuning orchestration.
-- `src/laya-mapper-installer.js`: verified on-demand inference/checkpoint and training-runtime installation.
+- `src/laya-dataset.js`, `src/laya-training.js`: preserved legacy training data/checkpoint modules; their controls and checkpoint activation are disabled during the base-English baseline.
+- `src/laya-mapper-installer.js`: verified on-demand installation of the inference-only runtime and pinned English checkpoint.
 - `src/rpc.js`: typed oRPC operations and local application state.
 - `src/server.js`: Hono loopback server, request security checks, and static delivery.
 - `web/`: Solid and Tailwind configuration/status interface, built by Vite into ignored `dist/` output.
