@@ -66,6 +66,13 @@ class FakeRunner:
 
 
 class CompilerTests(unittest.TestCase):
+    def test_write_jsonl_hashes_exact_written_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "compiled.jsonl"
+            digest = compiler.write_jsonl(path, [{"value": "one"}, {"value": "two"}])
+            self.assertEqual(digest, compiler.sha256_file(path))
+            self.assertNotIn(b"\r\n", path.read_bytes())
+
     def test_mapped_labels_resolve_exact_typed_eligible_values(self):
         self.assertEqual(compiler.validate_source_record(source())["sampleId"], "sample-1")
         wrong = source()

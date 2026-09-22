@@ -414,8 +414,9 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> str:
     content = "".join(canonical_json(row) + "\n" for row in rows)
-    path.write_text(content, encoding="utf-8")
-    return sha256_bytes(content.encode("utf-8"))
+    encoded = content.encode("utf-8")
+    path.write_bytes(encoded)
+    return sha256_bytes(encoded)
 
 
 def serve_prepare(base: Path) -> None:
