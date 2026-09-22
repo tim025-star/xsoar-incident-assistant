@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { copyFile, mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { LAYA_MODEL } from "../src/laya-targets.js";
 
-const [runtimePath, cpuTrainerPath, cudaTrainerPath, modelDirectory, outputDirectory, repository, releaseTag] = process.argv.slice(2);
-if (![runtimePath, cpuTrainerPath, cudaTrainerPath, modelDirectory, outputDirectory, repository, releaseTag].every(Boolean)) {
-  throw new Error("Usage: create-laya-release-manifest <runtime-archive> <cpu-trainer-archive> <cuda-trainer-archive> <model-dir> <output-dir> <owner/repo> <release-tag>");
+const [runtimePath, modelDirectory, outputDirectory, repository, releaseTag] = process.argv.slice(2);
+if (![runtimePath, modelDirectory, outputDirectory, repository, releaseTag].every(Boolean)) {
+  throw new Error("Usage: create-laya-release-manifest <runtime-archive> <model-dir> <output-dir> <owner/repo> <release-tag>");
 }
 if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !/^[A-Za-z0-9._-]+$/.test(releaseTag)) {
   throw new Error("The GitHub repository or release tag is invalid.");
@@ -45,14 +46,11 @@ async function stage(source, name, extra = {}) {
 
 await mkdir(outputDirectory, { recursive: true });
 const runtime = await stage(runtimePath, "laya-mapper-runtime-cpu-x64.tar.gz", { entry: "laya-mapper.exe" });
-const trainers = {
-  cpu: await stage(cpuTrainerPath, "laya-trainer-cpu-x64.tar.gz", { entry: "laya-trainer.exe" }),
-  cuda: await stage(cudaTrainerPath, "laya-trainer-cuda-x64.tar.gz", { entry: "laya-trainer.exe" })
-};
 const modelFiles = [];
 for (const item of await files(modelDirectory)) {
-  const assetName = `laya-multilingual-${item.relative.replaceAll("/", "--")}`;
+  if (item.relative.startsWith(".cache/")) continue;
+  const assetName = `laya-english-${item.relative.replaceAll("/", "--")}`;
   modelFiles.push(await stage(item.absolute, assetName, { path: item.relative }));
 }
-const manifest = { schemaVersion: 2, layaVersion: "0.3.5", runtime, trainers, modelFiles };
+const manifest = { schemaVersion: 3, protocolVersion: 2, layaVersion: "0.3.5", model: LAYA_MODEL, runtime, modelFiles };
 await writeFile(path.join(outputDirectory, "laya-mapper-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);

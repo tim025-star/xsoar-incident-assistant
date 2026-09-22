@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { downloadVerifiedAsset, verifyAssetFile } from "./local-ai-installer.js";
+import { LAYA_MODEL } from "./laya-targets.js";
 
 const PROCESS_OUTPUT_LIMIT = 2 * 1024 * 1024;
 const EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -36,11 +37,13 @@ function validateArchive(asset, expectedEntry) {
 }
 
 export function parseLayaInstallManifest(value) {
-  if (!value || value.schemaVersion !== 2 || value.layaVersion !== "0.3.5") {
+  if (!value || ![2, 3].includes(value.schemaVersion) || value.layaVersion !== "0.3.5") {
     throw new Error("The Laya-mapper installation manifest is invalid.");
   }
   const runtime = validateArchive(value.runtime, "laya-mapper.exe");
-  const trainers = {
+  const baseline = value.schemaVersion === 3;
+  if (baseline && (value.protocolVersion !== 2 || value.model?.id !== LAYA_MODEL.id || value.model?.repository !== LAYA_MODEL.repository || value.model?.revision !== LAYA_MODEL.revision)) throw new Error("The English Laya model identity is invalid.");
+  const trainers = baseline ? {} : {
     cpu: validateArchive(value.trainers?.cpu, "laya-trainer.exe"),
     cuda: validateArchive(value.trainers?.cuda, "laya-trainer.exe")
   };
@@ -52,7 +55,8 @@ export function parseLayaInstallManifest(value) {
     }
     return item;
   });
-  return { schemaVersion: 2, layaVersion: value.layaVersion, runtime, trainers, modelFiles };
+  if (new Set(modelFiles.map((item) => item.path.toLowerCase())).size !== modelFiles.length) throw new Error("Duplicate model file path.");
+  return { schemaVersion: value.schemaVersion, protocolVersion: baseline ? 2 : 1, model: baseline ? LAYA_MODEL : { id: "base-multilingual" }, layaVersion: value.layaVersion, runtime, trainers, modelFiles };
 }
 
 export async function loadLayaInstallManifest(filePath) {
@@ -228,13 +232,13 @@ export function createLayaMapperInstaller({
       const total = manifest.runtime.size + manifest.modelFiles.reduce((sum, item) => sum + item.size, 0);
       let completed = 0;
       const progress = (status, assetCompleted) => onProgress({ status, completed: completed + assetCompleted, total });
-      await installArchive(manifest.runtime, path.join(rootDirectory, "runtime"), {
+      await installArchive(manifest.runtime, path.join(rootDirectory, manifest.protocolVersion === 2 ? "runtime-v2" : "runtime"), {
         signal,
         onProgress: ({ completed: value }) => progress(`Installing Laya-mapper ${manifest.runtime.name}.`, value)
       });
       completed += manifest.runtime.size;
       for (const asset of manifest.modelFiles) {
-        await installFile(asset, path.join(rootDirectory, "models", "base-multilingual", ...asset.path.split("/")), {
+        await installFile(asset, path.join(rootDirectory, "models", manifest.model.id, ...asset.path.split("/")), {
           signal,
           onProgress: ({ completed: value }) => progress(`Installing Laya-mapper ${asset.name}.`, value)
         });
@@ -243,7 +247,7 @@ export function createLayaMapperInstaller({
       await preserveOfflineTrainingAssets({ signal, onProgress });
       await rm(cacheDirectory, { recursive: true, force: true });
       onProgress({ status: "Laya-mapper is installed.", completed: total, total });
-      return { installed: true, checkpointId: "base-multilingual" };
+      return { installed: true, checkpointId: manifest.model.id };
     },
     async installTrainingTools({ backend = "auto", onProgress = () => {}, signal } = {}) {
       const selectedBackend = backend === "auto" ? await detectTrainingBackend() : backend;

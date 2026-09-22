@@ -93,12 +93,12 @@ const app = createAssistantServer({
         checkpoints: []
       }),
       mapIncident: async ({ targets, onProgress }) => {
-        onProgress?.({ detail: "Round 1: ranking chunk 1 of 1 for 1 requested field." });
+        onProgress?.({ detail: "Final assessment sourceIp: forward 7/7 fields." });
         await new Promise((resolve) => setTimeout(resolve, 700));
         return {
           fields: targets.includes("sourceIp") ? { sourceIp: "203.0.113.8" } : {},
           paths: targets.includes("sourceIp") ? { sourceIp: "/documents/0/alertEnvelope/network/peer" } : {},
-          provenance: {}, warning: "", complete: true, chunks: 1, leaves: 7
+          statuses: Object.fromEntries(targets.map((t) => [t, t === "sourceIp" ? "selected" : "no_supported_match"])), provenance: Object.fromEntries(targets.map((t) => [t, { agreement: { value: t === "sourceIp" ? "agreed" : "none" } }])), warning: "", complete: true, sourceComplete: true, processingComplete: true, runtime: { effectiveWorkers: 1 }, timings: { totalMs: 700 }, leaves: 7
         };
       },
       close: () => {}
@@ -173,25 +173,25 @@ try {
   assert.equal(await page.locator("#profileDirectory").count(), 0);
   assert.equal("session" in uiConfig, false);
   assert.equal(await page.locator("#localAiEnabled").isChecked(), false);
-  assert.equal(await page.locator("#layaMapperEnabled").isChecked(), false);
-  assert.equal(await page.locator("#layaCheckpoint").inputValue(), "base-multilingual");
+  assert.equal(await page.locator("#layaMapperEnabled").count(), 0);
+  assert.equal(await page.locator("#layaWorkerMode").inputValue(), "auto");
+  await page.locator("#layaModelIdentity").getByText("base-english", { exact: true }).waitFor();
   await page.locator("#installLayaMapper").click();
   await page.getByText("Laya-mapper is ready.").waitFor();
-  await page.locator("#layaMapperEnabled").check();
+  await page.locator("#layaWorkerMode").selectOption("manual");
   await page.getByText("Laya-mapper config saved.").waitFor();
-  assert.equal(uiConfig.layaMapper.enabled, true);
+  assert.equal(uiConfig.layaMapper.enabled, false);
+  assert.equal(uiConfig.layaMapper.workerMode, "manual");
+  assert.equal(await page.locator("#layaExperiment").count(), 0);
   await page.locator("#runLayaTest").click();
   await page.locator("#layaTestProgress").waitFor();
-  await page.locator("#layaTestProgress").getByText(/Laya test: Round 1:/).waitFor();
+  await page.locator("#layaTestProgress").getByText(/Laya test: Final assessment/).waitFor();
   await page.locator("#layaTestResult").waitFor();
   assert.equal(await page.locator("#layaTestResult").getByText("203.0.113.8", { exact: true }).count(), 1);
+  assert.equal(await page.locator("#layaTestResult").getByText("Value agreement: agreed", { exact: true }).count(), 1);
   assert.equal(await page.locator("#layaTestResult").getByText("/documents/0/alertEnvelope/network/peer", { exact: true }).count(), 1);
-  await page.getByText("Fine-tuning dataset and checkpoints").click();
-  await page.locator("#layaTrainingJson").fill('{"event":{"origin":"203.0.113.4"}}');
-  await page.locator("#layaTrainingOutputs").fill('{"sourceIp":"203.0.113.4","destinationIp":null}');
-  await page.locator("#addLayaExample").click();
-  await page.getByText("Stored examples: 1.").waitFor();
-  assert.equal(layaExamples.length, 1);
+  assert.equal(await page.locator("#startLayaTraining").count(), 0);
+  assert.equal(layaExamples.length, 0);
   assert.equal(await page.locator("#localAiModel").inputValue(), "qwen3.5:9b");
   assert.deepEqual(await page.locator("#localAiModels option").evaluateAll((options) => options.map((option) => option.value)), ["qwen3.5:9b"]);
   assert.equal(await page.locator("#pullModel").textContent(), "Install default model");

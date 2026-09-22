@@ -12,9 +12,9 @@ const APP_DATA_DIRECTORY = path.join(localAppDataDirectory, "XSOAR Incident Assi
 const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 13,
+  configVersion: 14,
   xsoar: DEFAULT_SETTINGS,
-  layaMapper: { enabled: false, checkpointId: DEFAULT_LAYA_CHECKPOINT },
+  layaMapper: { enabled: false, checkpointId: DEFAULT_LAYA_CHECKPOINT, workerMode: "auto", workerCount: 1 },
   localAi: { enabled: false, model: DEFAULT_OLLAMA_MODEL }
 });
 
@@ -70,7 +70,7 @@ const legacySessionSchema = z.object({
 }).strict();
 
 export const appConfigInputSchema = z.object({
-  configVersion: z.number().int().min(3).max(13).optional(),
+  configVersion: z.number().int().min(3).max(14).optional(),
   session: legacySessionSchema.optional(),
   xsoar: xsoarInputSchema.optional(),
   layaMapper: layaMapperSettingsSchema.optional(),
@@ -98,7 +98,7 @@ export const appConfigInputSchema = z.object({
 });
 
 export const resolvedAppConfigSchema = z.object({
-  configVersion: z.literal(13),
+  configVersion: z.literal(14),
   xsoar: z.object({
     ...xsoarShape,
     configVersion: z.literal(3),
@@ -130,14 +130,14 @@ export function resolveAppConfig(input = {}, { requireTenant = true, allowRouteM
     }
   }
   const merged = {
-    configVersion: 13,
+    configVersion: 14,
     xsoar: {
       ...structuredClone(DEFAULT_SETTINGS),
       ...(input.xsoar || {}),
       fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...suppliedFieldLabels },
       template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
     },
-    layaMapper: { ...DEFAULT_APP_CONFIG.layaMapper, ...(input.layaMapper || {}) },
+    layaMapper: { ...DEFAULT_APP_CONFIG.layaMapper, ...(input.layaMapper || {}), enabled: false, checkpointId: DEFAULT_LAYA_CHECKPOINT },
     localAi: { ...DEFAULT_APP_CONFIG.localAi, ...(input.localAi || {}) }
   };
   if (!requireTenant && !String(merged.xsoar.allowedOrigin || "").trim()) return merged;

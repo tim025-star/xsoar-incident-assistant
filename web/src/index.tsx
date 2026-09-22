@@ -2,20 +2,20 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid
 import { render } from "solid-js/web";
 
 import { rpc, sessionToken } from "./rpc";
+import { LAYA_TARGET_CATALOGUE } from "../../src/laya-targets.js";
 import "./styles.css";
 
 type AppConfig = Awaited<ReturnType<typeof rpc.config.get>>;
 type Status = Awaited<ReturnType<typeof rpc.status>>;
 type LocalAiStatus = Awaited<ReturnType<typeof rpc.localAi.status>>;
 type LayaStatus = Awaited<ReturnType<typeof rpc.layaMapper.status>>;
-type LayaExample = Awaited<ReturnType<typeof rpc.layaMapper.examples.list>>[number];
 type LayaDiagnostic = Awaited<ReturnType<typeof rpc.layaMapper.diagnostics>>;
 type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "searchQueryParameter";
 type NumberSetting = "maxHistoricalIncidents" | "pageReadyTimeoutMs";
 type TemplateSetting = keyof AppConfig["xsoar"]["template"];
 type FieldLabelSetting = keyof AppConfig["xsoar"]["fieldLabels"];
 
-const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting; name: string; use: string }> = [
+const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting & keyof typeof LAYA_TARGET_CATALOGUE; name: string; use: string }> = [
   { key: "customerName", name: "Customer name", use: "customer.name → greeting and historic match" },
   { key: "occurred", name: "Time stamp", use: "@timestamp → event breakdown" },
   { key: "sourceUsername", name: "Source user", use: "source.user.name → user and source" },
@@ -69,14 +69,6 @@ function App() {
   const [status, setStatus] = createSignal<Status>();
   const [localAiStatus, setLocalAiStatus] = createSignal<LocalAiStatus>();
   const [layaStatus, setLayaStatus] = createSignal<LayaStatus>();
-  const [layaExamples, setLayaExamples] = createSignal<LayaExample[]>([]);
-  const [inspectedExample, setInspectedExample] = createSignal<unknown>();
-  const [trainingJson, setTrainingJson] = createSignal("");
-  const [trainingOutputs, setTrainingOutputs] = createSignal("");
-  const [trainingPointers, setTrainingPointers] = createSignal("");
-  const [bundlePath, setBundlePath] = createSignal("");
-  const [checkpointPath, setCheckpointPath] = createSignal("");
-  const [trainingBackend, setTrainingBackend] = createSignal<"auto" | "cpu" | "cuda">("auto");
   const [mapperTestJson, setMapperTestJson] = createSignal(DEFAULT_MAPPER_TEST_JSON);
   const [mapperTestTargets, setMapperTestTargets] = createSignal<FieldLabelSetting[]>(DEFAULT_MAPPER_TEST_TARGETS);
   const [mapperTestResult, setMapperTestResult] = createSignal<LayaDiagnostic>();
@@ -177,9 +169,7 @@ function App() {
   };
   const refreshLocalAi = async () => setLocalAiStatus(await rpc.localAi.status());
   const refreshLaya = async () => {
-    const [nextStatus, examples] = await Promise.all([rpc.layaMapper.status(), rpc.layaMapper.examples.list()]);
-    setLayaStatus(nextStatus);
-    setLayaExamples(examples);
+    setLayaStatus(await rpc.layaMapper.status());
   };
   const runAction = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -222,29 +212,14 @@ function App() {
     const layaMapper = await rpc.config.saveLayaMapper(current.layaMapper);
     setConfig((latest) => latest ? { ...latest, layaMapper } : latest);
   };
-  const updateLayaMapper = (key: "enabled" | "checkpointId", value: boolean | string) => {
+  const updateLayaMapper = (key: "workerMode" | "workerCount", value: string) => {
     setConfig((current) => {
       if (!current) return current;
       const next = structuredClone(current);
-      if (key === "enabled") next.layaMapper.enabled = Boolean(value);
-      else next.layaMapper.checkpointId = String(value);
+      if (key === "workerMode") next.layaMapper.workerMode = value as "auto" | "manual";
+      else next.layaMapper.workerCount = Number(value);
       return next;
     });
-  };
-  const addTrainingExample = async () => {
-    const raw = JSON.parse(trainingJson());
-    const outputs = JSON.parse(trainingOutputs() || "{}");
-    const pointers = JSON.parse(trainingPointers() || "{}");
-    const labels: Record<string, { state: "mapped" | "absent"; value?: string; pointer?: string }> = Object.fromEntries(
-      Object.entries(outputs).map(([key, value]) => [key, value === null
-        ? { state: "absent" as const }
-        : { state: "mapped" as const, value: String(value), ...(pointers[key] ? { pointer: String(pointers[key]) } : {}) }])
-    );
-    await rpc.layaMapper.examples.add({ documents: [raw], labels });
-    setTrainingJson("");
-    setTrainingOutputs("");
-    setTrainingPointers("");
-    await refreshLaya();
   };
   const toggleMapperTestTarget = (target: FieldLabelSetting, checked: boolean) => {
     setMapperTestTargets((current) => checked
@@ -271,19 +246,6 @@ function App() {
   const cancelMapperTest = async () => {
     try { await rpc.layaMapper.cancelDiagnostic(); }
     catch (error) { setMessage(errorMessage(error)); }
-  };
-  const exportTrainingExamples = async () => {
-    const { jsonl } = await rpc.layaMapper.examples.export();
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([jsonl], { type: "application/x-ndjson" }));
-    link.download = "laya-mapper-training.jsonl";
-    link.click();
-    URL.revokeObjectURL(link.href);
-  };
-  const importTrainingExamples = async (file: File) => {
-    const lines = (await file.text()).split(/\r?\n/).filter(Boolean);
-    for (const jsonl of lines) setLayaExamples(await rpc.layaMapper.examples.import({ jsonl }));
-    await refreshLaya();
   };
 
   const generateDraft = () => runAction(async () => {
@@ -470,25 +432,21 @@ function App() {
         <div class="mb-5">
           <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Optional semantic mapping</p>
           <h2 class="m-0 text-xl font-bold">Laya-mapper</h2>
-          <p class="helper mb-0 mt-2">Maps arbitrary local alert JSON to canonical response fields before deterministic template generation and optional Qwen post-processing.</p>
+          <p class="helper mb-0 mt-2">An experimental, coverage-first baseline for mapping local JSON fields. Normal incident processing remains deterministic.</p>
         </div>
-        <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-slate-50 p-4">
-          <input id="layaMapperEnabled" class="mt-1 h-4 w-4" type="checkbox" checked={settings().layaMapper.enabled} onChange={(event) => {
-            updateLayaMapper("enabled", event.currentTarget.checked);
-            void runAction(persistLayaSettings);
-          }} />
-          <span><span class="block font-bold">Enable Laya-mapper</span><span class="helper mt-1 block">Processes raw alert JSON through the fully local mapper. The base checkpoint is general-purpose and its output must be reviewed.</span></span>
-        </label>
-        <label class="field mt-4">Active checkpoint
-          <select id="layaCheckpoint" class="control" value={settings().layaMapper.checkpointId} onChange={(event) => runAction(async () => {
-            updateLayaMapper("checkpointId", event.currentTarget.value);
-            const layaMapper = await rpc.layaMapper.checkpoints.activate({ id: event.currentTarget.value });
-            setConfig((latest) => latest ? { ...latest, layaMapper } : latest);
-          })}>
-            <option value="base-multilingual">Base multilingual checkpoint</option>
-            <For each={layaStatus()?.training.checkpoints || []}>{(checkpoint) => <option value={checkpoint.id}>{checkpoint.id}</option>}</For>
-          </select>
-        </label>
+        <p id="layaModelIdentity" class="helper">English base checkpoint · <code>base-english</code> · revision <code>1c5edc17a7acd8701df6fc341c0d179f1c62c982</code>. CPU only, unchanged weights. Diagnostics only; never applied to incidents.</p>
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <label class="field">Worker mode
+            <select id="layaWorkerMode" class="control" disabled={busy()} value={settings().layaMapper.workerMode} onChange={(event) => { updateLayaMapper("workerMode", event.currentTarget.value); void runAction(persistLayaSettings); }}>
+              <option value="auto">Automatic</option><option value="manual">Manual</option>
+            </select>
+          </label>
+          <Show when={settings().layaMapper.workerMode === "manual"}><label class="field">Workers
+            <select id="layaWorkerCount" class="control" disabled={busy()} value={settings().layaMapper.workerCount} onChange={(event) => { updateLayaMapper("workerCount", event.currentTarget.value); void runAction(persistLayaSettings); }}>
+              <For each={[1, 2, 3, 4]}>{(count) => <option value={count}>{count}</option>}</For>
+            </select>
+          </label></Show>
+        </div>
         <div class="mt-3 flex flex-wrap gap-2.5">
           <button id="installLayaMapper" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(async () => { await rpc.layaMapper.install(); await refreshLaya(); })}>Install Laya-mapper</button>
           <button id="refreshLayaMapper" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(refreshLaya)}>Check Laya-mapper</button>
@@ -497,7 +455,7 @@ function App() {
 
         <details class="mt-5 border-t border-line pt-4" open>
           <summary class="cursor-pointer font-bold">Test Laya-mapper without XSOAR</summary>
-          <p class="helper">Paste fictional or approved alert JSON. This runs the active production checkpoint locally and shows its selected values, exact JSON pointers, rankings, and warnings. The test is not saved as training data.</p>
+          <p class="helper">Paste fictional or approved alert JSON. This runs the fixed English base model locally with exact typed-value grouping. Repeated values retain every source pointer and alias assessment in provenance; one assessed representative continues into the distinct-value comparison. Every eligible field reaches final assessment. Pasted alerts and results are not saved automatically. Model scores are not calibrated probabilities of correctness.</p>
           <label class="field">Test alert JSON
             <textarea id="layaTestJson" class="control min-h-64 font-mono text-xs" value={mapperTestJson()} onInput={(event) => { setMapperTestJson(event.currentTarget.value); setMapperTestResult(undefined); }} />
           </label>
@@ -505,7 +463,7 @@ function App() {
             <legend class="field mb-2">Canonical fields to map</legend>
             <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <For each={FIELD_MAPPINGS}>{(mapping) => (
-                <label class="flex items-center gap-2 text-sm">
+                <label class="flex items-center gap-2 text-sm" title={LAYA_TARGET_CATALOGUE[mapping.key].description}>
                   <input type="checkbox" checked={mapperTestTargets().includes(mapping.key)} onChange={(event) => toggleMapperTestTarget(mapping.key, event.currentTarget.checked)} />
                   {mapping.name}
                 </label>
@@ -527,78 +485,22 @@ function App() {
           <Show when={mapperTestResult()}>{(result) => (
             <div id="layaTestResult" class="mt-4 grid gap-3">
               <Show when={result().warning}><p class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm" role="alert">{result().warning}</p></Show>
-              <Show when={Object.entries(result().fields).length} fallback={<p class="helper">The mapper did not select a valid value for the requested fields.</p>}>
-                <div class="overflow-auto rounded-xl border border-line">
-                  <table class="w-full text-left text-sm">
-                    <thead class="bg-slate-50"><tr><th class="p-3">Canonical field</th><th class="p-3">Selected value</th><th class="p-3">Exact JSON pointer</th></tr></thead>
-                    <tbody><For each={Object.entries(result().fields)}>{([field, value]) => <tr class="border-t border-line"><td class="p-3 font-bold">{field}</td><td class="p-3">{String(value)}</td><td class="p-3 font-mono text-xs">{result().paths[field] || ""}</td></tr>}</For></tbody>
-                  </table>
-                </div>
-              </Show>
+              <p class="helper">Workers: {result().runtime?.effectiveWorkers ?? 0} · Fields: {result().leaves} · Source complete: {String(result().sourceComplete)} · Model processing complete: {String(result().processingComplete)} · {result().timings.totalMs} ms</p>
+              <div class="overflow-auto rounded-xl border border-line">
+                <table class="w-full text-left text-sm">
+                  <thead class="bg-slate-50"><tr><th class="p-3">Canonical field</th><th class="p-3">Status</th><th class="p-3">Value / best guess</th><th class="p-3">Exact pointer and alternatives</th></tr></thead>
+                  <tbody><For each={Object.entries(result().statuses)}>{([field, status]) => <tr class="border-t border-line">
+                    <td class="p-3 font-bold">{field}</td><td class="p-3">{String(status)}</td><td class="p-3"><span>{String(result().fields[field] ?? "—")}</span><div class="mt-1 text-xs text-muted">Value agreement: {result().provenance[field].agreement?.value || "not recorded"}</div></td>
+                    <td class="p-3 font-mono text-xs">{result().paths[field] || "—"}<Show when={status === "tentative"}><div class="mt-2 text-amber-800">Alternatives: {[...new Set([...(result().provenance[field].nominees || []), ...(result().provenance[field].pointerNominees || [])])].map((id: string) => result().provenance[field].candidates.find((candidate: { id: string }) => candidate.id === id)?.pointer || "none").join(" / ")}</div></Show></td>
+                  </tr>}</For></tbody>
+                </table>
+              </div>
               <details><summary class="cursor-pointer text-sm font-bold">Full model diagnostics and provenance</summary><pre class="control mt-2 max-h-96 overflow-auto text-xs">{JSON.stringify(result(), null, 2)}</pre></details>
             </div>
           )}</Show>
         </details>
 
-        <details class="mt-5 border-t border-line pt-4">
-          <summary class="cursor-pointer font-bold">Fine-tuning dataset and checkpoints</summary>
-          <p class="helper">Training data remains local. Add the raw alert JSON and a JSON object of manually confirmed canonical values. Use <code>null</code> to mark a field explicitly absent; omit unlabelled fields.</p>
-          <div class="grid gap-4 lg:grid-cols-2">
-            <label class="field">Raw alert JSON
-              <textarea id="layaTrainingJson" class="control min-h-48 font-mono text-xs" value={trainingJson()} onInput={(event) => setTrainingJson(event.currentTarget.value)} placeholder={'{"records":{"opaque":"value"}}'} />
-            </label>
-            <label class="field">Confirmed canonical outputs
-              <textarea id="layaTrainingOutputs" class="control min-h-48 font-mono text-xs" value={trainingOutputs()} onInput={(event) => setTrainingOutputs(event.currentTarget.value)} placeholder={'{"sourceIp":"203.0.113.4","destinationIp":null}'} />
-            </label>
-          </div>
-          <label class="field mt-4">Confirmed pointers for duplicate values (optional)
-            <textarea id="layaTrainingPointers" class="control min-h-24 font-mono text-xs" value={trainingPointers()} onInput={(event) => setTrainingPointers(event.currentTarget.value)} placeholder={'{"sourceIp":"/documents/0/network/source/address"}'} />
-            <span class="helper">If a confirmed value occurs more than once, enter the exact JSON pointer reported by the validation message.</span>
-          </label>
-          <div class="mt-3 flex flex-wrap gap-2.5">
-            <button id="addLayaExample" class="button button-secondary" type="button" disabled={busy() || !trainingJson().trim()} onClick={() => runAction(addTrainingExample)}>Add labeled alert</button>
-            <button class="button button-secondary" type="button" disabled={busy() || !layaExamples().length} onClick={() => runAction(exportTrainingExamples)}>Export JSONL</button>
-            <label class="button button-secondary cursor-pointer">Import JSONL<input class="sr-only" type="file" accept=".jsonl,application/x-ndjson,text/plain" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void runAction(() => importTrainingExamples(file)); }} /></label>
-            <button class="button button-secondary" type="button" disabled={busy() || !layaExamples().length} onClick={() => runAction(async () => { setLayaExamples(await rpc.layaMapper.examples.clear()); await refreshLaya(); })}>Delete all examples</button>
-          </div>
-          <p class="helper">Stored examples: {layaExamples().length}. Fine-tuning requires at least {layaStatus()?.training.minimumExamples || 50} labeled alerts.</p>
-          <Show when={layaExamples().length}>
-            <div class="max-h-48 overflow-auto rounded-xl border border-line">
-              <For each={layaExamples()}>{(example) => <div class="flex items-center justify-between gap-3 border-b border-line p-3 text-sm last:border-b-0"><span class="font-mono">{example.id}</span><span class="flex gap-2"><button class="button button-secondary" type="button" onClick={() => runAction(async () => setInspectedExample(await rpc.layaMapper.examples.get({ id: example.id })))}>Inspect</button><button class="button button-secondary" type="button" onClick={() => runAction(async () => { setLayaExamples(await rpc.layaMapper.examples.remove({ id: example.id })); setInspectedExample(undefined); await refreshLaya(); })}>Remove</button></span></div>}</For>
-            </div>
-          </Show>
-          <Show when={inspectedExample()}><pre id="layaInspectedExample" class="control mt-3 max-h-64 overflow-auto text-xs">{JSON.stringify(inspectedExample(), null, 2)}</pre></Show>
-          <div class="mt-4 flex flex-wrap gap-2.5">
-            <select id="layaTrainingBackend" class="control max-w-xs" value={trainingBackend()} onChange={(event) => setTrainingBackend(event.currentTarget.value as "auto" | "cpu" | "cuda")}>
-              <option value="auto">Training backend: automatic</option>
-              <option value="cuda">Training backend: NVIDIA CUDA</option>
-              <option value="cpu">Training backend: CPU (extremely slow)</option>
-            </select>
-            <button class="button button-secondary" type="button" disabled={busy() || layaStatus()?.training.trainerInstalled} onClick={() => runAction(async () => { await rpc.layaMapper.training.install({ backend: trainingBackend() }); await refreshLaya(); })}>Install fine-tuning tools</button>
-            <button id="startLayaTraining" class="button" type="button" disabled={busy() || Boolean(layaStatus()?.training.running) || layaExamples().length < 50} onClick={() => runAction(async () => { await rpc.layaMapper.training.start({ device: "auto" }); await refreshLaya(); })}>Start fine-tuning</button>
-            <Show when={layaStatus()?.training.lastRun && ["cancelled", "failed"].includes(layaStatus()?.training.lastRun?.status || "")}><button class="button button-secondary" type="button" disabled={busy() || Boolean(layaStatus()?.training.running)} onClick={() => runAction(async () => { await rpc.layaMapper.training.start({ device: "auto", resumeRunId: layaStatus()?.training.lastRun?.id }); await refreshLaya(); })}>Resume last run</button></Show>
-            <Show when={layaStatus()?.training.running}><button class="button button-secondary" type="button" onClick={() => runAction(async () => { await rpc.layaMapper.training.cancel(); await refreshLaya(); })}>Cancel training</button></Show>
-          </div>
-          <Show when={layaStatus()?.training.run}><p class="helper" role="status">{layaStatus()?.training.run?.detail} ({Math.round(layaStatus()?.training.run?.progress || 0)}%)</p></Show>
-          <Show when={layaStatus()?.training.trainingBackend}><p class="helper">Installed training backend: {layaStatus()?.training.trainingBackend?.toUpperCase()}.</p></Show>
-          <Show when={layaStatus()?.training.lastRun}><pre class="control overflow-auto text-xs">{JSON.stringify(layaStatus()?.training.lastRun, null, 2)}</pre></Show>
-          <div class="mt-4 grid gap-3 sm:grid-cols-2">
-            <label class="field">Offline training bundle destination<input class="control" value={bundlePath()} onInput={(event) => setBundlePath(event.currentTarget.value)} placeholder="C:\ApprovedTraining\laya-bundle" /></label>
-            <label class="field">Checkpoint directory to import<input class="control" value={checkpointPath()} onInput={(event) => setCheckpointPath(event.currentTarget.value)} placeholder="C:\ApprovedTraining\checkpoint" /></label>
-          </div>
-          <div class="mt-3 flex flex-wrap gap-2.5">
-            <button class="button button-secondary" type="button" disabled={busy() || !bundlePath().trim()} onClick={() => runAction(() => rpc.layaMapper.training.exportBundle({ destinationDirectory: bundlePath().trim() }))}>Export offline training bundle</button>
-            <button class="button button-secondary" type="button" disabled={busy() || !checkpointPath().trim()} onClick={() => runAction(async () => { await rpc.layaMapper.checkpoints.import({ sourceDirectory: checkpointPath().trim() }); await refreshLaya(); })}>Import checkpoint</button>
-            <button class="button button-secondary" type="button" disabled={busy() || settings().layaMapper.checkpointId === "base-multilingual" || !checkpointPath().trim()} onClick={() => runAction(() => rpc.layaMapper.checkpoints.export({ id: settings().layaMapper.checkpointId, destinationDirectory: checkpointPath().trim() }))}>Export active checkpoint</button>
-            <button class="button button-secondary" type="button" disabled={busy() || settings().layaMapper.checkpointId === "base-multilingual"} onClick={() => runAction(async () => {
-              const id = settings().layaMapper.checkpointId;
-              const layaMapper = await rpc.layaMapper.checkpoints.activate({ id: "base-multilingual" });
-              setConfig((latest) => latest ? { ...latest, layaMapper } : latest);
-              await rpc.layaMapper.checkpoints.remove({ id });
-              await refreshLaya();
-            })}>Rollback to base and delete active checkpoint</button>
-          </div>
-        </details>
+        <p class="helper mt-4">Training and custom checkpoints are deferred. Existing datasets and downloaded checkpoints are preserved.</p>
       </section>
 
       <section class="panel">

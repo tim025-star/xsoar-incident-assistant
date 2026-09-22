@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadLayaInstallManifest } from "../src/laya-mapper-installer.js";
 
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const stageDirectory = path.join(rootDirectory, "release-stage");
@@ -51,6 +52,7 @@ async function stageRelease() {
     throw new Error("LAYA_MAPPER_MANIFEST_PATH must point to the pinned Laya-mapper release manifest included with this release.");
   }
   await requireFile(layaMapperManifestPath, "Laya-mapper release manifest");
+  if ((await loadLayaInstallManifest(layaMapperManifestPath)).schemaVersion !== 3) throw new Error("Release packaging requires the English inference-only schema-v3 manifest.");
   await requireFile(path.join(rootDirectory, "dist", "web", "index.html"), "Built web application");
 
   await rm(stageDirectory, { recursive: true, force: true });

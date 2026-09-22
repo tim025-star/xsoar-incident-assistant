@@ -18,6 +18,7 @@ try {
     throw new Error("--training-backend must be auto, cpu, or cuda.");
   }
   const manifest = await loadLayaInstallManifest(manifestPath);
+  if (!trainingBackend && manifest.schemaVersion !== 3) throw new Error("Update to the English inference-only schema-v3 manifest before installing this mapper.");
   const installer = createLayaMapperInstaller({
     manifest,
     offlineDirectories: offlineDirectory ? [offlineDirectory] : []

@@ -1,0 +1,1482 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-22T09:48:09.878Z",
+  "model": {
+    "id": "base-english",
+    "repository": "convaiinnovations/laya",
+    "revision": "1c5edc17a7acd8701df6fc341c0d179f1c62c982",
+    "sdkVersion": "0.3.5",
+    "protocolVersion": 2
+  },
+  "promptVersion": "english-fields-v3",
+  "host": {
+    "processors": 16,
+    "totalMemory": 34282192896,
+    "cpu": "AMD Ryzen 7 5800X3D 8-Core Processor           "
+  },
+  "modelWeightSha256": "891102d372688fc2a094dac56a384bc537b87c63f21f9f3dac0be2b7cbc8d86c",
+  "corpusSha256": "9e9e20c793ae524df89c829fbee9434c32965b79ff346a0c7a9eece2b3717947",
+  "metrics": {
+    "targets": 47,
+    "exact": 24,
+    "accepted": 24,
+    "wrong": 23,
+    "missed": 0,
+    "falseAbsentMappings": 6,
+    "tentative": 33,
+    "tentativeAccepted": 14,
+    "disagreements": 33,
+    "incompleteRuns": 0
+  },
+  "cases": [
+    {
+      "id": "overflow",
+      "split": "development",
+      "targets": [
+        {
+          "target": "clientHostname",
+          "expected": {
+            "preferred": "/documents/0/z_clientHostname"
+          },
+          "actual": "/documents/0/z_clientHostname",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "clientHostname": {
+          "totalFields": 64,
+          "eligible": 64,
+          "rejected": 0,
+          "scored": 64,
+          "finalAssessed": 64,
+          "windowsEvaluated": 64,
+          "omittedContext": 3520
+        }
+      },
+      "ms": 57640,
+      "processingComplete": true
+    },
+    {
+      "id": "entra-signin",
+      "split": "development",
+      "targets": [
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/records/callerIpAddress"
+          },
+          "actual": "/documents/0/records/properties/ipAddress",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 2,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "occurred",
+          "expected": {
+            "preferred": "/documents/0/records/time",
+            "accepted": [
+              "/documents/0/records/properties/createdDateTime"
+            ]
+          },
+          "actual": "/documents/0/timestamp",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 6,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientHostname",
+          "expected": {
+            "preferred": "/documents/0/records/properties/deviceDetail/displayName"
+          },
+          "actual": "/documents/0/records/properties/agent/agentSubjectType",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 4,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientUserName",
+          "expected": {
+            "preferred": "/documents/0/records/properties/userPrincipalName"
+          },
+          "actual": "/documents/0/records/properties/authenticationProcessingDetails/1/value",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 12,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "customerName",
+          "expected": null,
+          "actual": "/documents/0/records/properties/agent/agentType",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "sourceIp": {
+          "totalFields": 105,
+          "eligible": 2,
+          "rejected": 103,
+          "scored": 2,
+          "finalAssessed": 2,
+          "windowsEvaluated": 2,
+          "omittedContext": 40
+        },
+        "occurred": {
+          "totalFields": 105,
+          "eligible": 6,
+          "rejected": 99,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 40
+        },
+        "clientHostname": {
+          "totalFields": 105,
+          "eligible": 99,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "clientUserName": {
+          "totalFields": 105,
+          "eligible": 99,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "customerName": {
+          "totalFields": 105,
+          "eligible": 84,
+          "rejected": 21,
+          "scored": 84,
+          "finalAssessed": 84,
+          "windowsEvaluated": 84,
+          "omittedContext": 1355
+        }
+      },
+      "ms": 327756,
+      "processingComplete": true
+    },
+    {
+      "id": "windows-authentication",
+      "split": "development",
+      "targets": [
+        {
+          "target": "clientUserName",
+          "expected": {
+            "preferred": "/documents/0/TargetUserName"
+          },
+          "actual": "/documents/0/WorkstationName",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 6,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientHostname",
+          "expected": {
+            "preferred": "/documents/0/WorkstationName"
+          },
+          "actual": "/documents/0/Message",
+          "status": "selected",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 4,
+          "correctFieldAssessed": true,
+          "disagreement": false
+        },
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/IpAddress"
+          },
+          "actual": "/documents/0/IpAddress",
+          "status": "selected",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": false
+        },
+        {
+          "target": "occurred",
+          "expected": {
+            "preferred": "/documents/0/TimeCreated"
+          },
+          "actual": "/documents/0/TimeCreated",
+          "status": "selected",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": false
+        }
+      ],
+      "coverage": {
+        "clientUserName": {
+          "totalFields": 7,
+          "eligible": 7,
+          "rejected": 0,
+          "scored": 7,
+          "finalAssessed": 7,
+          "windowsEvaluated": 7,
+          "omittedContext": 0
+        },
+        "clientHostname": {
+          "totalFields": 7,
+          "eligible": 7,
+          "rejected": 0,
+          "scored": 7,
+          "finalAssessed": 7,
+          "windowsEvaluated": 7,
+          "omittedContext": 0
+        },
+        "sourceIp": {
+          "totalFields": 7,
+          "eligible": 1,
+          "rejected": 6,
+          "scored": 1,
+          "finalAssessed": 1,
+          "windowsEvaluated": 1,
+          "omittedContext": 0
+        },
+        "occurred": {
+          "totalFields": 7,
+          "eligible": 1,
+          "rejected": 6,
+          "scored": 1,
+          "finalAssessed": 1,
+          "windowsEvaluated": 1,
+          "omittedContext": 0
+        }
+      },
+      "ms": 11084,
+      "processingComplete": true
+    },
+    {
+      "id": "firewall-roles",
+      "split": "development",
+      "targets": [
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/source/ip"
+          },
+          "actual": "/documents/0/destination/ip",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 3,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "destinationIp",
+          "expected": {
+            "preferred": "/documents/0/destination/ip"
+          },
+          "actual": "/documents/0/collector/ip",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 2,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "sourceHostname",
+          "expected": {
+            "preferred": "/documents/0/source/hostname"
+          },
+          "actual": "/documents/0/collector/ip",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 6,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "incidentOutcome",
+          "expected": {
+            "preferred": "/documents/0/action"
+          },
+          "actual": "/documents/0/action",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 7,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "sourceIp": {
+          "totalFields": 7,
+          "eligible": 3,
+          "rejected": 4,
+          "scored": 3,
+          "finalAssessed": 3,
+          "windowsEvaluated": 3,
+          "omittedContext": 0
+        },
+        "destinationIp": {
+          "totalFields": 7,
+          "eligible": 3,
+          "rejected": 4,
+          "scored": 3,
+          "finalAssessed": 3,
+          "windowsEvaluated": 3,
+          "omittedContext": 0
+        },
+        "sourceHostname": {
+          "totalFields": 7,
+          "eligible": 7,
+          "rejected": 0,
+          "scored": 7,
+          "finalAssessed": 7,
+          "windowsEvaluated": 7,
+          "omittedContext": 0
+        },
+        "incidentOutcome": {
+          "totalFields": 7,
+          "eligible": 7,
+          "rejected": 0,
+          "scored": 7,
+          "finalAssessed": 7,
+          "windowsEvaluated": 7,
+          "omittedContext": 0
+        }
+      },
+      "ms": 8862,
+      "processingComplete": true
+    },
+    {
+      "id": "endpoint-roles",
+      "split": "development",
+      "targets": [
+        {
+          "target": "clientHostname",
+          "expected": {
+            "preferred": "/documents/0/client/hostname"
+          },
+          "actual": "/documents/0/application/name",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 4,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientUserName",
+          "expected": {
+            "preferred": "/documents/0/client/username"
+          },
+          "actual": "/documents/0/application/name",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 2,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "customerName",
+          "expected": null,
+          "actual": "/documents/0/client/username",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "clientHostname": {
+          "totalFields": 5,
+          "eligible": 5,
+          "rejected": 0,
+          "scored": 5,
+          "finalAssessed": 5,
+          "windowsEvaluated": 5,
+          "omittedContext": 0
+        },
+        "clientUserName": {
+          "totalFields": 5,
+          "eligible": 5,
+          "rejected": 0,
+          "scored": 5,
+          "finalAssessed": 5,
+          "windowsEvaluated": 5,
+          "omittedContext": 0
+        },
+        "customerName": {
+          "totalFields": 5,
+          "eligible": 5,
+          "rejected": 0,
+          "scored": 5,
+          "finalAssessed": 5,
+          "windowsEvaluated": 5,
+          "omittedContext": 0
+        }
+      },
+      "ms": 7179,
+      "processingComplete": true
+    },
+    {
+      "id": "closure-narrative",
+      "split": "development",
+      "targets": [
+        {
+          "target": "descriptionLong",
+          "expected": {
+            "preferred": "/documents/0/description"
+          },
+          "actual": "/documents/0/outcome",
+          "status": "selected",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 3,
+          "correctFieldAssessed": true,
+          "disagreement": false
+        },
+        {
+          "target": "closeNotes",
+          "expected": {
+            "preferred": "/documents/0/closeNotes"
+          },
+          "actual": "/documents/0/closeNotes",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "incidentOutcome",
+          "expected": {
+            "preferred": "/documents/0/outcome"
+          },
+          "actual": "/documents/0/outcome",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 3,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "customerName",
+          "expected": {
+            "preferred": "/documents/0/customer/name"
+          },
+          "actual": "/documents/0/customer/name",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "descriptionLong": {
+          "totalFields": 4,
+          "eligible": 4,
+          "rejected": 0,
+          "scored": 4,
+          "finalAssessed": 4,
+          "windowsEvaluated": 4,
+          "omittedContext": 0
+        },
+        "closeNotes": {
+          "totalFields": 4,
+          "eligible": 4,
+          "rejected": 0,
+          "scored": 4,
+          "finalAssessed": 4,
+          "windowsEvaluated": 4,
+          "omittedContext": 0
+        },
+        "incidentOutcome": {
+          "totalFields": 4,
+          "eligible": 4,
+          "rejected": 0,
+          "scored": 4,
+          "finalAssessed": 4,
+          "windowsEvaluated": 4,
+          "omittedContext": 0
+        },
+        "customerName": {
+          "totalFields": 4,
+          "eligible": 4,
+          "rejected": 0,
+          "scored": 4,
+          "finalAssessed": 4,
+          "windowsEvaluated": 4,
+          "omittedContext": 0
+        }
+      },
+      "ms": 9723,
+      "processingComplete": true
+    },
+    {
+      "id": "paired-records",
+      "split": "development",
+      "targets": [
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/attributes/0/value"
+          },
+          "actual": "/documents/0/attributes/0/value",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "destinationIp",
+          "expected": {
+            "preferred": "/documents/0/attributes/1/value"
+          },
+          "actual": "/documents/0/attributes/1/value",
+          "status": "selected",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": false
+        },
+        {
+          "target": "clientUserName",
+          "expected": {
+            "preferred": "/documents/0/attributes/2/value"
+          },
+          "actual": "/documents/0/attributes/2/value",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "sourceIp": {
+          "totalFields": 6,
+          "eligible": 2,
+          "rejected": 4,
+          "scored": 2,
+          "finalAssessed": 2,
+          "windowsEvaluated": 2,
+          "omittedContext": 0
+        },
+        "destinationIp": {
+          "totalFields": 6,
+          "eligible": 2,
+          "rejected": 4,
+          "scored": 2,
+          "finalAssessed": 2,
+          "windowsEvaluated": 2,
+          "omittedContext": 0
+        },
+        "clientUserName": {
+          "totalFields": 6,
+          "eligible": 6,
+          "rejected": 0,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 0
+        }
+      },
+      "ms": 7243,
+      "processingComplete": true
+    },
+    {
+      "id": "absent-targets",
+      "split": "development",
+      "targets": [
+        {
+          "target": "customerName",
+          "expected": null,
+          "actual": "/documents/0/applicationName",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        },
+        {
+          "target": "sourceIp",
+          "expected": null,
+          "actual": null,
+          "status": "no_supported_match",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": false
+        },
+        {
+          "target": "clientHostname",
+          "expected": null,
+          "actual": "/documents/0/applicationName",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        },
+        {
+          "target": "occurred",
+          "expected": null,
+          "actual": null,
+          "status": "no_supported_match",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": false
+        }
+      ],
+      "coverage": {
+        "customerName": {
+          "totalFields": 4,
+          "eligible": 4,
+          "rejected": 0,
+          "scored": 4,
+          "finalAssessed": 4,
+          "windowsEvaluated": 4,
+          "omittedContext": 0
+        },
+        "sourceIp": {
+          "totalFields": 4,
+          "eligible": 0,
+          "rejected": 4,
+          "scored": 0,
+          "finalAssessed": 0,
+          "windowsEvaluated": 0,
+          "omittedContext": 0
+        },
+        "clientHostname": {
+          "totalFields": 4,
+          "eligible": 4,
+          "rejected": 0,
+          "scored": 4,
+          "finalAssessed": 4,
+          "windowsEvaluated": 4,
+          "omittedContext": 0
+        },
+        "occurred": {
+          "totalFields": 4,
+          "eligible": 0,
+          "rejected": 4,
+          "scored": 0,
+          "finalAssessed": 0,
+          "windowsEvaluated": 0,
+          "omittedContext": 0
+        }
+      },
+      "ms": 4571,
+      "processingComplete": true
+    },
+    {
+      "id": "authentication-holdout",
+      "split": "evaluation",
+      "targets": [
+        {
+          "target": "occurred",
+          "expected": {
+            "preferred": "/documents/0/event/timestamp"
+          },
+          "actual": "/documents/0/event/timestamp",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientUserName",
+          "expected": {
+            "preferred": "/documents/0/user/principal"
+          },
+          "actual": "/documents/0/client/address",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 2,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientHostname",
+          "expected": {
+            "preferred": "/documents/0/client/hostname"
+          },
+          "actual": "/documents/0/client/address",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 3,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientIp",
+          "expected": {
+            "preferred": "/documents/0/client/address"
+          },
+          "actual": "/documents/0/client/address",
+          "status": "selected",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": false
+        }
+      ],
+      "coverage": {
+        "occurred": {
+          "totalFields": 8,
+          "eligible": 2,
+          "rejected": 6,
+          "scored": 2,
+          "finalAssessed": 2,
+          "windowsEvaluated": 2,
+          "omittedContext": 0
+        },
+        "clientUserName": {
+          "totalFields": 8,
+          "eligible": 8,
+          "rejected": 0,
+          "scored": 8,
+          "finalAssessed": 8,
+          "windowsEvaluated": 8,
+          "omittedContext": 0
+        },
+        "clientHostname": {
+          "totalFields": 8,
+          "eligible": 8,
+          "rejected": 0,
+          "scored": 8,
+          "finalAssessed": 8,
+          "windowsEvaluated": 8,
+          "omittedContext": 0
+        },
+        "clientIp": {
+          "totalFields": 8,
+          "eligible": 1,
+          "rejected": 7,
+          "scored": 1,
+          "finalAssessed": 1,
+          "windowsEvaluated": 1,
+          "omittedContext": 0
+        }
+      },
+      "ms": 9395,
+      "processingComplete": true
+    },
+    {
+      "id": "network-holdout",
+      "split": "evaluation",
+      "targets": [
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/flow/src_addr"
+          },
+          "actual": "/documents/0/flow/src_addr",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "destinationIp",
+          "expected": {
+            "preferred": "/documents/0/flow/dst_addr"
+          },
+          "actual": "/documents/0/flow/src_addr",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 2,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "sourceHostname",
+          "expected": {
+            "preferred": "/documents/0/flow/src_host"
+          },
+          "actual": "/documents/0/result",
+          "status": "selected",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 4,
+          "correctFieldAssessed": true,
+          "disagreement": false
+        },
+        {
+          "target": "incidentOutcome",
+          "expected": {
+            "preferred": "/documents/0/result"
+          },
+          "actual": "/documents/0/result",
+          "status": "selected",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 6,
+          "correctFieldAssessed": true,
+          "disagreement": false
+        }
+      ],
+      "coverage": {
+        "sourceIp": {
+          "totalFields": 6,
+          "eligible": 3,
+          "rejected": 3,
+          "scored": 3,
+          "finalAssessed": 3,
+          "windowsEvaluated": 3,
+          "omittedContext": 0
+        },
+        "destinationIp": {
+          "totalFields": 6,
+          "eligible": 3,
+          "rejected": 3,
+          "scored": 3,
+          "finalAssessed": 3,
+          "windowsEvaluated": 3,
+          "omittedContext": 0
+        },
+        "sourceHostname": {
+          "totalFields": 6,
+          "eligible": 6,
+          "rejected": 0,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 0
+        },
+        "incidentOutcome": {
+          "totalFields": 6,
+          "eligible": 6,
+          "rejected": 0,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 0
+        }
+      },
+      "ms": 8953,
+      "processingComplete": true
+    },
+    {
+      "id": "incident-holdout",
+      "split": "evaluation",
+      "targets": [
+        {
+          "target": "customerName",
+          "expected": {
+            "preferred": "/documents/0/organisationName"
+          },
+          "actual": "/documents/0/case/type",
+          "status": "selected",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": false
+        },
+        {
+          "target": "closeNotes",
+          "expected": {
+            "preferred": "/documents/0/case/resolutionNotes"
+          },
+          "actual": "/documents/0/case/resolutionNotes",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "descriptionLong",
+          "expected": {
+            "preferred": "/documents/0/case/description"
+          },
+          "actual": "/documents/0/case/description",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "detectionUrl",
+          "expected": {
+            "preferred": "/documents/0/case/detectionUrl"
+          },
+          "actual": "/documents/0/case/detectionUrl",
+          "status": "selected",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": false
+        }
+      ],
+      "coverage": {
+        "customerName": {
+          "totalFields": 6,
+          "eligible": 6,
+          "rejected": 0,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 0
+        },
+        "closeNotes": {
+          "totalFields": 6,
+          "eligible": 6,
+          "rejected": 0,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 0
+        },
+        "descriptionLong": {
+          "totalFields": 6,
+          "eligible": 6,
+          "rejected": 0,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 0
+        },
+        "detectionUrl": {
+          "totalFields": 6,
+          "eligible": 1,
+          "rejected": 5,
+          "scored": 1,
+          "finalAssessed": 1,
+          "windowsEvaluated": 1,
+          "omittedContext": 0
+        }
+      },
+      "ms": 10341,
+      "processingComplete": true
+    },
+    {
+      "id": "missing-holdout",
+      "split": "evaluation",
+      "targets": [
+        {
+          "target": "customerName",
+          "expected": null,
+          "actual": "/documents/0/sessionId",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        },
+        {
+          "target": "clientUserName",
+          "expected": null,
+          "actual": "/documents/0/sessionId",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        },
+        {
+          "target": "sourceIp",
+          "expected": null,
+          "actual": null,
+          "status": "no_supported_match",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": false
+        },
+        {
+          "target": "occurred",
+          "expected": null,
+          "actual": null,
+          "status": "no_supported_match",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": false
+        }
+      ],
+      "coverage": {
+        "customerName": {
+          "totalFields": 5,
+          "eligible": 2,
+          "rejected": 3,
+          "scored": 2,
+          "finalAssessed": 2,
+          "windowsEvaluated": 2,
+          "omittedContext": 0
+        },
+        "clientUserName": {
+          "totalFields": 5,
+          "eligible": 3,
+          "rejected": 2,
+          "scored": 3,
+          "finalAssessed": 3,
+          "windowsEvaluated": 3,
+          "omittedContext": 0
+        },
+        "sourceIp": {
+          "totalFields": 5,
+          "eligible": 0,
+          "rejected": 5,
+          "scored": 0,
+          "finalAssessed": 0,
+          "windowsEvaluated": 0,
+          "omittedContext": 0
+        },
+        "occurred": {
+          "totalFields": 5,
+          "eligible": 0,
+          "rejected": 5,
+          "scored": 0,
+          "finalAssessed": 0,
+          "windowsEvaluated": 0,
+          "omittedContext": 0
+        }
+      },
+      "ms": 3293,
+      "processingComplete": true
+    },
+    {
+      "id": "repeated-ambiguous-holdout",
+      "split": "evaluation",
+      "targets": [
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/source/ip",
+            "accepted": [
+              "/documents/0/client/ip"
+            ]
+          },
+          "actual": "/documents/0/source/ip",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "destinationIp",
+          "expected": {
+            "preferred": "/documents/0/destination/ip"
+          },
+          "actual": "/documents/0/destination/ip",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "occurred",
+          "expected": {
+            "preferred": "/documents/0/eventTime",
+            "accepted": [
+              "/documents/0/activity/startedAt"
+            ]
+          },
+          "actual": "/documents/0/eventTime",
+          "status": "tentative",
+          "exact": true,
+          "accepted": true,
+          "wrong": false,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 1,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "sourceIp": {
+          "totalFields": 6,
+          "eligible": 3,
+          "rejected": 3,
+          "scored": 3,
+          "finalAssessed": 3,
+          "windowsEvaluated": 3,
+          "omittedContext": 0
+        },
+        "destinationIp": {
+          "totalFields": 6,
+          "eligible": 3,
+          "rejected": 3,
+          "scored": 3,
+          "finalAssessed": 3,
+          "windowsEvaluated": 3,
+          "omittedContext": 0
+        },
+        "occurred": {
+          "totalFields": 6,
+          "eligible": 3,
+          "rejected": 3,
+          "scored": 3,
+          "finalAssessed": 3,
+          "windowsEvaluated": 3,
+          "omittedContext": 0
+        }
+      },
+      "ms": 5335,
+      "processingComplete": true
+    }
+  ],
+  "benchmarks": [
+    {
+      "workers": 1,
+      "runs": [
+        {
+          "state": "cold",
+          "ms": 64485,
+          "threadsPerWorker": 14,
+          "peakProcessWorkingSetSum": 2952101888,
+          "paths": {
+            "clientHostname": "/documents/0/z_clientHostname"
+          },
+          "statuses": {
+            "clientHostname": "tentative"
+          },
+          "coverage": {
+            "clientHostname": {
+              "totalFields": 64,
+              "eligible": 64,
+              "rejected": 0,
+              "scored": 64,
+              "finalAssessed": 64,
+              "windowsEvaluated": 64,
+              "omittedContext": 3520
+            }
+          }
+        },
+        {
+          "state": "warm",
+          "ms": 44631,
+          "threadsPerWorker": 14,
+          "peakProcessWorkingSetSum": 2952101888,
+          "paths": {
+            "clientHostname": "/documents/0/z_clientHostname"
+          },
+          "statuses": {
+            "clientHostname": "tentative"
+          },
+          "coverage": {
+            "clientHostname": {
+              "totalFields": 64,
+              "eligible": 64,
+              "rejected": 0,
+              "scored": 64,
+              "finalAssessed": 64,
+              "windowsEvaluated": 64,
+              "omittedContext": 3520
+            }
+          }
+        }
+      ]
+    },
+    {
+      "workers": 2,
+      "runs": [
+        {
+          "state": "cold",
+          "ms": 68911,
+          "threadsPerWorker": 7,
+          "peakProcessWorkingSetSum": 5901090816,
+          "paths": {
+            "clientHostname": "/documents/0/z_clientHostname"
+          },
+          "statuses": {
+            "clientHostname": "tentative"
+          },
+          "coverage": {
+            "clientHostname": {
+              "totalFields": 64,
+              "eligible": 64,
+              "rejected": 0,
+              "scored": 64,
+              "finalAssessed": 64,
+              "windowsEvaluated": 64,
+              "omittedContext": 3520
+            }
+          }
+        },
+        {
+          "state": "warm",
+          "ms": 57273,
+          "threadsPerWorker": 7,
+          "peakProcessWorkingSetSum": 5901090816,
+          "paths": {
+            "clientHostname": "/documents/0/z_clientHostname"
+          },
+          "statuses": {
+            "clientHostname": "tentative"
+          },
+          "coverage": {
+            "clientHostname": {
+              "totalFields": 64,
+              "eligible": 64,
+              "rejected": 0,
+              "scored": 64,
+              "finalAssessed": 64,
+              "windowsEvaluated": 64,
+              "omittedContext": 3520
+            }
+          }
+        }
+      ]
+    },
+    {
+      "workers": 4,
+      "runs": [
+        {
+          "state": "cold",
+          "ms": 96274,
+          "threadsPerWorker": 3,
+          "peakProcessWorkingSetSum": 11797454848,
+          "paths": {
+            "clientHostname": "/documents/0/z_clientHostname"
+          },
+          "statuses": {
+            "clientHostname": "tentative"
+          },
+          "coverage": {
+            "clientHostname": {
+              "totalFields": 64,
+              "eligible": 64,
+              "rejected": 0,
+              "scored": 64,
+              "finalAssessed": 64,
+              "windowsEvaluated": 64,
+              "omittedContext": 3520
+            }
+          }
+        },
+        {
+          "state": "warm",
+          "ms": 82207,
+          "threadsPerWorker": 3,
+          "peakProcessWorkingSetSum": 11797454848,
+          "paths": {
+            "clientHostname": "/documents/0/z_clientHostname"
+          },
+          "statuses": {
+            "clientHostname": "tentative"
+          },
+          "coverage": {
+            "clientHostname": {
+              "totalFields": 64,
+              "eligible": 64,
+              "rejected": 0,
+              "scored": 64,
+              "finalAssessed": 64,
+              "windowsEvaluated": 64,
+              "omittedContext": 3520
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

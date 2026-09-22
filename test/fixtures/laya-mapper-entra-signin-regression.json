@@ -1,0 +1,132 @@
+{
+  "@timestamp": 1790039619000,
+  "org_id": "a893719e-28c6-4f31-95be-761b82fc349d",
+  "records": {
+    "callerIpAddress": "203.0.113.42",
+    "category": "NonInteractiveUserSignInLogs",
+    "correlationId": "4f82b791-375a-4e09-8b6e-c817290da534",
+    "durationMs": 0,
+    "identity": "Alex Morgan",
+    "level": "4",
+    "location": "AU",
+    "operationName": "Sign-in activity",
+    "operationVersion": "1.0",
+    "properties": {
+      "agent": {
+        "agentSubjectType": "notAgentic",
+        "agentType": "notAgentic"
+      },
+      "appDisplayName": "Harbourview Employee Portal",
+      "appId": "6b4d1e89-982c-4c76-a44f-914f0b243a27",
+      "appOwnerTenantId": "92bca518-806f-45e1-9d73-c69a05204fe8",
+      "appliedConditionalAccessPolicies": [
+        {
+          "conditionsNotSatisfied": 1,
+          "conditionsSatisfied": 0,
+          "displayName": "CA001 - Block access from restricted countries",
+          "enforcedGrantControls": ["Block"],
+          "id": "0e6c893b-1af2-4d97-b582-f64d7805c319",
+          "result": "notApplied"
+        }
+      ],
+      "authenticationProcessingDetails": [
+        { "key": "Legacy TLS (TLS 1.0, 1.1, 3DES)", "value": "False" },
+        { "key": "Oauth Scope Info", "value": "[\"openid\",\"profile\",\"User.Read\"]" }
+      ],
+      "authenticationProtocol": "none",
+      "authenticationRequirement": "singleFactorAuthentication",
+      "autonomousSystemNumber": 64520,
+      "clientAppUsed": "Browser",
+      "clientCredentialType": "clientAssertion",
+      "conditionalAccessAudiences": [
+        "00000003-0000-0000-c000-000000000000",
+        "00000002-0000-0000-c000-000000000000",
+        "6b4d1e89-982c-4c76-a44f-914f0b243a27"
+      ],
+      "conditionalAccessStatus": "success",
+      "correlationId": "4f82b791-375a-4e09-8b6e-c817290da534",
+      "createdDateTime": 1790039165518,
+      "crossTenantAccessType": "none",
+      "deviceDetail": {
+        "deviceId": "74c29fd6-381b-4a50-b2e8-dc63f17a9054",
+        "displayName": "HV-MEL-LT-042",
+        "isCompliant": true,
+        "isManaged": true,
+        "operatingSystem": "Windows",
+        "trustType": "Hybrid Azure AD joined"
+      },
+      "flaggedForReview": false,
+      "homeTenantId": "92bca518-806f-45e1-9d73-c69a05204fe8",
+      "id": "1ad85c07-f943-4b62-819e-a07652d49bc3",
+      "incomingTokenType": "none",
+      "ipAddress": "203.0.113.42",
+      "isInteractive": false,
+      "isTenantRestricted": false,
+      "isThroughGlobalSecureAccess": false,
+      "location": {
+        "city": "Melbourne",
+        "countryOrRegion": "AU",
+        "geoCoordinates": { "latitude": -37.8136, "longitude": 144.9631 },
+        "state": "Victoria"
+      },
+      "networkLocationDetails": [
+        { "networkNames": ["Harbourview - Melbourne Office"], "networkType": "namedNetwork" },
+        { "networkNames": ["Harbourview - Trusted Corporate Egress"], "networkType": "trustedNamedLocation" }
+      ],
+      "originalRequestId": "e507cb42-6931-4df8-a290-83c51b076de4",
+      "originalTransferMethod": "none",
+      "processingTimeInMilliseconds": 87,
+      "resourceDisplayName": "Microsoft Graph",
+      "resourceId": "00000003-0000-0000-c000-000000000000",
+      "resourceOwnerTenantId": "f8cdef31-a31e-4b4a-93e4-5f571e91255a",
+      "resourceServicePrincipalId": "a73e159c-6d04-482b-b971-520dc8f346a9",
+      "resourceTenantId": "92bca518-806f-45e1-9d73-c69a05204fe8",
+      "riskDetail": "none",
+      "riskLevelAggregated": "none",
+      "riskLevelDuringSignIn": "none",
+      "riskState": "none",
+      "servicePrincipalId": "df2318a6-79cb-42e5-9f04-86b13c702da8",
+      "servicePrincipalName": "Harbourview Employee Portal",
+      "sessionId": "bc64d831-295e-40fa-87b2-3197a0ed56c4",
+      "signInEventTypes": ["nonInteractiveUser"],
+      "signInTokenProtectionStatus": "none",
+      "status": {
+        "additionalDetails": "MFA requirement satisfied by claim in the token",
+        "errorCode": 0
+      },
+      "tenantId": "92bca518-806f-45e1-9d73-c69a05204fe8",
+      "tokenIssuerType": "AzureAD",
+      "tokenProtectionStatusDetails": {
+        "signInSessionStatus": "unbound",
+        "signInSessionStatusCode": 1008
+      },
+      "uniqueTokenIdentifier": "Qm7N2vFhR0y6xK9dP4sB8A",
+      "userAgent": "node-fetch/1.0 (+https://example.org)",
+      "userDisplayName": "Alex Morgan",
+      "userId": "c2a6d970-5318-4fbe-a047-9d62b381e5fc",
+      "userPrincipalName": "alex.morgan@harbourview.example",
+      "userType": "Member"
+    },
+    "resourceId": "/tenants/92bca518-806f-45e1-9d73-c69a05204fe8/providers/Microsoft.aadiam",
+    "resultSignature": "SUCCESS",
+    "resultType": "0",
+    "tenantId": "92bca518-806f-45e1-9d73-c69a05204fe8",
+    "time": 1790039481477
+  },
+  "source_type": "vector",
+  "tags": {
+    "collector": {
+      "hostname": "hv-mel-log-01",
+      "timestamp": 1790039619000,
+      "timezone": "Australia/Sydney"
+    },
+    "event": {
+      "category": "logs_azure",
+      "org_id": "a893719e-28c6-4f31-95be-761b82fc349d",
+      "site_id": "azure",
+      "type": "event.azure.entraid"
+    }
+  },
+  "timestamp": 1790039619000,
+  "timestamp_received": 1790039619609
+}

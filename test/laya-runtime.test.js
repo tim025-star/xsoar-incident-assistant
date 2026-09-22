@@ -9,6 +9,7 @@ import { PassThrough } from "node:stream";
 
 import { createLayaMapperInstaller, extractLayaArchive, parseLayaInstallManifest } from "../src/laya-mapper-installer.js";
 import { createLayaTrainingManager, MINIMUM_TRAINING_EXAMPLES } from "../src/laya-training.js";
+import { LAYA_MODEL } from "../src/laya-targets.js";
 
 const digest = "a".repeat(64);
 const asset = (name, size = 4) => ({
@@ -27,6 +28,24 @@ const manifest = {
   },
   modelFiles: [{ ...asset("model.safetensors"), path: "model.safetensors" }]
 };
+
+test("English inference manifest requires the pinned identity and no trainer assets", async (context) => {
+  const rootDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-english-install-"));
+  context.after(() => rm(rootDirectory, { recursive: true, force: true }));
+  const baseline = { ...manifest, schemaVersion: 3, protocolVersion: 2, model: LAYA_MODEL };
+  delete baseline.trainers;
+  assert.deepEqual(parseLayaInstallManifest(baseline).trainers, {});
+  assert.throws(() => parseLayaInstallManifest({ ...baseline, model: { ...LAYA_MODEL, revision: "wrong" } }), /identity/);
+  const destinations = [];
+  const installer = createLayaMapperInstaller({ manifest: baseline, rootDirectory,
+    download: async (asset, destination) => { await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, Buffer.alloc(asset.size)); },
+    extract: async (_, destination) => { destinations.push(destination); }
+  });
+  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: "base-english" });
+  assert.deepEqual(destinations, [path.join(rootDirectory, "runtime-v2")]);
+  await access(path.join(rootDirectory, "models/base-english/model.safetensors"));
+  await assert.rejects(installer.installTrainingTools({ backend: "cpu" }), /unavailable/);
+});
 
 test("Laya installation accepts only bounded GitHub release assets and installs verified files", async (context) => {
   const rootDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-install-"));

@@ -1,0 +1,1717 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-22",
+  "defaultExperiment": "baseline",
+  "model": {
+    "id": "base-english",
+    "repository": "convaiinnovations/laya",
+    "revision": "1c5edc17a7acd8701df6fc341c0d179f1c62c982",
+    "sdkVersion": "0.3.5",
+    "protocolVersion": 2
+  },
+  "promptVersion": "english-fields-v4",
+  "corpusHashes": {
+    "test/fixtures/laya-baseline-cases.json": "9e9e20c793ae524df89c829fbee9434c32965b79ff346a0c7a9eece2b3717947",
+    "test/fixtures/laya-robustness-cases.json": "bd22472fc2ff8f5da2752f3e1572df350b3bf031ed5b9087532105812779f4ee"
+  },
+  "reports": [
+    {
+      "input": "artifacts/laya-improvements/ablation.json",
+      "sha256": "e6cc98c50d2c4262115a4850deedf9e09425b7e97df58636dbf5b569ffed1612",
+      "metrics": {
+        "baseline": {
+          "targets": 47,
+          "exact": 24,
+          "accepted": 24,
+          "valuesCorrect": 25,
+          "wrong": 23,
+          "missed": 0,
+          "falseAbsentMappings": 6,
+          "tentative": 33,
+          "tentativeAccepted": 14,
+          "disagreements": 33,
+          "valueDisagreements": 30,
+          "modelSupported": 0,
+          "modelSupportedAccepted": 0,
+          "modelSupportedFalseAbsent": 0,
+          "modelRejectedCorrect": 0,
+          "incompleteRuns": 0,
+          "elapsedMs": 390811,
+          "eligible": 509,
+          "finalAssessed": 509
+        },
+        "grouped": {
+          "targets": 47,
+          "exact": 24,
+          "accepted": 24,
+          "valuesCorrect": 25,
+          "wrong": 23,
+          "missed": 0,
+          "falseAbsentMappings": 6,
+          "tentative": 33,
+          "tentativeAccepted": 14,
+          "disagreements": 33,
+          "valueDisagreements": 32,
+          "modelSupported": 0,
+          "modelSupportedAccepted": 0,
+          "modelSupportedFalseAbsent": 0,
+          "modelRejectedCorrect": 0,
+          "incompleteRuns": 0,
+          "elapsedMs": 423329,
+          "eligible": 509,
+          "finalAssessed": 509
+        },
+        "context": {
+          "targets": 47,
+          "exact": 19,
+          "accepted": 19,
+          "valuesCorrect": 20,
+          "wrong": 28,
+          "missed": 0,
+          "falseAbsentMappings": 6,
+          "tentative": 33,
+          "tentativeAccepted": 9,
+          "disagreements": 33,
+          "valueDisagreements": 32,
+          "modelSupported": 0,
+          "modelSupportedAccepted": 0,
+          "modelSupportedFalseAbsent": 0,
+          "modelRejectedCorrect": 0,
+          "incompleteRuns": 0,
+          "elapsedMs": 518455,
+          "eligible": 509,
+          "finalAssessed": 509
+        },
+        "pairwise": {
+          "targets": 47,
+          "exact": 21,
+          "accepted": 21,
+          "valuesCorrect": 22,
+          "wrong": 26,
+          "missed": 0,
+          "falseAbsentMappings": 6,
+          "tentative": 36,
+          "tentativeAccepted": 13,
+          "disagreements": 36,
+          "valueDisagreements": 35,
+          "modelSupported": 0,
+          "modelSupportedAccepted": 0,
+          "modelSupportedFalseAbsent": 0,
+          "modelRejectedCorrect": 0,
+          "incompleteRuns": 0,
+          "elapsedMs": 677680,
+          "eligible": 509,
+          "finalAssessed": 509
+        },
+        "verified": {
+          "targets": 47,
+          "exact": 21,
+          "accepted": 21,
+          "valuesCorrect": 22,
+          "wrong": 26,
+          "missed": 0,
+          "falseAbsentMappings": 6,
+          "tentative": 38,
+          "tentativeAccepted": 14,
+          "disagreements": 36,
+          "valueDisagreements": 35,
+          "modelSupported": 31,
+          "modelSupportedAccepted": 14,
+          "modelSupportedFalseAbsent": 4,
+          "modelRejectedCorrect": 3,
+          "incompleteRuns": 0,
+          "elapsedMs": 654653,
+          "eligible": 509,
+          "finalAssessed": 509
+        }
+      },
+      "changes": {
+        "grouped": {
+          "pointerGains": [],
+          "pointerRegressions": [],
+          "valueGains": [],
+          "valueRegressions": [],
+          "modelSupportedWrong": []
+        },
+        "context": {
+          "pointerGains": [],
+          "pointerRegressions": [
+            {
+              "case": "overflow",
+              "target": "clientHostname",
+              "split": "development",
+              "before": "/documents/0/z_clientHostname",
+              "after": "/documents/0/note49",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "firewall-roles",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/action",
+              "after": "/documents/0/collector/ip",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "closure-narrative",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/outcome",
+              "after": "/documents/0/closeNotes",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "closure-narrative",
+              "target": "customerName",
+              "split": "development",
+              "before": "/documents/0/customer/name",
+              "after": "/documents/0/outcome",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "network-holdout",
+              "target": "incidentOutcome",
+              "split": "evaluation",
+              "before": "/documents/0/result",
+              "after": "/documents/0/flow/src_addr",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            }
+          ],
+          "valueGains": [],
+          "valueRegressions": [
+            {
+              "case": "overflow",
+              "target": "clientHostname",
+              "split": "development",
+              "before": "/documents/0/z_clientHostname",
+              "after": "/documents/0/note49",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "firewall-roles",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/action",
+              "after": "/documents/0/collector/ip",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "closure-narrative",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/outcome",
+              "after": "/documents/0/closeNotes",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "closure-narrative",
+              "target": "customerName",
+              "split": "development",
+              "before": "/documents/0/customer/name",
+              "after": "/documents/0/outcome",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "network-holdout",
+              "target": "incidentOutcome",
+              "split": "evaluation",
+              "before": "/documents/0/result",
+              "after": "/documents/0/flow/src_addr",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            }
+          ],
+          "modelSupportedWrong": []
+        },
+        "pairwise": {
+          "pointerGains": [
+            {
+              "case": "incident-holdout",
+              "target": "customerName",
+              "split": "evaluation",
+              "before": "/documents/0/case/type",
+              "after": "/documents/0/organisationName",
+              "pointerGain": true,
+              "pointerRegression": false,
+              "valueGain": true,
+              "valueRegression": false,
+              "support": "not_checked"
+            }
+          ],
+          "pointerRegressions": [
+            {
+              "case": "overflow",
+              "target": "clientHostname",
+              "split": "development",
+              "before": "/documents/0/z_clientHostname",
+              "after": "/documents/0/note00",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "firewall-roles",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/action",
+              "after": "/documents/0/collector/ip",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "closure-narrative",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/outcome",
+              "after": "/documents/0/closeNotes",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "network-holdout",
+              "target": "incidentOutcome",
+              "split": "evaluation",
+              "before": "/documents/0/result",
+              "after": "/documents/0/flow/src_addr",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            }
+          ],
+          "valueGains": [
+            {
+              "case": "incident-holdout",
+              "target": "customerName",
+              "split": "evaluation",
+              "before": "/documents/0/case/type",
+              "after": "/documents/0/organisationName",
+              "pointerGain": true,
+              "pointerRegression": false,
+              "valueGain": true,
+              "valueRegression": false,
+              "support": "not_checked"
+            }
+          ],
+          "valueRegressions": [
+            {
+              "case": "overflow",
+              "target": "clientHostname",
+              "split": "development",
+              "before": "/documents/0/z_clientHostname",
+              "after": "/documents/0/note00",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "firewall-roles",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/action",
+              "after": "/documents/0/collector/ip",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "closure-narrative",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/outcome",
+              "after": "/documents/0/closeNotes",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            },
+            {
+              "case": "network-holdout",
+              "target": "incidentOutcome",
+              "split": "evaluation",
+              "before": "/documents/0/result",
+              "after": "/documents/0/flow/src_addr",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "not_checked"
+            }
+          ],
+          "modelSupportedWrong": []
+        },
+        "verified": {
+          "pointerGains": [
+            {
+              "case": "incident-holdout",
+              "target": "customerName",
+              "split": "evaluation",
+              "before": "/documents/0/case/type",
+              "after": "/documents/0/organisationName",
+              "pointerGain": true,
+              "pointerRegression": false,
+              "valueGain": true,
+              "valueRegression": false,
+              "support": "model_rejected"
+            }
+          ],
+          "pointerRegressions": [
+            {
+              "case": "overflow",
+              "target": "clientHostname",
+              "split": "development",
+              "before": "/documents/0/z_clientHostname",
+              "after": "/documents/0/note00",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "model_rejected"
+            },
+            {
+              "case": "firewall-roles",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/action",
+              "after": "/documents/0/collector/ip",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "model_supported"
+            },
+            {
+              "case": "closure-narrative",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/outcome",
+              "after": "/documents/0/closeNotes",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "model_supported"
+            },
+            {
+              "case": "network-holdout",
+              "target": "incidentOutcome",
+              "split": "evaluation",
+              "before": "/documents/0/result",
+              "after": "/documents/0/flow/src_addr",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "model_rejected"
+            }
+          ],
+          "valueGains": [
+            {
+              "case": "incident-holdout",
+              "target": "customerName",
+              "split": "evaluation",
+              "before": "/documents/0/case/type",
+              "after": "/documents/0/organisationName",
+              "pointerGain": true,
+              "pointerRegression": false,
+              "valueGain": true,
+              "valueRegression": false,
+              "support": "model_rejected"
+            }
+          ],
+          "valueRegressions": [
+            {
+              "case": "overflow",
+              "target": "clientHostname",
+              "split": "development",
+              "before": "/documents/0/z_clientHostname",
+              "after": "/documents/0/note00",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "model_rejected"
+            },
+            {
+              "case": "firewall-roles",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/action",
+              "after": "/documents/0/collector/ip",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "model_supported"
+            },
+            {
+              "case": "closure-narrative",
+              "target": "incidentOutcome",
+              "split": "development",
+              "before": "/documents/0/outcome",
+              "after": "/documents/0/closeNotes",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "model_supported"
+            },
+            {
+              "case": "network-holdout",
+              "target": "incidentOutcome",
+              "split": "evaluation",
+              "before": "/documents/0/result",
+              "after": "/documents/0/flow/src_addr",
+              "pointerGain": false,
+              "pointerRegression": true,
+              "valueGain": false,
+              "valueRegression": true,
+              "support": "model_rejected"
+            }
+          ],
+          "modelSupportedWrong": [
+            {
+              "case": "entra-signin",
+              "target": "sourceIp",
+              "actual": "/documents/0/records/properties/ipAddress",
+              "expected": {
+                "preferred": "/documents/0/records/callerIpAddress"
+              }
+            },
+            {
+              "case": "entra-signin",
+              "target": "occurred",
+              "actual": "/documents/0/timestamp",
+              "expected": {
+                "preferred": "/documents/0/records/time",
+                "accepted": [
+                  "/documents/0/records/properties/createdDateTime"
+                ]
+              }
+            },
+            {
+              "case": "firewall-roles",
+              "target": "sourceIp",
+              "actual": "/documents/0/destination/ip",
+              "expected": {
+                "preferred": "/documents/0/source/ip"
+              }
+            },
+            {
+              "case": "firewall-roles",
+              "target": "destinationIp",
+              "actual": "/documents/0/collector/ip",
+              "expected": {
+                "preferred": "/documents/0/destination/ip"
+              }
+            },
+            {
+              "case": "firewall-roles",
+              "target": "sourceHostname",
+              "actual": "/documents/0/collector/ip",
+              "expected": {
+                "preferred": "/documents/0/source/hostname"
+              }
+            },
+            {
+              "case": "firewall-roles",
+              "target": "incidentOutcome",
+              "actual": "/documents/0/collector/ip",
+              "expected": {
+                "preferred": "/documents/0/action"
+              }
+            },
+            {
+              "case": "endpoint-roles",
+              "target": "clientHostname",
+              "actual": "/documents/0/application/name",
+              "expected": {
+                "preferred": "/documents/0/client/hostname"
+              }
+            },
+            {
+              "case": "endpoint-roles",
+              "target": "clientUserName",
+              "actual": "/documents/0/application/name",
+              "expected": {
+                "preferred": "/documents/0/client/username"
+              }
+            },
+            {
+              "case": "closure-narrative",
+              "target": "descriptionLong",
+              "actual": "/documents/0/outcome",
+              "expected": {
+                "preferred": "/documents/0/description"
+              }
+            },
+            {
+              "case": "closure-narrative",
+              "target": "incidentOutcome",
+              "actual": "/documents/0/closeNotes",
+              "expected": {
+                "preferred": "/documents/0/outcome"
+              }
+            },
+            {
+              "case": "absent-targets",
+              "target": "customerName",
+              "actual": "/documents/0/applicationName",
+              "expected": null
+            },
+            {
+              "case": "absent-targets",
+              "target": "clientHostname",
+              "actual": "/documents/0/applicationName",
+              "expected": null
+            },
+            {
+              "case": "authentication-holdout",
+              "target": "clientHostname",
+              "actual": "/documents/0/client/address",
+              "expected": {
+                "preferred": "/documents/0/client/hostname"
+              }
+            },
+            {
+              "case": "network-holdout",
+              "target": "destinationIp",
+              "actual": "/documents/0/flow/src_addr",
+              "expected": {
+                "preferred": "/documents/0/flow/dst_addr"
+              }
+            },
+            {
+              "case": "network-holdout",
+              "target": "sourceHostname",
+              "actual": "/documents/0/flow/src_addr",
+              "expected": {
+                "preferred": "/documents/0/flow/src_host"
+              }
+            },
+            {
+              "case": "missing-holdout",
+              "target": "customerName",
+              "actual": "/documents/0/sessionId",
+              "expected": null
+            },
+            {
+              "case": "missing-holdout",
+              "target": "clientUserName",
+              "actual": "/documents/0/sessionId",
+              "expected": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "input": "artifacts/laya-improvements/robustness.json",
+      "sha256": "5a0218ebed90e3196a1a687c80f0ec2d370b930eff6565566f1895378bcfb4cf",
+      "metrics": {
+        "baseline": {
+          "targets": 19,
+          "exact": 7,
+          "accepted": 7,
+          "valuesCorrect": 7,
+          "wrong": 11,
+          "missed": 1,
+          "falseAbsentMappings": 3,
+          "tentative": 18,
+          "tentativeAccepted": 7,
+          "disagreements": 18,
+          "valueDisagreements": 16,
+          "modelSupported": 0,
+          "modelSupportedAccepted": 0,
+          "modelSupportedFalseAbsent": 0,
+          "modelRejectedCorrect": 0,
+          "incompleteRuns": 0,
+          "elapsedMs": 49468,
+          "eligible": 79,
+          "finalAssessed": 79
+        },
+        "verified": {
+          "targets": 19,
+          "exact": 8,
+          "accepted": 8,
+          "valuesCorrect": 8,
+          "wrong": 11,
+          "missed": 0,
+          "falseAbsentMappings": 3,
+          "tentative": 17,
+          "tentativeAccepted": 7,
+          "disagreements": 17,
+          "valueDisagreements": 14,
+          "modelSupported": 16,
+          "modelSupportedAccepted": 8,
+          "modelSupportedFalseAbsent": 3,
+          "modelRejectedCorrect": 0,
+          "incompleteRuns": 0,
+          "elapsedMs": 86520,
+          "eligible": 79,
+          "finalAssessed": 79
+        }
+      },
+      "changes": {
+        "verified": {
+          "pointerGains": [
+            {
+              "case": "identity-duplicate",
+              "target": "clientHostname",
+              "split": "evaluation",
+              "before": "/documents/0/applicationName",
+              "after": "/documents/0/client/hostname",
+              "pointerGain": true,
+              "pointerRegression": false,
+              "valueGain": true,
+              "valueRegression": false,
+              "support": "model_supported"
+            }
+          ],
+          "pointerRegressions": [],
+          "valueGains": [
+            {
+              "case": "identity-duplicate",
+              "target": "clientHostname",
+              "split": "evaluation",
+              "before": "/documents/0/applicationName",
+              "after": "/documents/0/client/hostname",
+              "pointerGain": true,
+              "pointerRegression": false,
+              "valueGain": true,
+              "valueRegression": false,
+              "support": "model_supported"
+            }
+          ],
+          "valueRegressions": [],
+          "modelSupportedWrong": [
+            {
+              "case": "roles-noise",
+              "target": "sourceIp",
+              "actual": "/documents/0/observer/ip",
+              "expected": {
+                "preferred": "/documents/0/source/ip"
+              }
+            },
+            {
+              "case": "roles-noise",
+              "target": "destinationIp",
+              "actual": "/documents/0/observer/ip",
+              "expected": {
+                "preferred": "/documents/0/destination/ip"
+              }
+            },
+            {
+              "case": "identity-base",
+              "target": "clientUserName",
+              "actual": "/documents/0/applicationName",
+              "expected": {
+                "preferred": "/documents/0/client/username"
+              }
+            },
+            {
+              "case": "identity-base",
+              "target": "customerName",
+              "actual": "/documents/0/client/username",
+              "expected": null
+            },
+            {
+              "case": "identity-duplicate",
+              "target": "clientUserName",
+              "actual": "/documents/0/client/hostname",
+              "expected": {
+                "preferred": "/documents/0/client/username"
+              }
+            },
+            {
+              "case": "identity-duplicate",
+              "target": "customerName",
+              "actual": "/documents/0/client/username",
+              "expected": null
+            },
+            {
+              "case": "identity-noise",
+              "target": "clientUserName",
+              "actual": "/documents/0/client/hostname",
+              "expected": {
+                "preferred": "/documents/0/client/username"
+              }
+            },
+            {
+              "case": "identity-noise",
+              "target": "customerName",
+              "actual": "/documents/0/client/username",
+              "expected": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "input": "artifacts/laya-improvements/grouping-robustness.json",
+      "sha256": "98ea4c73fd44d2c42dd7f8c9650710464583b6b78856e8250a5edd786bd2e2a9",
+      "metrics": {
+        "baseline": {
+          "targets": 19,
+          "exact": 7,
+          "accepted": 7,
+          "valuesCorrect": 7,
+          "wrong": 11,
+          "missed": 1,
+          "falseAbsentMappings": 3,
+          "tentative": 18,
+          "tentativeAccepted": 7,
+          "disagreements": 18,
+          "valueDisagreements": 16,
+          "modelSupported": 0,
+          "modelSupportedAccepted": 0,
+          "modelSupportedFalseAbsent": 0,
+          "modelRejectedCorrect": 0,
+          "incompleteRuns": 0,
+          "elapsedMs": 52718,
+          "eligible": 79,
+          "finalAssessed": 79
+        },
+        "grouped": {
+          "targets": 19,
+          "exact": 8,
+          "accepted": 8,
+          "valuesCorrect": 8,
+          "wrong": 11,
+          "missed": 0,
+          "falseAbsentMappings": 3,
+          "tentative": 19,
+          "tentativeAccepted": 8,
+          "disagreements": 19,
+          "valueDisagreements": 17,
+          "modelSupported": 0,
+          "modelSupportedAccepted": 0,
+          "modelSupportedFalseAbsent": 0,
+          "modelRejectedCorrect": 0,
+          "incompleteRuns": 0,
+          "elapsedMs": 62382,
+          "eligible": 79,
+          "finalAssessed": 79
+        }
+      },
+      "changes": {
+        "grouped": {
+          "pointerGains": [
+            {
+              "case": "identity-duplicate",
+              "target": "clientHostname",
+              "split": "evaluation",
+              "before": "/documents/0/applicationName",
+              "after": "/documents/0/client/hostname",
+              "pointerGain": true,
+              "pointerRegression": false,
+              "valueGain": true,
+              "valueRegression": false,
+              "support": "not_checked"
+            }
+          ],
+          "pointerRegressions": [],
+          "valueGains": [
+            {
+              "case": "identity-duplicate",
+              "target": "clientHostname",
+              "split": "evaluation",
+              "before": "/documents/0/applicationName",
+              "after": "/documents/0/client/hostname",
+              "pointerGain": true,
+              "pointerRegression": false,
+              "valueGain": true,
+              "valueRegression": false,
+              "support": "not_checked"
+            }
+          ],
+          "valueRegressions": [],
+          "modelSupportedWrong": []
+        }
+      }
+    }
+  ],
+  "entra": [
+    {
+      "experiment": "baseline",
+      "targets": [
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/records/callerIpAddress"
+          },
+          "actual": "/documents/0/records/properties/ipAddress",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": true,
+          "support": "not_checked",
+          "valueAgreement": "agreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 2,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "occurred",
+          "expected": {
+            "preferred": "/documents/0/records/time",
+            "accepted": [
+              "/documents/0/records/properties/createdDateTime"
+            ]
+          },
+          "actual": "/documents/0/timestamp",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 6,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientHostname",
+          "expected": {
+            "preferred": "/documents/0/records/properties/deviceDetail/displayName"
+          },
+          "actual": "/documents/0/records/properties/agent/agentSubjectType",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 4,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientUserName",
+          "expected": {
+            "preferred": "/documents/0/records/properties/userPrincipalName"
+          },
+          "actual": "/documents/0/records/properties/authenticationProcessingDetails/1/value",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 12,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "customerName",
+          "expected": null,
+          "actual": "/documents/0/records/properties/agent/agentType",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "sourceIp": {
+          "totalFields": 105,
+          "eligible": 2,
+          "distinctValues": 1,
+          "rejected": 103,
+          "scored": 2,
+          "finalAssessed": 2,
+          "windowsEvaluated": 2,
+          "omittedContext": 40
+        },
+        "occurred": {
+          "totalFields": 105,
+          "eligible": 6,
+          "distinctValues": 4,
+          "rejected": 99,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 40
+        },
+        "clientHostname": {
+          "totalFields": 105,
+          "eligible": 99,
+          "distinctValues": 74,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "clientUserName": {
+          "totalFields": 105,
+          "eligible": 99,
+          "distinctValues": 74,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "customerName": {
+          "totalFields": 105,
+          "eligible": 84,
+          "distinctValues": 63,
+          "rejected": 21,
+          "scored": 84,
+          "finalAssessed": 84,
+          "windowsEvaluated": 84,
+          "omittedContext": 1355
+        }
+      },
+      "timings": {
+        "classificationMs": 150087,
+        "selectionMs": 98247,
+        "totalMs": 248341
+      }
+    },
+    {
+      "experiment": "grouped",
+      "targets": [
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/records/callerIpAddress"
+          },
+          "actual": "/documents/0/records/properties/ipAddress",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": true,
+          "support": "not_checked",
+          "valueAgreement": "agreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 2,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "occurred",
+          "expected": {
+            "preferred": "/documents/0/records/time",
+            "accepted": [
+              "/documents/0/records/properties/createdDateTime"
+            ]
+          },
+          "actual": "/documents/0/timestamp",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 6,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientHostname",
+          "expected": {
+            "preferred": "/documents/0/records/properties/deviceDetail/displayName"
+          },
+          "actual": "/documents/0/records/resourceId",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 4,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientUserName",
+          "expected": {
+            "preferred": "/documents/0/records/properties/userPrincipalName"
+          },
+          "actual": "/documents/0/tags/event/category",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 12,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "customerName",
+          "expected": null,
+          "actual": "/documents/0/records/properties/deviceDetail/displayName",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "sourceIp": {
+          "totalFields": 105,
+          "eligible": 2,
+          "distinctValues": 1,
+          "rejected": 103,
+          "scored": 2,
+          "finalAssessed": 2,
+          "windowsEvaluated": 2,
+          "omittedContext": 40
+        },
+        "occurred": {
+          "totalFields": 105,
+          "eligible": 6,
+          "distinctValues": 4,
+          "rejected": 99,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 40
+        },
+        "clientHostname": {
+          "totalFields": 105,
+          "eligible": 99,
+          "distinctValues": 74,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "clientUserName": {
+          "totalFields": 105,
+          "eligible": 99,
+          "distinctValues": 74,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "customerName": {
+          "totalFields": 105,
+          "eligible": 84,
+          "distinctValues": 63,
+          "rejected": 21,
+          "scored": 84,
+          "finalAssessed": 84,
+          "windowsEvaluated": 84,
+          "omittedContext": 1355
+        }
+      },
+      "timings": {
+        "classificationMs": 151724,
+        "selectionMs": 132725,
+        "totalMs": 284451
+      }
+    },
+    {
+      "experiment": "context",
+      "targets": [
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/records/callerIpAddress"
+          },
+          "actual": "/documents/0/records/properties/ipAddress",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": true,
+          "support": "not_checked",
+          "valueAgreement": "agreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 2,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "occurred",
+          "expected": {
+            "preferred": "/documents/0/records/time",
+            "accepted": [
+              "/documents/0/records/properties/createdDateTime"
+            ]
+          },
+          "actual": "/documents/0/timestamp",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 6,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientHostname",
+          "expected": {
+            "preferred": "/documents/0/records/properties/deviceDetail/displayName"
+          },
+          "actual": "/documents/0/records/properties/appliedConditionalAccessPolicies/0/enforcedGrantControls/0",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 4,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientUserName",
+          "expected": {
+            "preferred": "/documents/0/records/properties/userPrincipalName"
+          },
+          "actual": "/documents/0/records/properties/authenticationProcessingDetails/1/value",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 12,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "customerName",
+          "expected": null,
+          "actual": "/documents/0/records/properties/appId",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "sourceIp": {
+          "totalFields": 105,
+          "eligible": 2,
+          "distinctValues": 1,
+          "rejected": 103,
+          "scored": 2,
+          "finalAssessed": 2,
+          "windowsEvaluated": 2,
+          "omittedContext": 40
+        },
+        "occurred": {
+          "totalFields": 105,
+          "eligible": 6,
+          "distinctValues": 4,
+          "rejected": 99,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 40
+        },
+        "clientHostname": {
+          "totalFields": 105,
+          "eligible": 99,
+          "distinctValues": 74,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "clientUserName": {
+          "totalFields": 105,
+          "eligible": 99,
+          "distinctValues": 74,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "customerName": {
+          "totalFields": 105,
+          "eligible": 84,
+          "distinctValues": 63,
+          "rejected": 21,
+          "scored": 84,
+          "finalAssessed": 84,
+          "windowsEvaluated": 84,
+          "omittedContext": 1355
+        }
+      },
+      "timings": {
+        "classificationMs": 145146,
+        "selectionMs": 202064,
+        "totalMs": 347211
+      }
+    },
+    {
+      "experiment": "pairwise",
+      "targets": [
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/records/callerIpAddress"
+          },
+          "actual": "/documents/0/records/properties/ipAddress",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": true,
+          "support": "not_checked",
+          "valueAgreement": "agreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 2,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "occurred",
+          "expected": {
+            "preferred": "/documents/0/records/time",
+            "accepted": [
+              "/documents/0/records/properties/createdDateTime"
+            ]
+          },
+          "actual": "/documents/0/timestamp",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 6,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientHostname",
+          "expected": {
+            "preferred": "/documents/0/records/properties/deviceDetail/displayName"
+          },
+          "actual": "/documents/0/records/properties/authenticationProcessingDetails/1/value",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 4,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientUserName",
+          "expected": {
+            "preferred": "/documents/0/records/properties/userPrincipalName"
+          },
+          "actual": "/documents/0/records/properties/userType",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 12,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "customerName",
+          "expected": null,
+          "actual": "/documents/0/records/properties/location/city",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "not_checked",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "sourceIp": {
+          "totalFields": 105,
+          "eligible": 2,
+          "distinctValues": 1,
+          "rejected": 103,
+          "scored": 2,
+          "finalAssessed": 2,
+          "windowsEvaluated": 2,
+          "omittedContext": 40
+        },
+        "occurred": {
+          "totalFields": 105,
+          "eligible": 6,
+          "distinctValues": 4,
+          "rejected": 99,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 40
+        },
+        "clientHostname": {
+          "totalFields": 105,
+          "eligible": 99,
+          "distinctValues": 74,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "clientUserName": {
+          "totalFields": 105,
+          "eligible": 99,
+          "distinctValues": 74,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "customerName": {
+          "totalFields": 105,
+          "eligible": 84,
+          "distinctValues": 63,
+          "rejected": 21,
+          "scored": 84,
+          "finalAssessed": 84,
+          "windowsEvaluated": 84,
+          "omittedContext": 1355
+        }
+      },
+      "timings": {
+        "classificationMs": 160434,
+        "selectionMs": 284359,
+        "totalMs": 444795
+      }
+    },
+    {
+      "experiment": "verified",
+      "targets": [
+        {
+          "target": "sourceIp",
+          "expected": {
+            "preferred": "/documents/0/records/callerIpAddress"
+          },
+          "actual": "/documents/0/records/properties/ipAddress",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": true,
+          "support": "model_supported",
+          "valueAgreement": "agreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 2,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "occurred",
+          "expected": {
+            "preferred": "/documents/0/records/time",
+            "accepted": [
+              "/documents/0/records/properties/createdDateTime"
+            ]
+          },
+          "actual": "/documents/0/timestamp",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "model_supported",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 6,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientHostname",
+          "expected": {
+            "preferred": "/documents/0/records/properties/deviceDetail/displayName"
+          },
+          "actual": "/documents/0/records/properties/authenticationProcessingDetails/1/value",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "model_rejected",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 4,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "clientUserName",
+          "expected": {
+            "preferred": "/documents/0/records/properties/userPrincipalName"
+          },
+          "actual": "/documents/0/records/properties/userType",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "model_rejected",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": false,
+          "stageOneRank": 12,
+          "correctFieldAssessed": true,
+          "disagreement": true
+        },
+        {
+          "target": "customerName",
+          "expected": null,
+          "actual": "/documents/0/records/properties/location/city",
+          "status": "tentative",
+          "exact": false,
+          "accepted": false,
+          "valueCorrect": false,
+          "support": "model_rejected",
+          "valueAgreement": "disagreed",
+          "pointerAgreement": "disagreed",
+          "wrong": true,
+          "missed": false,
+          "falseAbsentMapping": true,
+          "stageOneRank": null,
+          "correctFieldAssessed": null,
+          "disagreement": true
+        }
+      ],
+      "coverage": {
+        "sourceIp": {
+          "totalFields": 105,
+          "eligible": 2,
+          "distinctValues": 1,
+          "rejected": 103,
+          "scored": 2,
+          "finalAssessed": 2,
+          "windowsEvaluated": 2,
+          "omittedContext": 40
+        },
+        "occurred": {
+          "totalFields": 105,
+          "eligible": 6,
+          "distinctValues": 4,
+          "rejected": 99,
+          "scored": 6,
+          "finalAssessed": 6,
+          "windowsEvaluated": 6,
+          "omittedContext": 40
+        },
+        "clientHostname": {
+          "totalFields": 105,
+          "eligible": 99,
+          "distinctValues": 74,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "clientUserName": {
+          "totalFields": 105,
+          "eligible": 99,
+          "distinctValues": 74,
+          "rejected": 6,
+          "scored": 99,
+          "finalAssessed": 99,
+          "windowsEvaluated": 99,
+          "omittedContext": 1470
+        },
+        "customerName": {
+          "totalFields": 105,
+          "eligible": 84,
+          "distinctValues": 63,
+          "rejected": 21,
+          "scored": 84,
+          "finalAssessed": 84,
+          "windowsEvaluated": 84,
+          "omittedContext": 1355
+        }
+      },
+      "timings": {
+        "classificationMs": 143844,
+        "selectionMs": 269667,
+        "totalMs": 413513
+      }
+    }
+  ],
+  "verifiedCoverage": {
+    "completedRuns": 97,
+    "eligiblePairsAssessedBothDirections": 2861,
+    "propertyReorderInvariant": true,
+    "supportPreservesPairwisePointers": true
+  },
+  "limitations": [
+    "Small synthetic engineering corpus; no production accuracy claim.",
+    "Original corpus is a regression set, not a fresh holdout.",
+    "Cumulative variants, not a full factorial study.",
+    "Elapsed times are indicative single runs, not controlled performance distributions.",
+    "Model support is not independent verification."
+  ]
+}

@@ -43,6 +43,7 @@ export function createAssistantRouter({
     if (layaMapperInstaller) return layaMapperInstaller;
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const manifest = await loadLayaInstallManifest(path.join(root, "resources", "laya-mapper-manifest.json"));
+    if (manifest.schemaVersion !== 3) throw new ORPCError("BAD_REQUEST", { message: "Update the application asset manifest to the English protocol-2 inference package." });
     layaMapperInstaller = createLayaMapperInstaller({ manifest });
     return layaMapperInstaller;
   };
@@ -85,12 +86,6 @@ export function createAssistantRouter({
           adapter: sessions.adapter(config.xsoar),
           settings: config.xsoar,
           incidentId,
-          mapIncident: config.layaMapper.enabled ? ({ incident, targets }) => layaMapper.mapIncident({
-            documents: incident.alertJson,
-            complete: incident.alertJsonComplete !== false,
-            targets,
-            checkpointId: config.layaMapper.checkpointId
-          }) : undefined,
           enrichDraft: config.localAi.enabled ? (input) => localAi.enrich({
             ...input,
             model: config.localAi.model,
@@ -205,7 +200,8 @@ export function createAssistantRouter({
             const result = await layaMapper.mapIncident({
               documents: input.documents,
               targets: input.targets,
-              checkpointId: current.layaMapper.checkpointId,
+              workerMode: current.layaMapper.workerMode,
+              workerCount: current.layaMapper.workerCount,
               complete: true,
               signal: abortController.signal,
               onProgress: ({ detail }) => {
@@ -300,14 +296,8 @@ export function createAssistantRouter({
       checkpoints: {
         list: os.handler(async () => layaTraining.listCheckpoints()),
         activate: os.input(z.object({ id: layaMapperSettingsSchema.shape.checkpointId }).strict()).handler(async ({ input }) => withOperationLock("Laya checkpoint activation", async () => {
-          const current = await configStore.load({ requireTenant: false });
-          if (input.id !== "base-multilingual" && !(await layaTraining.listCheckpoints()).some((item) => item.id === input.id)) {
-            throw new ORPCError("NOT_FOUND", { message: "The selected Laya checkpoint is not installed." });
-          }
-          const saved = await configStore.save({ ...current, layaMapper: { ...current.layaMapper, checkpointId: input.id } }, {
-            requireTenant: false, allowRouteMismatch: true
-          });
-          return saved.layaMapper;
+          if (input.id !== "base-english") throw new ORPCError("BAD_REQUEST", { message: "Custom checkpoint activation is disabled during the English baseline." });
+          return (await configStore.load({ requireTenant: false })).layaMapper;
         })),
         remove: os.input(z.object({ id: layaMapperSettingsSchema.shape.checkpointId }).strict()).handler(async ({ input }) => withOperationLock("Laya checkpoint deletion", async () => {
           const current = await configStore.load({ requireTenant: false });
