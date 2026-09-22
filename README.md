@@ -52,7 +52,7 @@ Every supported scalar/target pair is either explicitly rejected for a structura
 
 The bounded input limits are 96 KiB, depth 30, and 10,000 visited nodes. CPU microbatches contain at most 16 sequences and 4,096 padded tokens. Automatic mode uses one resident model process because it was fastest in the measured one/two/four-worker benchmark. Manual mode supports 1–4 workers for other hardware, subject to pending work and a memory safety check. Workers reserve two logical processors for the application/OS and share the remaining thread budget.
 
-Installation uses verified GitHub release assets (fixed size and SHA-256), an inference-only schema-v3 manifest, an app-local `runtime-v2`, and `models/base-english`. No Python installation or trainer download is required for end users. Offline asset packs are supported. Old protocol-1 executables cannot run the new mapper.
+Installation uses verified GitHub release assets (fixed size and SHA-256), an inference-only schema-v3 manifest, an app-local `runtime-v2`, and `models/base-english`. The installer starts the installed runtime and performs a protocol-2 inference smoke check before reporting success. No Python installation or trainer download is required for end users. Offline asset packs are supported. Old protocol-1 executables cannot run the new mapper.
 
 See [the baseline implementation and measured results](docs/laya-baseline.md) for evaluation commands, the labelled development/evaluation split, evidence and limitations.
 

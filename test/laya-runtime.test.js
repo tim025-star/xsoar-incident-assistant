@@ -7,7 +7,7 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
-import { createLayaMapperInstaller, extractLayaArchive, parseLayaInstallManifest } from "../src/laya-mapper-installer.js";
+import { createLayaMapperInstaller, extractLayaArchive, parseLayaInstallManifest, verifyLayaMapperInstallation } from "../src/laya-mapper-installer.js";
 import { createLayaTrainingManager, MINIMUM_TRAINING_EXAMPLES } from "../src/laya-training.js";
 import { LAYA_MODEL } from "../src/laya-targets.js";
 
@@ -39,7 +39,8 @@ test("English inference manifest requires the pinned identity and no trainer ass
   const destinations = [];
   const installer = createLayaMapperInstaller({ manifest: baseline, rootDirectory,
     download: async (asset, destination) => { await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, Buffer.alloc(asset.size)); },
-    extract: async (_, destination) => { destinations.push(destination); }
+    extract: async (_, destination) => { destinations.push(destination); },
+    verifyInstallation: async ({ rootDirectory: verifiedRoot }) => { assert.equal(verifiedRoot, rootDirectory); }
   });
   assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: "base-english" });
   assert.deepEqual(destinations, [path.join(rootDirectory, "runtime-v2")]);
@@ -64,6 +65,7 @@ test("Laya installation accepts only bounded GitHub release assets and installs 
       await mkdir(destination, { recursive: true });
       await writeFile(path.join(destination, entry), "fixture");
     },
+    verifyInstallation: async () => {},
     detectTrainingBackend: async () => "cpu"
   });
   assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: "base-multilingual" });
@@ -104,6 +106,7 @@ test("Laya installation works from an offline asset pack and preserves both trai
       await mkdir(destination, { recursive: true });
       await writeFile(path.join(destination, entry), "fixture");
     },
+    verifyInstallation: async () => {},
     detectTrainingBackend: async () => "cpu"
   });
   await installer.installInference();
@@ -111,6 +114,25 @@ test("Laya installation works from an offline asset pack and preserves both trai
     access(path.join(rootDirectory, "offline-assets", item.name))
   ));
   assert.deepEqual(await installer.installTrainingTools(), { installed: true, backend: "cpu" });
+});
+
+test("installed Laya verification requires a protocol-2 status and real inference response", async () => {
+  const calls = [];
+  const result = await verifyLayaMapperInstallation({
+    rootDirectory: "C:\\Laya Test",
+    runnerFactory: (options) => ({
+      status: async () => ({ available: true, protocolVersion: 2, model: LAYA_MODEL, promptVersion: "english-fields-v3" }),
+      evaluate: async (input) => {
+        calls.push({ options, input });
+        return { results: [{ id: "install-smoke", score: 0.75 }], runtime: { ready: true } };
+      },
+      close: () => { calls.push("closed"); }
+    })
+  });
+  assert.equal(result.protocolVersion, 2);
+  assert.equal(calls[0].options.env.LAYA_MAPPER_ROOT, "C:\\Laya Test");
+  assert.equal(calls[0].input.decisions[0].field.value, "203.0.113.8");
+  assert.equal(calls.at(-1), "closed");
 });
 
 test("Laya runtime extraction rejects archive traversal before writing files", async (context) => {

@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 
 import { downloadVerifiedAsset, verifyAssetFile } from "./local-ai-installer.js";
-import { LAYA_MODEL } from "./laya-targets.js";
+import { createLayaSidecarRunner } from "./laya-worker.js";
+import { LAYA_MODEL, LAYA_TARGET_CATALOGUE } from "./laya-targets.js";
 
 const PROCESS_OUTPUT_LIMIT = 2 * 1024 * 1024;
 const EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -61,6 +62,31 @@ export function parseLayaInstallManifest(value) {
 
 export async function loadLayaInstallManifest(filePath) {
   return parseLayaInstallManifest(JSON.parse(await readFile(filePath, "utf8")));
+}
+
+export async function verifyLayaMapperInstallation({ rootDirectory = defaultRootDirectory(), runnerFactory = createLayaSidecarRunner } = {}) {
+  const runner = runnerFactory({
+    executable: path.join(rootDirectory, "runtime-v2", "laya-mapper.exe"),
+    threads: 1,
+    env: { LAYA_MAPPER_ROOT: rootDirectory }
+  });
+  try {
+    const status = await runner.status();
+    if (!status.available || status.protocolVersion !== 2) throw new Error("The installed Laya runtime did not pass its protocol check.");
+    const result = await runner.evaluate({ decisions: [{
+      id: "install-smoke",
+      kind: "classify",
+      target: { id: "sourceIp", ...LAYA_TARGET_CATALOGUE.sourceIp },
+      field: { id: "f0", key: "sourceIp", ancestry: ["documents", "0"], value: "203.0.113.8" }
+    }] });
+    const answer = result?.results?.[0];
+    if (answer?.id !== "install-smoke" || !Number.isFinite(answer.score) || result?.runtime?.ready !== true) {
+      throw new Error("The installed Laya runtime did not pass its inference check.");
+    }
+    return { protocolVersion: status.protocolVersion, model: status.model, promptVersion: status.promptVersion };
+  } finally {
+    runner.close();
+  }
 }
 
 function runProcess(executable, arguments_, { spawnImplementation = spawn, timeoutMs = EXTRACTION_TIMEOUT_MS } = {}) {
@@ -170,6 +196,7 @@ export function createLayaMapperInstaller({
   fetchImplementation = globalThis.fetch,
   download = downloadVerifiedAsset,
   extract = extractLayaArchive,
+  verifyInstallation = verifyLayaMapperInstallation,
   detectTrainingBackend = detectNvidiaTrainingBackend,
   offlineDirectories = []
 } = {}) {
@@ -244,6 +271,8 @@ export function createLayaMapperInstaller({
         });
         completed += asset.size;
       }
+      onProgress({ status: "Verifying the installed Laya runtime and checkpoint.", completed: total, total });
+      await verifyInstallation({ rootDirectory });
       await preserveOfflineTrainingAssets({ signal, onProgress });
       await rm(cacheDirectory, { recursive: true, force: true });
       onProgress({ status: "Laya-mapper is installed.", completed: total, total });
