@@ -1,0 +1,363 @@
+{
+  "schemaVersion": 1,
+  "gate": "pilotOnly",
+  "datasetManifestSha256": "28e86a6cbc427ba1daca469dda379c383f4b48b7afcd29d8eef0609ec7e10732",
+  "additionalDraftsSha256": "ba3a7f01906fa924b010d605bf519cfe97b2dd8aa309eb80181332c53e62fe3d",
+  "tierAMappingSha256": "c72ac717af1cf7339d5c811c71e52a0265368f9cf9bf1e55e755e368de2bba61",
+  "pilotManifestSha256": "f5eaffd7908d3fb88cf1f7aa435573e1d87b059efe7b0e416523816240ce93f8",
+  "reviewedCommit": "fbb54e05ac69daca3c7d6e2f446126da52050c88",
+  "reviewer": {
+    "kind": "independent-model",
+    "model": "gpt-6",
+    "version": "Codex GPT-6 independent review 2026-09-22; exact build identifier unavailable",
+    "promptHash": "9f1bed720490ccf2475972e2fcb427a19f6b0b2c3e8e3dd2b12fb2695ee9f1e0"
+  },
+  "reviewPrompt": "Independently review the committed corrected tiny-overfit pilot at fbb54e05ac69daca3c7d6e2f446126da52050c88. Inspect ingest_factory.py, review.py, source schema, tiny-overfit-pilot.json, Tier-A mappings, additional drafts and the immutable factory dataset. Revalidate the nine false-NONE corrections, same-value alternatives, all direct labels and selected Tier-A identities against complete source records and the production target catalogue. Approve only the exact 18-record train pilot with 79 positive and 29 absent direct decisions plus 14 positive identities. Record honest independent GPT-6 model provenance, never human review. No training, promotion, publishing or runtime changes.",
+  "reviewDisclosure": {
+    "humanReviewed": false,
+    "independentFromGeneratorAndImplementation": true,
+    "labelsVisibleToReviewer": true,
+    "modelOutputsVisibleToReviewer": false,
+    "meaningOfBlind": "Independent semantic review without model prediction results; draft labels and prior requested corrections were visible. This is not a blinded-label study.",
+    "scope": "Exactly 18 listed training records, six direct targets, four Entra clientUserName labels and ten Defender/UDM sourceUsername labels. Other targets unlabelled. Additional drafts and other Tier-A families are not approved.",
+    "limitations": [
+      "Tiny overfit and save/reload experiment only; no release training approval or production accuracy evidence.",
+      "Synthetic variants within a family share scenarios and do not constitute independent validation.",
+      "Additional drafts integrity checked only; remain review-required.",
+      "At reviewed commit the mechanical scanner falsely identifies timestamp time substrings as invalid IPv6. That gate must be corrected and rerun before training."
+    ]
+  },
+  "expectedCounts": {
+    "records": 18,
+    "trainRecords": 18,
+    "directPositive": 79,
+    "directAbsent": 29,
+    "directDecisions": 108,
+    "tierAPositiveIdentity": 14
+  },
+  "sources": [
+    "https://learn.microsoft.com/en-us/graph/api/resources/signIn?view=graph-rest-1.0",
+    "https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-devicenetworkevents-table",
+    "https://docs.cloud.google.com/chronicle/docs/reference/udm-field-list"
+  ],
+  "reviews": [
+    {
+      "recordId": "crowdstrike-edr.network-connect-ip4.01-baseline",
+      "status": "approved",
+      "findings": [
+        "Outbound local/remote roles, event timestamp and client ComputerName reviewed. Missing variant omits all direct values. Customer name absent; no identity target approved."
+      ],
+      "targetOverrides": {}
+    },
+    {
+      "recordId": "crowdstrike-edr.network-connect-ip4.03-duplicate",
+      "status": "approved",
+      "findings": [
+        "Outbound local/remote roles, event timestamp and client ComputerName reviewed. Missing variant omits all direct values. Customer name absent; no identity target approved."
+      ],
+      "targetOverrides": {}
+    },
+    {
+      "recordId": "crowdstrike-edr.network-connect-ip4.04-missing-no-match",
+      "status": "approved",
+      "findings": [
+        "Outbound local/remote roles, event timestamp and client ComputerName reviewed. Missing variant omits all direct values. Customer name absent; no identity target approved."
+      ],
+      "targetOverrides": {}
+    },
+    {
+      "recordId": "microsoft-defender-xdr.device-network-events.baseline",
+      "status": "approved",
+      "findings": [
+        "Timestamp, LocalIP source/client, RemoteIP destination, DeviceName client and initiating process sourceUsername reviewed. Customer absent. Missing variant removes only timestamp. Equivalent source projection also accepted for clientIp in duplicate."
+      ],
+      "targetOverrides": {},
+      "targetApprovals": {
+        "sourceUsername": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /InitiatingProcessAccountUpn as sourceUsername: account of the process initiating the network activity. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "microsoft-defender-xdr.device-network-events.duplicate",
+      "status": "approved",
+      "findings": [
+        "Timestamp, LocalIP source/client, RemoteIP destination, DeviceName client and initiating process sourceUsername reviewed. Customer absent. Missing variant removes only timestamp. Equivalent source projection also accepted for clientIp in duplicate."
+      ],
+      "targetOverrides": {
+        "clientIp": {
+          "primaryPointer": "/LocalIP",
+          "acceptedPointers": [
+            "/EquivalentProjection/sourceIp"
+          ],
+          "originalType": "string",
+          "rationale": "The equivalent projection preserves the same local initiating endpoint value and client role."
+        }
+      },
+      "targetApprovals": {
+        "sourceUsername": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /InitiatingProcessAccountUpn as sourceUsername: account of the process initiating the network activity. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "microsoft-defender-xdr.device-network-events.missing-no-match",
+      "status": "approved",
+      "findings": [
+        "Timestamp, LocalIP source/client, RemoteIP destination, DeviceName client and initiating process sourceUsername reviewed. Customer absent. Missing variant removes only timestamp. Equivalent source projection also accepted for clientIp in duplicate."
+      ],
+      "targetOverrides": {},
+      "targetApprovals": {
+        "sourceUsername": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /InitiatingProcessAccountUpn as sourceUsername: account of the process initiating the network activity. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "microsoft-defender-xdr.device-network-events.array-or-kv",
+      "status": "approved",
+      "findings": [
+        "Timestamp, LocalIP source/client, RemoteIP destination, DeviceName client and initiating process sourceUsername reviewed. Customer absent. Missing variant removes only timestamp. Equivalent source projection also accepted for clientIp in duplicate."
+      ],
+      "targetOverrides": {},
+      "targetApprovals": {
+        "sourceUsername": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /results/0/InitiatingProcessAccountUpn as sourceUsername: account of the process initiating the network activity. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "entra.graph.signin.01",
+      "status": "approved",
+      "findings": [
+        "Sign-in initiation time, client/source IP, client device displayName and client userPrincipalName reviewed. Destination and customer absent. Corrected sourceIp false NONE; wrappers and duplicate preserve roles."
+      ],
+      "targetOverrides": {
+        "sourceIp": {
+          "primaryPointer": "/ipAddress",
+          "acceptedPointers": [],
+          "originalType": "string",
+          "rationale": "The sign-in client address is the originating activity source under the production sourceIp contract."
+        }
+      },
+      "targetApprovals": {
+        "clientUserName": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /userPrincipalName as clientUserName: user account that initiated the sign-in; the person display name and application identity are different roles. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "entra.graph.signin.03",
+      "status": "approved",
+      "findings": [
+        "Sign-in initiation time, client/source IP, client device displayName and client userPrincipalName reviewed. Destination and customer absent. Corrected sourceIp false NONE; wrappers and duplicate preserve roles."
+      ],
+      "targetOverrides": {
+        "sourceIp": {
+          "primaryPointer": "/ipAddress",
+          "acceptedPointers": [
+            "/duplicate/ipAddress"
+          ],
+          "originalType": "string",
+          "rationale": "The sign-in client address is the originating activity source; the duplicate projection is typed-value equivalent."
+        }
+      },
+      "targetApprovals": {
+        "clientUserName": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /userPrincipalName as clientUserName: user account that initiated the sign-in; the person display name and application identity are different roles. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (/duplicate/userPrincipalName)."
+        }
+      }
+    },
+    {
+      "recordId": "entra.graph.signin.05",
+      "status": "approved",
+      "findings": [
+        "Sign-in initiation time, client/source IP, client device displayName and client userPrincipalName reviewed. Destination and customer absent. Corrected sourceIp false NONE; wrappers and duplicate preserve roles."
+      ],
+      "targetOverrides": {
+        "sourceIp": {
+          "primaryPointer": "/events/0/ipAddress",
+          "acceptedPointers": [],
+          "originalType": "string",
+          "rationale": "The sign-in client address is the originating activity source under the production sourceIp contract."
+        }
+      },
+      "targetApprovals": {
+        "clientUserName": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /events/0/userPrincipalName as clientUserName: user account that initiated the sign-in; the person display name and application identity are different roles. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "entra.graph.signin.06",
+      "status": "approved",
+      "findings": [
+        "Sign-in initiation time, client/source IP, client device displayName and client userPrincipalName reviewed. Destination and customer absent. Corrected sourceIp false NONE; wrappers and duplicate preserve roles."
+      ],
+      "targetOverrides": {
+        "sourceIp": {
+          "primaryPointer": "/payload/event/ipAddress",
+          "acceptedPointers": [],
+          "originalType": "string",
+          "rationale": "The sign-in client address is the originating activity source under the production sourceIp contract."
+        }
+      },
+      "targetApprovals": {
+        "clientUserName": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /payload/event/userPrincipalName as clientUserName: user account that initiated the sign-in; the person display name and application identity are different roles. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "siem-incidents.google-secops.udm-network-event.baseline",
+      "status": "approved",
+      "findings": [
+        "NETWORK_CONNECTION principal is source/client; target is destination; principal hostname/user are clientHostname/sourceUsername; metadata event time is occurrence. Corrected clientIp false NONE where principal IP exists. Empty principal IP supports none. Vendor/product/collector are not customer."
+      ],
+      "targetOverrides": {
+        "clientIp": {
+          "primaryPointer": "/principal/ip/0",
+          "acceptedPointers": [],
+          "originalType": "string",
+          "rationale": "UDM principal is the acting entity originating this NETWORK_CONNECTION and therefore its IP is the client IP."
+        }
+      },
+      "targetApprovals": {
+        "sourceUsername": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /principal/user/userid as sourceUsername: principal user account associated with the originating network activity. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "siem-incidents.google-secops.udm-network-event.role-confusion",
+      "status": "approved",
+      "findings": [
+        "NETWORK_CONNECTION principal is source/client; target is destination; principal hostname/user are clientHostname/sourceUsername; metadata event time is occurrence. Corrected clientIp false NONE where principal IP exists. Empty principal IP supports none. Vendor/product/collector are not customer."
+      ],
+      "targetOverrides": {
+        "clientIp": {
+          "primaryPointer": "/principal/ip/0",
+          "acceptedPointers": [],
+          "originalType": "string",
+          "rationale": "UDM principal is the acting entity originating this NETWORK_CONNECTION and therefore its IP is the client IP."
+        }
+      },
+      "targetApprovals": {
+        "sourceUsername": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /principal/user/userid as sourceUsername: principal user account associated with the originating network activity. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "siem-incidents.google-secops.udm-network-event.duplicate",
+      "status": "approved",
+      "findings": [
+        "NETWORK_CONNECTION principal is source/client; target is destination; principal hostname/user are clientHostname/sourceUsername; metadata event time is occurrence. Corrected clientIp false NONE where principal IP exists. Empty principal IP supports none. Vendor/product/collector are not customer."
+      ],
+      "targetOverrides": {
+        "clientIp": {
+          "primaryPointer": "/principal/ip/0",
+          "acceptedPointers": [
+            "/equivalent/sourceIp"
+          ],
+          "originalType": "string",
+          "rationale": "UDM principal is the originating client; the equivalent source projection preserves the same typed value and role."
+        }
+      },
+      "targetApprovals": {
+        "sourceUsername": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /principal/user/userid as sourceUsername: principal user account associated with the originating network activity. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (/equivalent/accountUpn)."
+        }
+      }
+    },
+    {
+      "recordId": "siem-incidents.google-secops.udm-network-event.missing-no-match",
+      "status": "approved",
+      "findings": [
+        "NETWORK_CONNECTION principal is source/client; target is destination; principal hostname/user are clientHostname/sourceUsername; metadata event time is occurrence. Corrected clientIp false NONE where principal IP exists. Empty principal IP supports none. Vendor/product/collector are not customer."
+      ],
+      "targetOverrides": {},
+      "targetApprovals": {
+        "sourceUsername": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /principal/user/userid as sourceUsername: principal user account associated with the originating network activity. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "siem-incidents.google-secops.udm-network-event.array-or-kv",
+      "status": "approved",
+      "findings": [
+        "NETWORK_CONNECTION principal is source/client; target is destination; principal hostname/user are clientHostname/sourceUsername; metadata event time is occurrence. Corrected clientIp false NONE where principal IP exists. Empty principal IP supports none. Vendor/product/collector are not customer."
+      ],
+      "targetOverrides": {
+        "clientIp": {
+          "primaryPointer": "/records/0/principal/ip/0",
+          "acceptedPointers": [],
+          "originalType": "string",
+          "rationale": "UDM principal is the acting entity originating this NETWORK_CONNECTION and therefore its IP is the client IP."
+        }
+      },
+      "targetApprovals": {
+        "sourceUsername": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /records/0/principal/user/userid as sourceUsername: principal user account associated with the originating network activity. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "siem-incidents.google-secops.udm-network-event.opaque-reordered-wrapper",
+      "status": "approved",
+      "findings": [
+        "NETWORK_CONNECTION principal is source/client; target is destination; principal hostname/user are clientHostname/sourceUsername; metadata event time is occurrence. Corrected clientIp false NONE where principal IP exists. Empty principal IP supports none. Vendor/product/collector are not customer."
+      ],
+      "targetOverrides": {
+        "clientIp": {
+          "primaryPointer": "/transport/opaqueEnvelope/principal/ip/0",
+          "acceptedPointers": [],
+          "originalType": "string",
+          "rationale": "UDM principal is the acting entity originating this NETWORK_CONNECTION and therefore its IP is the client IP."
+        }
+      },
+      "targetApprovals": {
+        "sourceUsername": {
+          "status": "approved",
+          "sourceTarget": "accountUpn",
+          "finding": "Independently reviewed /transport/opaqueEnvelope/principal/user/userid as sourceUsername: principal user account associated with the originating network activity. This approval applies only to this record and its existing typed-value-equivalent accepted identity pointers (none)."
+        }
+      }
+    },
+    {
+      "recordId": "zscaler-network.zscaler.zia.nss.web.baseline",
+      "status": "approved",
+      "findings": [
+        "Reviewed event_time, client_ip source/client, server_ip destination, device_hostname client and explicit company customer. Collection log_time excluded. No Tier-A identity conversion approved."
+      ],
+      "targetOverrides": {}
+    }
+  ]
+}
