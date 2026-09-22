@@ -37,6 +37,7 @@ The extractor deliberately rejects arbitrary `td` elements, unrelated multi-colu
 - Search submission is confirmed only when the exact query remains in that same control and the incidents workspace mutates. Current XSOAR builds can keep search state entirely in the page without mirroring it into the URL.
 - Results remain scoped to the configured same-origin incidents path and same-origin incident links.
 - Current XSOAR result links can use `/incident<view-id>/<ticket-id>/overview`; the second numeric segment is the incident ticket ID. Legacy `/incident/<ticket-id>` and configured custom-layout routes remain supported.
+- Some result tables expose the ticket only as an exact visible `#<ticket-id>` link label. That fallback is accepted only for a visible same-origin link inside a `tr`, `[role="row"]`, or `.row` result row; the resulting navigation still uses the configured validated incident route.
 
 ## Readiness and completeness
 

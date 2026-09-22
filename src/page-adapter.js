@@ -371,9 +371,13 @@ export async function extractSearchResultsFromPage(options) {
         const configuredTicketId = configuredIncidentPattern?.test(`${url.pathname}${url.search}${url.hash}`)
           ? url.pathname.match(/\/(\d+)\/?$/)?.[1]
           : "";
+        const visibleTicketId = link.closest?.("tr,[role='row'],.row")
+          ? normalize(link.textContent).match(/^#(\d+)$/)?.[1]
+          : "";
         const ticketId = url.pathname.match(ticketPattern)?.[1]
           || url.pathname.match(incidentOverviewPattern)?.[1]
-          || configuredTicketId;
+          || configuredTicketId
+          || visibleTicketId;
         if (ticketId && url.origin === location.origin) ticketIds.add(ticketId);
       }
     }
