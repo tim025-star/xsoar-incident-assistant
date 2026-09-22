@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "minimumSequences": 50,
+  "pilotEpochs": 30,
+  "pilotMinimumAccuracy": 0.95,
+  "epochs": 3
+}
