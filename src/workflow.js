@@ -204,7 +204,7 @@ async function readHistoricCandidate({
 
 async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs, mapIncident, onProgress = async () => {} }) {
   try {
-    const query = buildSearchQuery(incident.ruleName, incident.caseType, HISTORIC_LOOKBACK_QUERY);
+    const query = buildSearchQuery(incident.incidentName, incident.caseType, HISTORIC_LOOKBACK_QUERY);
     const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, ""), { focusBeforeNavigation: true });
     temporaryTabs.add(searchTab);
     await adapter.focusTab(searchTab.id);

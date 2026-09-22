@@ -119,7 +119,8 @@ test("workflow searches three months of same-client alert history while AI proce
 
   assert.equal(searchedWhileAiPending, true);
   assert.equal(new URL(adapter.opened[0]).search, "");
-  assert.match(searchOptions.expectedQuery, /rawName:"Example Rule"/);
+  assert.match(searchOptions.expectedQuery, /rawName:"Example detection"/);
+  assert.doesNotMatch(searchOptions.expectedQuery, /rawName:"Example Rule"/);
   assert.match(searchOptions.expectedQuery, /created:>="3 months ago"/);
   assert.match(result.draft, /Historic\n1\. #4199: Resolved incident 4199/);
   assert.doesNotMatch(result.draft, /#4198|#4197/);
