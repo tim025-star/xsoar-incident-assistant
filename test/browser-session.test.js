@@ -130,6 +130,37 @@ test("closes a temporary tab when its initial navigation fails", async () => {
   assert.equal(closed, true);
 });
 
+test("foregrounds automated tabs before initial navigation and retry navigation", async () => {
+  const events = [];
+  const page = {
+    route: async () => {},
+    bringToFront: async () => { events.push("focus"); },
+    goto: async (url) => { events.push(`goto:${url}`); },
+    url: () => "https://xsoar.example.test/Custom/GenericLayout/4199",
+    isClosed: () => false,
+    close: async () => {}
+  };
+  const context = { pages: () => [], newPage: async () => page };
+  const browser = { contexts: () => [context], once: () => {}, close: async () => {} };
+  const manager = new BrowserSessionManager({
+    chromiumApi: { connectOverCDP: async () => browser },
+    currentChromeEndpoint: async () => "ws://127.0.0.1:43127/devtools/browser/01234567-89ab-cdef-0123-456789abcdef"
+  });
+  await manager.start();
+  const adapter = manager.adapter(resolveSettings({ allowedOrigin: "https://xsoar.example.test" }));
+  const url = "https://xsoar.example.test/Custom/GenericLayout/4199";
+
+  await adapter.openTab(url, { focusBeforeNavigation: true });
+  await adapter.reloadTab(page, url, { focusBeforeNavigation: true });
+
+  assert.deepEqual(events, [
+    "focus",
+    `goto:${url}`,
+    "focus",
+    `goto:${url}`
+  ]);
+});
+
 test("submits historic queries through the visible XSOAR incidents query bar", async () => {
   const calls = [];
   const input = {

@@ -9,6 +9,7 @@ function createAdapter({
   currentIncident = {},
   historicalIncidents = {},
   historicalViews = {},
+  historicFailuresBeforeSuccess = {},
   searchError,
   searchTicketIds = ["4200", "4199", "4198", "4197"],
   onExtract = () => {},
@@ -17,17 +18,27 @@ function createAdapter({
   const tabs = new Map([[1, "https://xsoar.example.test/Custom/GenericLayout/4200"]]);
   const opened = [];
   const closed = [];
+  const events = [];
+  const attempts = new Map();
   let nextId = 2;
   return {
     opened,
     closed,
+    events,
     focused: [],
     async getActiveTab() { return { id: 1, url: tabs.get(1) }; },
-    async openTab(url) {
+    async openTab(url, options = {}) {
       const tab = { id: nextId++, url };
       tabs.set(tab.id, url);
       opened.push(url);
+      events.push(`open:${tab.id}`);
+      if (options.focusBeforeNavigation) events.push(`foreground-navigation:${tab.id}`);
       return tab;
+    },
+    async reloadTab(id, url, options = {}) {
+      if (options.focusBeforeNavigation) events.push(`foreground-reload:${id}`);
+      events.push(`reload:${id}`);
+      tabs.set(id, url);
     },
     async getTabUrl(id) {
       const url = tabs.get(id);
@@ -36,9 +47,15 @@ function createAdapter({
     },
     async extractIncident(id, extractionSettings) {
       const currentUrl = tabs.get(id);
+      events.push(`extract:${id}`);
       onExtract({ url: currentUrl, settings: extractionSettings });
       const ticketId = currentUrl.match(/\/(\d+)(?:[?#]|$)/)?.[1] || "4200";
       if (ticketId !== "4200") {
+        const attempt = (attempts.get(ticketId) || 0) + 1;
+        attempts.set(ticketId, attempt);
+        if (attempt <= Number(historicFailuresBeforeSuccess[ticketId] || 0)) {
+          throw new Error(`Historic incident ${ticketId} did not expose usable resolution fields.`);
+        }
         return {
           ticketId,
           customerName: "Example Organisation",
@@ -64,8 +81,8 @@ function createAdapter({
       if (searchError) throw searchError;
       return { ticketIds: searchTicketIds.slice(0, options.maxResults), truncated: searchTicketIds.length > options.maxResults };
     },
-    async closeTab(id) { closed.push(id); tabs.delete(id); },
-    async focusTab(id) { this.focused.push(id); }
+    async closeTab(id) { events.push(`close:${id}`); closed.push(id); tabs.delete(id); },
+    async focusTab(id) { events.push(`focus:${id}`); this.focused.push(id); }
   };
 }
 
@@ -106,6 +123,71 @@ test("workflow searches three months of same-client alert history while AI proce
   assert.match(searchOptions.expectedQuery, /created:>="3 months ago"/);
   assert.match(result.draft, /Historic\n1\. #4199: Resolved incident 4199/);
   assert.doesNotMatch(result.draft, /#4198|#4197/);
+});
+
+test("workflow visibly opens and completes each historic incident tab before starting the next", async () => {
+  const adapter = createAdapter({ searchTicketIds: ["4200", "4199", "4198"] });
+
+  await runIncidentDraft({
+    adapter,
+    settings: resolveSettings({ ...settings, maxHistoricalIncidents: 2 })
+  });
+
+  assert.deepEqual(adapter.events.filter((event) => !event.endsWith(":2") && event !== "extract:1"), [
+    "open:3",
+    "foreground-navigation:3",
+    "focus:3",
+    "extract:3",
+    "close:3",
+    "open:4",
+    "foreground-navigation:4",
+    "focus:4",
+    "extract:4",
+    "close:4",
+    "focus:1"
+  ]);
+});
+
+test("workflow retries an incomplete historic incident once in the foreground", async () => {
+  const progress = [];
+  const adapter = createAdapter({
+    searchTicketIds: ["4200", "4199"],
+    historicFailuresBeforeSuccess: { 4199: 1 }
+  });
+
+  const result = await runIncidentDraft({
+    adapter,
+    settings: resolveSettings({ ...settings, maxHistoricalIncidents: 1 }),
+    onProgress: async (message) => progress.push(message)
+  });
+
+  assert.match(result.draft, /#4199: Resolved incident 4199/);
+  assert.deepEqual(adapter.events.filter((event) => /^(?:focus|foreground-reload|reload|extract):3$/.test(event)), [
+    "focus:3",
+    "extract:3",
+    "focus:3",
+    "foreground-reload:3",
+    "reload:3",
+    "focus:3",
+    "extract:3"
+  ]);
+  assert.ok(progress.some((message) => /Retrying historic incident #4199/.test(message)));
+});
+
+test("workflow reports the ticket and safe reason after both historic attempts fail", async () => {
+  const progress = [];
+  const result = await runIncidentDraft({
+    adapter: createAdapter({
+      searchTicketIds: ["4200", "4199"],
+      historicFailuresBeforeSuccess: { 4199: 2 }
+    }),
+    settings: resolveSettings({ ...settings, maxHistoricalIncidents: 1 }),
+    onProgress: async (message) => progress.push(message)
+  });
+
+  assert.match(result.warning, /Historic incident #4199 could not be read: Historic incident 4199 did not expose usable resolution fields\./);
+  assert.ok(progress.some((message) => /Historic incident #4199 could not be read/.test(message)));
+  assert.doesNotMatch(result.warning, /\n|at extractIncident/);
 });
 
 test("workflow continues past other clients until it finds the requested number of same-client resolutions", async () => {
@@ -169,12 +251,12 @@ test("workflow merges trusted detail views for historic identity and resolution 
     url.endsWith("/4199") && extractionSettings.requiredAnyFields?.includes("closeNotes")));
 });
 
-test("workflow opens an explicitly requested incident and closes that temporary tab", async () => {
+test("workflow closes an explicitly requested incident after visibly reviewing its historic tabs", async () => {
   const adapter = createAdapter();
   await runIncidentDraft({ adapter, settings, incidentId: "4200" });
 
   assert.equal(adapter.opened[0], "https://xsoar.example.test/Custom/GenericLayout/4200");
-  assert.deepEqual(adapter.focused, []);
+  assert.deepEqual(adapter.focused, [3, 4, 5, 6]);
   assert.equal(adapter.closed.length, 5);
 });
 

@@ -76,10 +76,18 @@ export async function submitHistoricSearch(page, options) {
   await input.fill(expectedQuery);
   await page.evaluate(({ observationKey }) => {
     window[observationKey]?.observer?.disconnect();
-    const results = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page");
+    const resultSelector = "[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page";
+    const results = document.querySelector(resultSelector);
     const target = results?.parentElement || document.body;
     const state = { changed: false, observer: null };
-    const observer = new MutationObserver(() => { state.changed = true; });
+    const observer = new MutationObserver((records) => {
+      const currentResults = document.querySelector(resultSelector);
+      state.changed ||= records.some((record) => {
+        if (currentResults && (record.target === currentResults || currentResults.contains(record.target))) return true;
+        return [...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === Node.ELEMENT_NODE
+          && (node === currentResults || node.matches?.(resultSelector) || node.querySelector?.(resultSelector)));
+      });
+    });
     observer.observe(target, { attributes: true, characterData: true, childList: true, subtree: true });
     state.observer = observer;
     window[observationKey] = state;
@@ -194,7 +202,7 @@ class PlaywrightBrowserAdapter {
     throw new Error("Multiple XSOAR incidents are open. Enter the Incident ID you want to triage.");
   }
 
-  async openTab(url) {
+  async openTab(url, { focusBeforeNavigation = false } = {}) {
     const page = await this.context.newPage();
     try {
       await page.route("**/*", async (route) => {
@@ -208,12 +216,20 @@ class PlaywrightBrowserAdapter {
         }
         return route.continue();
       });
+      if (focusBeforeNavigation) await page.bringToFront();
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.settings.pageReadyTimeoutMs });
       return { id: page, url: page.url() };
     } catch (error) {
       await page.close().catch(() => {});
       throw error;
     }
+  }
+
+  async reloadTab(page, url, { focusBeforeNavigation = false } = {}) {
+    assertTrustedUrl(url, this.settings, "Automated retry navigation");
+    if (page.isClosed()) throw new Error("The historic incident tab closed before it could be retried.");
+    if (focusBeforeNavigation) await page.bringToFront();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: this.settings.pageReadyTimeoutMs });
   }
 
   async getTabUrl(page) {

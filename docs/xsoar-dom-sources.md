@@ -38,6 +38,7 @@ The extractor deliberately rejects arbitrary `td` elements, unrelated multi-colu
 - Results remain scoped to the configured same-origin incidents path and same-origin incident links.
 - Current XSOAR result links can use `/incident<view-id>/<ticket-id>/overview`; the second numeric segment is the incident ticket ID. Legacy `/incident/<ticket-id>` and configured custom-layout routes remain supported.
 - Some result tables expose the ticket only as an exact visible `#<ticket-id>` link label. That fallback is accepted only for a visible same-origin link inside a `tr`, `[role="row"]`, or `.row` result row; the resulting navigation still uses the configured validated incident route.
+- Historic matches are reviewed sequentially. Each incident and any required secondary view is brought to the foreground before navigation and again before extraction, then closed before the next historic incident starts. A failed, incomplete, or wrong-ticket historic render is retried once in the foreground. Final failures retain the ticket ID and a bounded single-line reason in the run warning.
 
 ## Readiness and completeness
 
