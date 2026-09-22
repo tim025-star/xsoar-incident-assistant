@@ -130,6 +130,7 @@ class CompilerTests(unittest.TestCase):
         safe = source()
         safe["documents"][0]["email"] = "user@corp.example"
         safe["documents"][0]["ipv6"] = "2001:db8::20"
+        safe["documents"][0]["occurred"] = "2026-09-20T04:14:00Z"
         safe["provenance"]["rawHash"] = compiler.raw_hash(safe)
         safe["provenance"]["normalizedHash"] = compiler.normalized_hash(safe)
         seal(safe)
@@ -144,6 +145,21 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("routable IP", findings)
         self.assertIn("tenant domain", findings)
         self.assertIn("secret material", findings)
+
+    def test_safety_scan_does_not_treat_iso_time_as_ipv6(self):
+        timestamp = source()
+        timestamp["documents"][0]["occurred"] = "2026-09-20T04:14:00Z"
+        timestamp["provenance"]["rawHash"] = compiler.raw_hash(timestamp)
+        timestamp["provenance"]["normalizedHash"] = compiler.normalized_hash(timestamp)
+        seal(timestamp)
+        self.assertEqual(review.mechanical_findings(timestamp), [])
+
+        routable_ipv6 = source()
+        routable_ipv6["documents"][0]["sourceV6"] = "2606:4700:4700::1111"
+        routable_ipv6["provenance"]["rawHash"] = compiler.raw_hash(routable_ipv6)
+        routable_ipv6["provenance"]["normalizedHash"] = compiler.normalized_hash(routable_ipv6)
+        seal(routable_ipv6)
+        self.assertIn("non-documentation routable IP: 2606:4700:4700::1111", review.mechanical_findings(routable_ipv6))
 
     def test_review_and_lineage_are_bound_by_certification_hash(self):
         changed_gate = source()

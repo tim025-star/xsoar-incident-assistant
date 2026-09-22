@@ -14,6 +14,7 @@ from compiler import canonical_json, certification_hash, normalized_hash, raw_ha
 EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,}|localhost)\b", re.IGNORECASE)
 IPV4 = re.compile(r"(?<![\w:])(?:\d{1,3}\.){3}\d{1,3}(?![\w:])")
 IPV6 = re.compile(r"(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}(?![0-9A-Fa-f:])")
+TIME_FRAGMENT = re.compile(r"\d{1,2}:\d{2}:\d{2}(?:\.\d+)?")
 TENANT_DOMAIN = re.compile(r"\b([a-z0-9-]+)\.onmicrosoft\.com\b", re.IGNORECASE)
 TENANT_ID = re.compile(r"(?i)\btenant(?:id)?\b[^\n\r]{0,40}\b([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b")
 SECRET_PATTERNS = (
@@ -64,6 +65,8 @@ def mechanical_findings(record: dict[str, Any]) -> list[str]:
         if TENANT_ID.search(text):
             findings.append("possible real tenant identifier")
         for token in set(IPV4.findall(text) + IPV6.findall(text)):
+            if TIME_FRAGMENT.fullmatch(token):
+                continue
             try:
                 address = ipaddress.ip_address(token)
             except ValueError:
