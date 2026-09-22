@@ -3,5 +3,8 @@
   "minimumSequences": 50,
   "pilotEpochs": 30,
   "pilotMinimumAccuracy": 0.95,
+  "pilotEvaluationInterval": 5,
+  "cpuHeadOnlyMicroBatch": 16,
+  "cpuHeadOnlyAccumulation": 1,
   "epochs": 3
 }

@@ -96,6 +96,13 @@ def collate(items, pad_id):
             "label": torch.tensor([item["label"] for item in items])}
 
 
+def length_bucketed_batches(items, batch_size, seed):
+    ordered = sorted(items, key=lambda item: (len(item["ids"]), item["itemHash"]))
+    batches = [ordered[start:start + batch_size] for start in range(0, len(ordered), batch_size)]
+    random.Random(seed).shuffle(batches)
+    return batches
+
+
 def forward(model, batch, device, *, detach_encoder=False):
     return model(batch["input_ids"].to(device), batch["attention_mask"].to(device),
                  batch["marker_pos"].to(device), batch["marker_mask"].to(device), batch["qtype"].to(device),
@@ -187,6 +194,11 @@ def train(args) -> None:
     device = torch.device("cuda" if args.device == "auto" and torch.cuda.is_available() else args.device if args.device != "auto" else "cpu")
     if args.device == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA was requested but is unavailable")
+    random_seed = 42
+    random.seed(random_seed)
+    torch.manual_seed(random_seed)
+    if device.type == "cuda":
+        torch.cuda.manual_seed_all(random_seed)
     run_id = args.run_id
     weights_path = base / "model.safetensors"
     model = build_model(cfg, encoder_dir=base / "encoder")
@@ -219,22 +231,36 @@ def train(args) -> None:
         model.encoder.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.to(device)
     optimizer = torch.optim.AdamW(trainable, lr=1e-4 if scope == "head-only" else 2.5e-5, weight_decay=0.01)
-    micro_batch = 4 if device.type == "cuda" else 1
-    accumulation = 8 if device.type == "cuda" else 16
+    if device.type == "cuda":
+        micro_batch, accumulation = 4, 8
+    elif scope == "head-only":
+        micro_batch = int(config.get("cpuHeadOnlyMicroBatch", 16))
+        accumulation = int(config.get("cpuHeadOnlyAccumulation", 1))
+    else:
+        micro_batch, accumulation = 1, 16
+    if micro_batch < 1 or accumulation < 1:
+        raise ValueError("microbatch and accumulation settings must be positive")
     epochs = int(config.get("pilotEpochs", 30) if args.pilot else config.get("epochs", DEFAULT_EPOCHS))
+    pilot_target = float(config.get("pilotMinimumAccuracy", 0.95))
+    pilot_evaluation_interval = int(config.get("pilotEvaluationInterval", 5))
+    if epochs < 1 or pilot_evaluation_interval < 1:
+        raise ValueError("epoch and pilot evaluation settings must be positive")
     micro_batches_per_epoch = math.ceil(len(train_items) / micro_batch)
     optimizer_steps_per_epoch = math.ceil(micro_batches_per_epoch / accumulation)
     total_optimizer_steps = max(1, optimizer_steps_per_epoch * epochs)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_optimizer_steps, eta_min=1e-6)
     scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
     optimizer_steps = 0
+    epochs_completed = 0
+    early_stopped = False
+    metrics = None
     started = time.time()
     for epoch in range(epochs):
         model.train()
-        random.Random(42 + epoch).shuffle(train_items)
+        batches = length_bucketed_batches(train_items, micro_batch, 42 + epoch)
         optimizer.zero_grad(set_to_none=True)
-        for batch_index, start in enumerate(range(0, len(train_items), micro_batch), 1):
-            items = train_items[start:start + micro_batch]
+        processed = 0
+        for batch_index, items in enumerate(batches, 1):
             batch = collate(items, tokenizer.pad_token_id)
             with torch.autocast(device.type, dtype=torch.float16, enabled=device.type == "cuda"):
                 logits, activity = forward(model, batch, device, detach_encoder=scope == "head-only")
@@ -254,7 +280,7 @@ def train(args) -> None:
             rl_loss = -(advantage * log_probability).mean()
             ce_loss = -(target * torch.log_softmax(logits.masked_fill(~mask, -1e4), -1)).sum(-1).mean()
             scaler.scale((rl_loss + ce_loss + 0.0 * activity.sum()) / accumulation).backward()
-            if batch_index % accumulation == 0 or start + micro_batch >= len(train_items):
+            if batch_index % accumulation == 0 or batch_index == len(batches):
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 scaler.step(optimizer)
@@ -262,20 +288,42 @@ def train(args) -> None:
                 optimizer.zero_grad(set_to_none=True)
                 scheduler.step()
                 optimizer_steps += 1
-            completed = epoch * len(train_items) + min(len(train_items), start + micro_batch)
+            processed += len(items)
+            completed = epoch * len(train_items) + processed
             progress(f"Training epoch {epoch + 1} of {epochs} on {device.type}.", 5 + 80 * completed / (len(train_items) * epochs))
-    metrics = sequence_metrics(development_items, predict(model, development_items, tokenizer.pad_token_id, device, detach_encoder=scope == "head-only"))
-    if args.pilot and metrics["sequenceAccuracy"] < float(config.get("pilotMinimumAccuracy", 0.95)):
+        epochs_completed = epoch + 1
+        if args.pilot and (epochs_completed % pilot_evaluation_interval == 0 or epochs_completed == epochs):
+            metrics = sequence_metrics(
+                development_items,
+                predict(model, development_items, tokenizer.pad_token_id, device, detach_encoder=scope == "head-only"),
+            )
+            progress(f"Pilot sequence accuracy after epoch {epochs_completed}: {metrics['sequenceAccuracy']:.4f}.",
+                     5 + 80 * epochs_completed / epochs)
+            if metrics["sequenceAccuracy"] >= pilot_target:
+                early_stopped = epochs_completed < epochs
+                break
+    if metrics is None:
+        metrics = sequence_metrics(development_items, predict(model, development_items, tokenizer.pad_token_id, device, detach_encoder=scope == "head-only"))
+    if args.pilot and metrics["sequenceAccuracy"] < pilot_target:
         raise ValueError("tiny-overfit pilot did not reach its reviewed sequence target")
+    expected_completed_steps = optimizer_steps_per_epoch * epochs_completed
+    if optimizer_steps != expected_completed_steps:
+        raise ValueError("optimizer-step accounting drifted from the completed epochs")
     if {key: cfg.get(key) for key in original_calibration} != original_calibration:
         raise ValueError("training changed shipped calibration unexpectedly")
     output = Path(args.output)
     manifest = {
         "schemaVersion": 2, "id": run_id, "base": "laya-english", "contract": CONTRACT,
         "baseModelManifestHash": base_manifest_hash, "compilationManifestHash": compilation_hash,
+        "trainerSha256": sha256_file(Path(__file__)),
+        "trainingConfigSha256": sha256_file(Path(args.config)),
+        "pilotManifestSha256": sha256_file(Path(args.pilot_manifest)) if args.pilot else None,
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "pilot": args.pilot,
         "trainingSequences": len(train_items), "developmentSequences": len(development_items),
-        "optimizerSteps": optimizer_steps, "expectedOptimizerSteps": total_optimizer_steps,
+        "optimizerSteps": optimizer_steps, "expectedOptimizerSteps": expected_completed_steps,
+        "maximumOptimizerSteps": total_optimizer_steps, "epochsCompleted": epochs_completed,
+        "maximumEpochs": epochs, "earlyStopped": early_stopped,
+        "randomSeed": random_seed, "microBatch": micro_batch, "gradientAccumulation": accumulation,
         "trainingScope": scope, "trainableParameters": trainable_parameters, "totalParameters": total_parameters,
         "device": device.type, "durationSeconds": round(time.time() - started, 1),
         "calibration": {"status": "unchanged", "sha256": sha256_json(original_calibration)},
