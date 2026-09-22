@@ -19,6 +19,8 @@ const PROCESS_OUTPUT_LIMIT = 64 * 1024;
 const OLLAMA_START_TIMEOUT_MS = 30000;
 const DOWNLOAD_CONNECT_TIMEOUT_MS = 30000;
 const DOWNLOAD_STALL_TIMEOUT_MS = 120000;
+const DOWNLOAD_PROGRESS_INTERVAL_MS = 500;
+const DOWNLOAD_PROGRESS_BYTES = 4 * 1024 * 1024;
 
 export const LOCAL_AI_INSTALL_MANIFEST = Object.freeze({
   runner: Object.freeze({
@@ -165,6 +167,15 @@ export async function downloadVerifiedAsset(asset, destination, {
     for await (const chunk of createReadStream(partial)) { throwIfAborted(signal); hash.update(chunk); }
   }
   let completed = offset;
+  let reported = offset;
+  let reportedAt = Date.now();
+  const reportProgress = (force = false) => {
+    const now = Date.now();
+    if (!force && completed - reported < DOWNLOAD_PROGRESS_BYTES && now - reportedAt < DOWNLOAD_PROGRESS_INTERVAL_MS) return;
+    reported = completed;
+    reportedAt = now;
+    onProgress({ status: `Downloading ${asset.name}.`, completed, total: asset.size });
+  };
   const stallAbortController = new AbortController();
   let stallTimer;
   const resetStallTimer = () => {
@@ -178,7 +189,7 @@ export async function downloadVerifiedAsset(asset, destination, {
       completed += chunk.length;
       if (completed > asset.size) return callback(new Error(`GitHub returned an oversized download for ${asset.name}.`));
       hash.update(chunk);
-      onProgress({ status: `Downloading ${asset.name}.`, completed, total: asset.size });
+      reportProgress();
       callback(null, chunk);
     }
   });
@@ -191,6 +202,7 @@ export async function downloadVerifiedAsset(asset, destination, {
     if (error?.name === "AbortError") throw cancelledError();
     throw error;
   } finally { clearTimeout(stallTimer); }
+  reportProgress(true);
   if (completed !== asset.size) throw new Error(`GitHub returned an incomplete download for ${asset.name}.`);
   if (hash.digest("hex") !== asset.sha256) {
     await rm(partial, { force: true });
