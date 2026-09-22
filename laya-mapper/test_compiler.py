@@ -66,6 +66,22 @@ class FakeRunner:
 
 
 class CompilerTests(unittest.TestCase):
+    def test_hash_bound_training_inputs_survive_windows_checkout(self):
+        root = Path(__file__).parent
+        additional_manifest = json.loads((root / "additional-synthetic-drafts.manifest.json").read_text(encoding="utf-8"))
+        review_artifact = json.loads((root / "pilot-review.json").read_text(encoding="utf-8"))
+        self.assertEqual(ingest_factory.sha256_file(root / "additional-synthetic-drafts.jsonl"), additional_manifest["sha256"])
+        self.assertEqual(ingest_factory.sha256_file(root / "additional-synthetic-drafts.jsonl"), review_artifact["additionalDraftsSha256"])
+        self.assertEqual(ingest_factory.sha256_file(root / "tiny-overfit-pilot.json"), review_artifact["pilotManifestSha256"])
+        self.assertEqual(ingest_factory.sha256_file(root / "tier-a-family-mappings.json"), review_artifact["tierAMappingSha256"])
+
+    def test_ingest_jsonl_report_hash_matches_exact_written_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "approved-source.jsonl"
+            digest = ingest_factory.write_jsonl(path, [{"value": "one"}, {"value": "two"}])
+            self.assertEqual(digest, ingest_factory.sha256_file(path))
+            self.assertNotIn(b"\r\n", path.read_bytes())
+
     def test_write_jsonl_hashes_exact_written_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "compiled.jsonl"

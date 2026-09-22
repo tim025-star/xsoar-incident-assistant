@@ -30,6 +30,13 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> str:
+    """Write canonical LF-delimited JSON and hash the exact persisted bytes."""
+    payload = "".join(canonical_json(row) + "\n" for row in rows).encode("utf-8")
+    path.write_bytes(payload)
+    return hashlib.sha256(payload).hexdigest()
+
+
 def json_type(value: Any) -> str:
     if value is None:
         return "null"
@@ -335,8 +342,7 @@ def main() -> None:
             raise ValueError(f"reviewed pilot labels do not match the adjudicated manifest: observed={observed}, expected={expected}")
     args.output.mkdir(parents=True, exist_ok=True)
     source_path = args.output / "approved-source.jsonl"
-    source_text = "".join(canonical_json(row) + "\n" for row in emitted)
-    source_path.write_text(source_text, encoding="utf-8")
+    source_hash = write_jsonl(source_path, emitted)
     report = {
         "schemaVersion": 1,
         "factory": str(args.factory.resolve()),
@@ -353,7 +359,7 @@ def main() -> None:
         "emittedBySplit": dict(Counter(row["split"] for row in emitted)),
         "quarantined": len(quarantine),
         "quarantinedByReason": dict(Counter(item["reason"] for item in quarantine)),
-        "approvedSourceSha256": hashlib.sha256(source_text.encode("utf-8")).hexdigest(),
+        "approvedSourceSha256": source_hash,
         "quarantine": quarantine,
     }
     (args.output / "ingest-report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

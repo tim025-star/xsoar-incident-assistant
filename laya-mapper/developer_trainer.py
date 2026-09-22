@@ -12,7 +12,10 @@ import hashlib
 import json
 import math
 import os
+import platform
 import random
+import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -22,9 +25,11 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 
 import torch
+from laya import __version__ as laya_version
 from laya.common import build_model, proper_reward
+from safetensors import __version__ as safetensors_version
 from safetensors.torch import load_file, save_file
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, __version__ as transformers_version
 
 from compiler import CONTRACT, canonical_json, item_hash, sha256_json, verify_base_model
 
@@ -38,6 +43,18 @@ def progress(detail: str, value: float) -> None:
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def runtime_identity(device: torch.device) -> dict[str, Any]:
+    return {
+        "python": platform.python_version(), "torch": str(torch.__version__),
+        "laya": laya_version, "transformers": transformers_version,
+        "safetensors": safetensors_version, "threads": torch.get_num_threads(),
+        "interopThreads": torch.get_num_interop_threads(),
+        "cuda": torch.version.cuda if device.type == "cuda" else None,
+        "cudaDevices": [torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())]
+        if device.type == "cuda" else [],
+    }
 
 
 def load_compiled(compiled: Path, base_manifest_hash: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], str]:
@@ -110,23 +127,44 @@ def forward(model, batch, device, *, detach_encoder=False):
 
 
 def predict(model, items, pad_id, device, *, detach_encoder=False):
-    rows = []
+    rows = [None] * len(items)
+    indexed = sorted(enumerate(items), key=lambda pair: (len(pair[1]["ids"]), pair[0]))
     model.eval()
     with torch.no_grad():
-        for start in range(0, len(items), 8):
-            chunk = items[start:start + 8]
-            batch = collate(chunk, pad_id)
+        for start in range(0, len(indexed), 16):
+            chunk = indexed[start:start + 16]
+            chunk_items = [item for _, item in chunk]
+            batch = collate(chunk_items, pad_id)
             logits, _ = forward(model, batch, device, detach_encoder=detach_encoder)
-            for index, item in enumerate(chunk):
-                values = logits[index, :len(item["markers"])].float().cpu()
-                rows.append({"choice": int(values.argmax().item()), "logits": values.tolist()})
+            for batch_index, (original_index, item) in enumerate(chunk):
+                values = logits[batch_index, :len(item["markers"])].float().cpu()
+                if not bool(torch.isfinite(values).all()):
+                    raise ValueError("non-finite prediction logits")
+                rows[original_index] = {"choice": int(values.argmax().item()), "logits": values.tolist()}
+    if any(row is None for row in rows):
+        raise ValueError("sequence predictions have incomplete coverage")
     return rows
 
 
 def sequence_metrics(items, predictions):
+    if len(items) != len(predictions):
+        raise ValueError("sequence predictions have incomplete coverage")
     correct = sum(int(prediction["choice"] == item["label"]) for item, prediction in zip(items, predictions))
     selections = [(item, prediction) for item, prediction in zip(items, predictions) if item["metadata"]["phase"] == "selection"]
     classification = [(item, prediction) for item, prediction in zip(items, predictions) if item["metadata"]["phase"] == "classify"]
+    groups = {name: {} for name in ("phase", "answer", "target", "family")}
+    for item, prediction in zip(items, predictions):
+        metadata = item["metadata"]
+        positive = item["label"] == 1 if metadata["phase"] == "classify" else metadata["goldChoice"] != "__none__"
+        keys = {"phase": metadata["phase"], "answer": "positive" if positive else "none",
+                "target": metadata["target"], "family": metadata["splitUnit"]["templateFamily"]}
+        for name, key in keys.items():
+            group = groups[name].setdefault(key, {"correct": 0, "sequences": 0})
+            group["sequences"] += 1
+            group["correct"] += int(prediction["choice"] == item["label"])
+    for values in groups.values():
+        for group in values.values():
+            group["accuracy"] = group["correct"] / group["sequences"]
     return {
         "metricScope": "teacher-forced-rendered-sequences",
         "sequenceAccuracy": correct / max(1, len(items)),
@@ -135,7 +173,102 @@ def sequence_metrics(items, predictions):
         "sequences": len(items),
         "endToEndPointerAccuracy": None,
         "promotionEvaluationRequired": True,
+        "subgroups": groups,
     }
+
+
+def require_finite(value, context):
+    if isinstance(value, torch.Tensor):
+        valid = not (value.is_floating_point() or value.is_complex()) or bool(torch.isfinite(value).all())
+    elif isinstance(value, float):
+        valid = math.isfinite(value)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            require_finite(item, f"{context}.{key}")
+        return
+    elif isinstance(value, (tuple, list)):
+        for item in value:
+            require_finite(item, context)
+        return
+    else:
+        return
+    if not valid:
+        raise ValueError(f"non-finite training state: {context}")
+
+
+def save_pilot_state(path, model, optimizer, scheduler, scaler, bindings, epochs_completed,
+                     optimizer_steps, elapsed_seconds, metrics):
+    """Atomically replace recovery state; never export a promotable checkpoint."""
+    state = {
+        "schemaVersion": 1, "kind": "pilot-resume-state", "gate": "pilotOnly", "promotionEligible": False,
+        "bindings": bindings, "epochsCompleted": epochs_completed, "optimizerSteps": optimizer_steps,
+        "elapsedSeconds": elapsed_seconds, "metrics": metrics,
+        # Frozen parameters come from the hash-verified base; mutable buffers do not.
+        # Preserve training precision. The final inference export is separately fp16.
+        "parameters": {name: parameter.detach() for name, parameter in model.named_parameters() if parameter.requires_grad},
+        "buffers": {name: buffer.detach() for name, buffer in model.named_buffers()},
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(), "scaler": scaler.state_dict(),
+        "rng": {"python": random.getstate(), "torch": torch.get_rng_state(),
+                "cuda": torch.cuda.get_rng_state_all() if bindings["device"].startswith("cuda") else []},
+    }
+    require_finite(state, "pilot recovery")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + ".", suffix=".tmp", delete=False) as handle:
+            temporary = Path(handle.name)
+            torch.save(state, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
+def restore_pilot_state(path, model, optimizer, scheduler, scaler, bindings):
+    # Explicit weights_only avoids arbitrary pickle execution from a supplied file.
+    state = torch.load(path, map_location="cpu", weights_only=True)
+    if (state.get("schemaVersion") != 1 or state.get("kind") != "pilot-resume-state"
+            or state.get("gate") != "pilotOnly" or state.get("promotionEligible") is not False
+            or state.get("bindings") != bindings):
+        raise ValueError("pilot recovery state does not match this exact run and its artifact/config/scope bindings")
+    epoch, steps = state.get("epochsCompleted"), state.get("optimizerSteps")
+    if (type(epoch) is not int or not 1 <= epoch <= bindings["maximumEpochs"]
+            or type(steps) is not int or steps != epoch * bindings["optimizerStepsPerEpoch"]
+            or state["scheduler"].get("last_epoch") != steps
+            or state["scheduler"].get("T_max") != bindings["maximumOptimizerSteps"]):
+        raise ValueError("pilot recovery state has inconsistent epoch or fixed-schedule counters")
+    elapsed = state.get("elapsedSeconds")
+    if not isinstance(elapsed, (int, float)) or not math.isfinite(elapsed) or elapsed < 0:
+        raise ValueError("pilot recovery state has invalid elapsed time")
+    rng = state["rng"]
+    if len(rng["cuda"]) != (torch.cuda.device_count() if bindings["device"].startswith("cuda") else 0):
+        raise ValueError("pilot recovery state has incompatible CUDA RNG states")
+    parameters = {name: parameter for name, parameter in model.named_parameters() if parameter.requires_grad}
+    buffers = dict(model.named_buffers())
+    for key, current in (("parameters", parameters), ("buffers", buffers)):
+        stored = state.get(key)
+        if (not isinstance(stored, dict) or stored.keys() != current.keys()
+                or any(not isinstance(stored[name], torch.Tensor) or stored[name].shape != tensor.shape
+                       or stored[name].dtype != tensor.dtype for name, tensor in current.items())):
+            raise ValueError(f"pilot recovery state has incompatible {key} keys, shapes or precision")
+    require_finite(state, "pilot recovery")
+    with torch.no_grad():
+        for current, stored in ((parameters, state["parameters"]), (buffers, state["buffers"])):
+            for name, tensor in current.items():
+                tensor.copy_(stored[name])
+    optimizer.load_state_dict(state["optimizer"])
+    scheduler.load_state_dict(state["scheduler"])
+    scaler.load_state_dict(state["scaler"])
+    random.setstate(rng["python"])
+    torch.set_rng_state(rng["torch"])
+    if rng["cuda"]:
+        torch.cuda.set_rng_state_all(rng["cuda"])
+    # Release loaded parameter copies instead of retaining them throughout training.
+    return {key: state[key] for key in ("epochsCompleted", "optimizerSteps", "elapsedSeconds", "metrics")}
 
 
 def save_checkpoint(model, tokenizer, cfg, output: Path, manifest: dict[str, Any]) -> None:
@@ -153,6 +286,11 @@ def verify_reload(model, cfg, checkpoint: Path, probe, pad_id, device, *, detach
     reloaded.load_state_dict(load_file(checkpoint / "model.safetensors"), strict=True)
     reloaded.to(device)
     after = predict(reloaded, probe, pad_id, device, detach_encoder=detach_encoder)
+    if (len(before) != len(probe) or len(after) != len(probe)
+            or any(len(row["logits"]) != len(item["markers"])
+                   or not all(math.isfinite(value) for value in row["logits"])
+                   for predictions in (before, after) for item, row in zip(probe, predictions))):
+        raise ValueError("saved checkpoint has incomplete or non-finite reload predictions")
     if [row["choice"] for row in before] != [row["choice"] for row in after]:
         raise ValueError("saved checkpoint changes validation predictions after reload")
     maximum_delta = max((abs(left - right) for a, b in zip(before, after) for left, right in zip(a["logits"], b["logits"])), default=0.0)
@@ -162,6 +300,12 @@ def verify_reload(model, cfg, checkpoint: Path, probe, pad_id, device, *, detach
 
 
 def train(args) -> None:
+    resume_path = getattr(args, "resume_state", None)
+    if resume_path and not args.pilot:
+        raise ValueError("recovery state may only resume a pilotOnly experiment")
+    state_path = Path(args.output).with_name(Path(args.output).name + ".pilot-state.pt")
+    if args.pilot and state_path.exists() and not resume_path:
+        raise ValueError("pilot recovery state already exists; explicitly resume it or use a new output")
     base = Path(args.base)
     base_manifest_path = Path(args.base_manifest)
     base_manifest = verify_base_model(base, base_manifest_path)
@@ -254,8 +398,37 @@ def train(args) -> None:
     epochs_completed = 0
     early_stopped = False
     metrics = None
+    elapsed_before_resume = 0.0
+    resumed_from_epoch = None
+    resumed_from_optimizer_steps = None
+    implementation_path = Path(sys.executable) if getattr(sys, "frozen", False) else Path(__file__)
+    compiler_path = implementation_path if getattr(sys, "frozen", False) else Path(__file__).with_name("compiler.py")
+    bindings = {
+        "runId": run_id, "output": str(Path(args.output).resolve()), "contract": CONTRACT,
+        "baseModelManifestHash": base_manifest_hash, "compilationManifestHash": compilation_hash,
+        "trainerSha256": sha256_file(implementation_path),
+        "compilerSha256": sha256_file(compiler_path),
+        "trainingConfigSha256": sha256_file(Path(args.config)),
+        "pilotManifestSha256": sha256_file(Path(args.pilot_manifest)) if args.pilot else None,
+        "trainingScope": scope, "device": str(device), "randomSeed": random_seed,
+        "microBatch": micro_batch, "gradientAccumulation": accumulation,
+        "maximumEpochs": epochs, "maximumOptimizerSteps": total_optimizer_steps,
+        "optimizerStepsPerEpoch": optimizer_steps_per_epoch,
+        "trainingItemsSha256": sha256_json([item["itemHash"] for item in train_items]),
+        "runtime": runtime_identity(device),
+    }
+    if resume_path:
+        restored = restore_pilot_state(resume_path, model, optimizer, scheduler, scaler, bindings)
+        epochs_completed, optimizer_steps = restored["epochsCompleted"], restored["optimizerSteps"]
+        resumed_from_epoch, resumed_from_optimizer_steps = epochs_completed, optimizer_steps
+        elapsed_before_resume, metrics = restored["elapsedSeconds"], restored["metrics"]
+        early_stopped = metrics is not None and metrics["sequenceAccuracy"] >= pilot_target and epochs_completed < epochs
+        progress(f"Resumed pilot at epoch {epochs_completed} with {optimizer_steps} optimizer steps; fixed schedule unchanged.",
+                 5 + 80 * epochs_completed / epochs)
     started = time.time()
-    for epoch in range(epochs):
+    for epoch in range(epochs_completed, epochs):
+        if early_stopped:
+            break
         model.train()
         batches = length_bucketed_batches(train_items, micro_batch, 42 + epoch)
         optimizer.zero_grad(set_to_none=True)
@@ -279,10 +452,12 @@ def train(args) -> None:
             log_probability = -(((sampled - logits.unsqueeze(0)) ** 2) * mask).sum(-1) / (2 * sigma ** 2)
             rl_loss = -(advantage * log_probability).mean()
             ce_loss = -(target * torch.log_softmax(logits.masked_fill(~mask, -1e4), -1)).sum(-1).mean()
-            scaler.scale((rl_loss + ce_loss + 0.0 * activity.sum()) / accumulation).backward()
+            loss = (rl_loss + ce_loss + 0.0 * activity.sum()) / accumulation
+            require_finite(loss, "loss")
+            scaler.scale(loss).backward()
             if batch_index % accumulation == 0 or batch_index == len(batches):
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                torch.nn.utils.clip_grad_norm_(trainable, 1.0, error_if_nonfinite=True)
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
@@ -301,7 +476,11 @@ def train(args) -> None:
                      5 + 80 * epochs_completed / epochs)
             if metrics["sequenceAccuracy"] >= pilot_target:
                 early_stopped = epochs_completed < epochs
-                break
+        if args.pilot:
+            save_pilot_state(state_path, model, optimizer, scheduler, scaler, bindings, epochs_completed,
+                             optimizer_steps, elapsed_before_resume + time.time() - started, metrics)
+        if early_stopped:
+            break
     if metrics is None:
         metrics = sequence_metrics(development_items, predict(model, development_items, tokenizer.pad_token_id, device, detach_encoder=scope == "head-only"))
     if args.pilot and metrics["sequenceAccuracy"] < pilot_target:
@@ -315,7 +494,7 @@ def train(args) -> None:
     manifest = {
         "schemaVersion": 2, "id": run_id, "base": "laya-english", "contract": CONTRACT,
         "baseModelManifestHash": base_manifest_hash, "compilationManifestHash": compilation_hash,
-        "trainerSha256": sha256_file(Path(__file__)),
+        "trainerSha256": bindings["trainerSha256"],
         "trainingConfigSha256": sha256_file(Path(args.config)),
         "pilotManifestSha256": sha256_file(Path(args.pilot_manifest)) if args.pilot else None,
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "pilot": args.pilot,
@@ -325,19 +504,23 @@ def train(args) -> None:
         "maximumEpochs": epochs, "earlyStopped": early_stopped,
         "randomSeed": random_seed, "microBatch": micro_batch, "gradientAccumulation": accumulation,
         "trainingScope": scope, "trainableParameters": trainable_parameters, "totalParameters": total_parameters,
-        "device": device.type, "durationSeconds": round(time.time() - started, 1),
+        "device": device.type, "durationSeconds": round(elapsed_before_resume + time.time() - started, 1),
+        "resumed": bool(resume_path), "resumedFromEpoch": resumed_from_epoch,
+        "resumedFromOptimizerSteps": resumed_from_optimizer_steps,
+        "recoveryState": state_path.name if args.pilot else None,
         "calibration": {"status": "unchanged", "sha256": sha256_json(original_calibration)},
         "sequenceMetrics": metrics, "promotionEligible": False,
     }
     save_checkpoint(model, tokenizer, cfg, output, manifest)
-    manifest["reloadVerification"] = verify_reload(model, cfg, output, development_items[:8], tokenizer.pad_token_id, device, detach_encoder=scope == "head-only")
+    manifest["reloadVerification"] = verify_reload(model, cfg, output, development_items, tokenizer.pad_token_id, device, detach_encoder=scope == "head-only")
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     progress("Developer checkpoint created; full production-mapper promotion evaluation is still required.", 100)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    command = parser.add_subparsers(dest="command", required=True).add_parser("train")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    command = subparsers.add_parser("train")
     command.add_argument("--compiled", required=True)
     command.add_argument("--config", required=True)
     command.add_argument("--base", required=True)
@@ -346,10 +529,18 @@ def main() -> None:
     command.add_argument("--run-id", required=True)
     command.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     command.add_argument("--pilot", action="store_true")
+    command.add_argument("--resume-state", help="Resume an exact pilot run from its epoch-boundary .pilot-state.pt file")
     command.add_argument("--pilot-manifest", default=str(Path(__file__).with_name("tiny-overfit-pilot.json")))
     command.add_argument("--training-scope", choices=["head-only", "last-layer-head", "full"], default="head-only")
+    status = subparsers.add_parser("runtime-status")
+    status.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
     args = parser.parse_args()
-    train(args)
+    if args.command == "runtime-status":
+        if args.device == "cuda" and not torch.cuda.is_available():
+            raise ValueError("CUDA was requested but is unavailable")
+        print(json.dumps(runtime_identity(torch.device(args.device)), sort_keys=True))
+    else:
+        train(args)
 
 
 if __name__ == "__main__":

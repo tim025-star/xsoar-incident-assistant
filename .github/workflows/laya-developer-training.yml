@@ -20,10 +20,21 @@ jobs:
           python -m pip install --disable-pip-version-check --no-deps "https://github.com/NandhaKishorM/laya/releases/download/v0.3.5/laya-0.3.5-py3-none-any.whl#sha256=4c57f64cbaf893bb5c7b4affddc2bf21a819f55df51941689f11868583be2903"
           python -m pip install --disable-pip-version-check "torch==2.9.1" --index-url https://download.pytorch.org/whl/cpu
           python -m pip install --disable-pip-version-check "transformers==4.57.6" "safetensors==0.6.2" "numpy==2.3.4" "pyinstaller==6.16.0"
+          Push-Location .\laya-mapper
+          python -m unittest test_compiler.py test_developer_trainer.py
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Developer trainer tests failed.' }
+          Pop-Location
           python -m PyInstaller --noconfirm --clean --onedir --name laya-developer-trainer --collect-all laya --collect-all safetensors --add-data ".\laya-mapper\base-model-manifest.json;." .\laya-mapper\developer_trainer.py
+          if ($LASTEXITCODE -ne 0) { throw 'CPU developer trainer packaging failed.' }
           .\dist\laya-developer-trainer\laya-developer-trainer.exe --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged CPU trainer help smoke failed.' }
+          $status = .\dist\laya-developer-trainer\laya-developer-trainer.exe runtime-status --device cpu | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged CPU trainer status smoke failed.' }
+          if ($status.laya -ne '0.3.5' -or $status.transformers -ne '4.57.6' -or $status.safetensors -ne '0.6.2' -or $status.cuda) { throw 'Packaged CPU trainer identity check failed.' }
           python -c "import torch; assert torch.version.cuda is None"
+          if ($LASTEXITCODE -ne 0) { throw 'CPU-only Torch verification failed.' }
           tar.exe -czf .\laya-developer-trainer-cpu-x64.tar.gz -C .\dist\laya-developer-trainer .
+          if ($LASTEXITCODE -ne 0) { throw 'CPU trainer archive creation failed.' }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: laya-developer-trainer-cpu-x64
@@ -43,10 +54,21 @@ jobs:
           python -m pip install --disable-pip-version-check --no-deps "https://github.com/NandhaKishorM/laya/releases/download/v0.3.5/laya-0.3.5-py3-none-any.whl#sha256=4c57f64cbaf893bb5c7b4affddc2bf21a819f55df51941689f11868583be2903"
           python -m pip install --disable-pip-version-check "torch==2.9.1" --index-url https://download.pytorch.org/whl/cu128
           python -m pip install --disable-pip-version-check "transformers==4.57.6" "safetensors==0.6.2" "numpy==2.3.4" "pyinstaller==6.16.0"
+          Push-Location .\laya-mapper
+          python -m unittest test_compiler.py test_developer_trainer.py
+          if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'Developer trainer tests failed.' }
+          Pop-Location
           python -c "import torch; assert torch.cuda.is_available(); assert torch.cuda.get_device_capability()[0] >= 7; m=torch.nn.Linear(8,2,device='cuda'); o=torch.optim.AdamW(m.parameters()); loss=m(torch.ones((2,8),device='cuda')).sum(); loss.backward(); o.step(); torch.cuda.synchronize(); print(torch.cuda.get_device_name(0))"
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA training smoke failed.' }
           python -m PyInstaller --noconfirm --clean --onedir --name laya-developer-trainer --collect-all laya --collect-all safetensors --add-data ".\laya-mapper\base-model-manifest.json;." .\laya-mapper\developer_trainer.py
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA developer trainer packaging failed.' }
           .\dist\laya-developer-trainer\laya-developer-trainer.exe --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged CUDA trainer help smoke failed.' }
+          $status = .\dist\laya-developer-trainer\laya-developer-trainer.exe runtime-status --device cuda | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged CUDA trainer status smoke failed.' }
+          if ($status.laya -ne '0.3.5' -or $status.transformers -ne '4.57.6' -or $status.safetensors -ne '0.6.2' -or -not $status.cuda -or $status.cudaDevices.Count -lt 1) { throw 'Packaged CUDA trainer identity check failed.' }
           tar.exe -czf .\laya-developer-trainer-cuda-x64.tar.gz -C .\dist\laya-developer-trainer .
+          if ($LASTEXITCODE -ne 0) { throw 'CUDA trainer archive creation failed.' }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: laya-developer-trainer-cuda-x64
