@@ -1,0 +1,74 @@
+name: Laya-mapper Windows assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Immutable GitHub release tag for the reviewed Laya assets
+        required: true
+        default: laya-mapper-english-v2
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.14.0
+      - name: Install pinned CPU builder inputs
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --no-deps "https://github.com/NandhaKishorM/laya/releases/download/v0.3.5/laya-0.3.5-py3-none-any.whl#sha256=4c57f64cbaf893bb5c7b4affddc2bf21a819f55df51941689f11868583be2903"
+          python -m pip install --disable-pip-version-check "torch==2.9.1" --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --disable-pip-version-check "transformers==4.57.6" "safetensors==0.6.2" "huggingface_hub==0.35.3" "numpy==2.3.4" "pyinstaller==6.16.0"
+      - name: Download the pinned English checkpoint for asset publication
+        shell: pwsh
+        run: |
+          @'
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              repo_id="convaiinnovations/laya",
+              revision="1c5edc17a7acd8701df6fc341c0d179f1c62c982",
+              allow_patterns=["encoder/config.json", "model.safetensors", "rl_agent_config.json", "tokenizer/tokenizer.json", "tokenizer/tokenizer_config.json"],
+              local_dir="laya-source",
+          )
+          '@ | python -
+      - name: Build and smoke-test the inference-only CPU runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .\laya-build-assets | Out-Null
+          $env:LAYA_MODEL_PATH = (Resolve-Path .\laya-source).Path
+          python .\laya-mapper\test_runner.py
+          if ($LASTEXITCODE -ne 0) { throw "Adapter checks failed." }
+          python -m PyInstaller --noconfirm --clean --onedir --name laya-mapper --collect-all laya --collect-all safetensors --hidden-import transformers.models.modernbert.configuration_modernbert --hidden-import transformers.models.modernbert.modeling_modernbert .\laya-mapper\runner.py
+          if ($LASTEXITCODE -ne 0) { throw "Runtime packaging failed." }
+          node .\scripts\smoke-laya-runtime.mjs .\dist\laya-mapper\laya-mapper.exe
+          if ($LASTEXITCODE -ne 0) { throw "Packaged inference smoke failed." }
+          tar.exe -czf .\laya-build-assets\laya-mapper-runtime-cpu-x64.tar.gz -C .\dist\laya-mapper .
+          python -m pip freeze | Set-Content -Encoding utf8 .\laya-build-assets\cpu-build-requirements.txt
+      - name: Create fixed-size SHA-256 inference-only manifest
+        shell: pwsh
+        run: node .\scripts\create-laya-release-manifest.mjs .\laya-build-assets\laya-mapper-runtime-cpu-x64.tar.gz .\laya-source .\laya-assets $env:GITHUB_REPOSITORY ${{ inputs.release_tag }}
+      - name: Include reproducible build inventories
+        shell: pwsh
+        run: Copy-Item .\laya-build-assets\*-build-requirements.txt .\laya-assets
+      - name: Enforce GitHub Release asset size limits
+        shell: pwsh
+        run: |
+          $oversized = Get-ChildItem .\laya-assets -File | Where-Object Length -ge 2GB
+          if ($oversized) { throw "Laya assets exceed GitHub's per-file release limit: $($oversized.Name -join ', ')" }
+      - name: Publish versioned candidate assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release view "${{ inputs.release_tag }}" *> $null
+          if ($LASTEXITCODE -ne 0) { gh release create "${{ inputs.release_tag }}" --prerelease --title "Laya-mapper Windows assets" --notes "Inference-only Laya 0.3.5 protocol 2 and the pinned English checkpoint. Review the manifest before application release use." }
+          gh release upload "${{ inputs.release_tag }}" .\laya-assets\*

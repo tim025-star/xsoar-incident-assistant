@@ -54,6 +54,33 @@ test("GitHub asset downloads only follow HTTPS redirects to pinned GitHub hosts 
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("large asset progress is throttled while still reporting completion", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "xsoar-ai-progress-"));
+  const destination = path.join(directory, "asset.bin");
+  const content = Buffer.alloc(9 * 1024 * 1024, 7);
+  const updates = [];
+  const asset = {
+    name: "asset.bin",
+    url: "https://github.com/example/project/releases/download/model-v1/asset.bin",
+    size: content.length,
+    sha256: sha256(content)
+  };
+  try {
+    await downloadVerifiedAsset(asset, destination, {
+      onProgress: (value) => updates.push(value),
+      fetchImplementation: async () => new Response(new ReadableStream({
+        start(controller) {
+          for (let offset = 0; offset < content.length; offset += 16 * 1024) controller.enqueue(content.subarray(offset, offset + 16 * 1024));
+          controller.close();
+        }
+      }), { status: 200, headers: { "Content-Length": String(content.length) } })
+    });
+    assert.ok(updates.length >= 2);
+    assert.ok(updates.length <= 4, `expected bounded progress updates, got ${updates.length}`);
+    assert.equal(updates.at(-1).completed, content.length);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("published runner and default model assets stay pinned by size and SHA-256", () => {
   assert.deepEqual(LOCAL_AI_INSTALL_MANIFEST.runner, {
     name: "OllamaSetup.exe",

@@ -3,12 +3,14 @@ import { constants } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadLayaInstallManifest } from "../src/laya-mapper-installer.js";
 
 const rootDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const stageDirectory = path.join(rootDirectory, "release-stage");
 const applicationDirectory = path.join(stageDirectory, "app");
 const outputDirectory = path.join(rootDirectory, "artifacts");
 const nodeRuntimePath = process.env.NODE_RUNTIME_PATH;
+const layaMapperManifestPath = process.env.LAYA_MAPPER_MANIFEST_PATH;
 
 function run(command, arguments_, options = {}) {
   return new Promise((resolve, reject) => {
@@ -46,17 +48,27 @@ async function stageRelease() {
     throw new Error("NODE_RUNTIME_PATH must point to the portable node.exe included with this release.");
   }
   await requireFile(nodeRuntimePath, "Portable Node.js runtime");
+  if (!layaMapperManifestPath) {
+    throw new Error("LAYA_MAPPER_MANIFEST_PATH must point to the pinned Laya-mapper release manifest included with this release.");
+  }
+  await requireFile(layaMapperManifestPath, "Laya-mapper release manifest");
+  if ((await loadLayaInstallManifest(layaMapperManifestPath)).schemaVersion !== 3) throw new Error("Release packaging requires the English inference-only schema-v3 manifest.");
   await requireFile(path.join(rootDirectory, "dist", "web", "index.html"), "Built web application");
 
   await rm(stageDirectory, { recursive: true, force: true });
   await mkdir(applicationDirectory, { recursive: true });
   await mkdir(path.join(applicationDirectory, "scripts"), { recursive: true });
+  await mkdir(path.join(applicationDirectory, "resources"), { recursive: true });
   await Promise.all([
     cp(path.join(rootDirectory, "src"), path.join(applicationDirectory, "src"), { recursive: true }),
     cp(path.join(rootDirectory, "dist"), path.join(applicationDirectory, "dist"), { recursive: true }),
     copyFile(path.join(rootDirectory, "scripts", "install-local-ai.mjs"), path.join(applicationDirectory, "scripts", "install-local-ai.mjs")),
+    copyFile(path.join(rootDirectory, "scripts", "install-laya-mapper.mjs"), path.join(applicationDirectory, "scripts", "install-laya-mapper.mjs")),
+    copyFile(layaMapperManifestPath, path.join(applicationDirectory, "resources", "laya-mapper-manifest.json")),
     copyFile(path.join(rootDirectory, "package.json"), path.join(applicationDirectory, "package.json")),
     copyFile(path.join(rootDirectory, "package-lock.json"), path.join(applicationDirectory, "package-lock.json")),
+    copyFile(path.join(rootDirectory, "LICENSE"), path.join(applicationDirectory, "LICENSE")),
+    copyFile(path.join(rootDirectory, "THIRD_PARTY_NOTICES.md"), path.join(applicationDirectory, "THIRD_PARTY_NOTICES.md")),
     copyFile(path.join(rootDirectory, "installer", "launcher.vbs"), path.join(applicationDirectory, "XSOAR Incident Assistant.vbs"))
   ]);
   await mkdir(path.join(applicationDirectory, "runtime"), { recursive: true });

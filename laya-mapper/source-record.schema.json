@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://xsoar-incident-assistant.example/schemas/laya-source-record-v2.json",
+  "title": "Reviewed synthetic Laya mapper source record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sampleId", "synthetic", "sourceFamily", "split", "splitUnit", "documents", "decisions", "provenance", "review", "recordHash", "certificationHash"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "sampleId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "synthetic": { "const": true },
+    "sourceFamily": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "split": { "enum": ["train", "development", "frozen-test"] },
+    "splitUnit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "product", "templateFamily", "variantGroupId", "scenarioGroupId"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "product": { "type": "string", "minLength": 1 },
+        "templateFamily": { "type": "string", "minLength": 1 },
+        "variantGroupId": { "type": "string", "minLength": 1 },
+        "scenarioGroupId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": true,
+      "description": "The complete array must be at most 98304 UTF-8 bytes after compact JSON serialization.",
+      "x-maxUtf8Bytes": 98304
+    },
+    "decisions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/decision" }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["generatorModel", "generatorRevision", "promptHash", "seed", "rawHash", "normalizedHash", "targetCatalogVersion", "compilerVersion", "blindReviewerModel", "blindReviewPromptHash", "reviewArtifactSha256", "additionalDraftsSha256"],
+      "properties": {
+        "generatorModel": { "type": "string", "minLength": 1 },
+        "generatorRevision": { "type": "string", "minLength": 1 },
+        "promptHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "seed": { "type": ["integer", "string"] },
+        "rawHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "normalizedHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "targetCatalogVersion": { "const": "english-fields-v3" },
+        "compilerVersion": { "const": "3" },
+        "blindReviewerModel": { "type": "string", "minLength": 1 },
+        "blindReviewPromptHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "reviewArtifactSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "additionalDraftsSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["state", "blind", "gate", "reviewer"],
+      "properties": {
+        "state": { "const": "approved" },
+        "blind": { "const": true },
+        "gate": { "enum": ["pilotOnly", "releaseCandidate"] },
+        "reviewer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "model", "version", "promptHash"],
+          "properties": {
+            "kind": { "const": "independent-model" },
+            "model": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "promptHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        }
+      }
+    },
+    "recordHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "certificationHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "$defs": {
+    "decision": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["state"],
+      "properties": {
+        "state": { "enum": ["mapped", "absent", "unlabelled"] },
+        "primaryPointer": { "type": "string", "pattern": "^/documents/" },
+        "acceptedPointers": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^/documents/" } },
+        "hardNegativePointers": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^/documents/" } },
+        "positiveWindows": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["startToken", "endToken"],
+              "properties": {
+                "startToken": { "type": "integer", "minimum": 0 },
+                "endToken": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        },
+        "resolvedValue": { "type": ["string", "number", "boolean", "null"] },
+        "semanticIntent": { "type": "string" },
+        "rationale": { "type": "string" },
+        "reviewFinding": { "type": "string", "minLength": 1 },
+        "securityCritical": { "type": "boolean" },
+        "disputed": { "type": "boolean" },
+        "independentModelReviewed": { "type": "boolean" }
+      }
+    }
+  }
+}

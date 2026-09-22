@@ -38,12 +38,23 @@ jobs:
       - name: Download the pinned Node.js runtime
         shell: pwsh
         run: .\installer\download-node-runtime.ps1 -Destination .\installer\runtime\node.exe
+      - name: Download and verify the reviewed Laya asset manifest
+        shell: pwsh
+        env:
+          LAYA_MAPPER_MANIFEST_URL: ${{ vars.LAYA_MAPPER_MANIFEST_URL }}
+          LAYA_MAPPER_MANIFEST_SHA256: ${{ vars.LAYA_MAPPER_MANIFEST_SHA256 }}
+        run: |
+          if (-not $env:LAYA_MAPPER_MANIFEST_URL -or -not $env:LAYA_MAPPER_MANIFEST_SHA256) { throw "Set the reviewed Laya manifest URL and SHA-256 repository variables." }
+          Invoke-WebRequest -Uri $env:LAYA_MAPPER_MANIFEST_URL -OutFile .\installer\laya-mapper-manifest.json
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath .\installer\laya-mapper-manifest.json).Hash.ToLowerInvariant()
+          if ($actual -ne $env:LAYA_MAPPER_MANIFEST_SHA256.ToLowerInvariant()) { throw "The reviewed Laya manifest SHA-256 does not match." }
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --version=6.7.1 --yes --no-progress --limit-output
       - name: Build the installer
         env:
           NODE_RUNTIME_PATH: ${{ github.workspace }}\installer\runtime\node.exe
+          LAYA_MAPPER_MANIFEST_PATH: ${{ github.workspace }}\installer\laya-mapper-manifest.json
           APP_VERSION: ${{ github.ref_name }}
         run: npm run package:windows
       - name: Write installer checksum

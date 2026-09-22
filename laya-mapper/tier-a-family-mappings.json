@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "version": "tier-a-2026-09-22",
+  "positiveOnly": true,
+  "sourceTarget": "accountUpn",
+  "mappings": [
+    { "templateFamilyId": "microsoft-defender-xdr.identity-logon-events", "productionTarget": "clientUserName", "reviewedRole": "account participating in the client logon" },
+    { "templateFamilyId": "microsoft-defender-xdr.entra-id-sign-in-events", "productionTarget": "clientUserName", "reviewedRole": "account participating in the client sign-in" },
+    { "templateFamilyId": "windows-security.event-4625", "productionTarget": "clientUserName", "reviewedRole": "account in the client logon attempt" },
+    { "templateFamilyId": "entra.graph.signin", "productionTarget": "clientUserName", "reviewedRole": "account participating in the client sign-in" },
+    { "templateFamilyId": "entra.monitor.interactive-signin", "productionTarget": "clientUserName", "reviewedRole": "account participating in the interactive client sign-in" },
+    { "templateFamilyId": "m365.activity.entra-account-logon", "productionTarget": "clientUserName", "reviewedRole": "account participating in the client logon" },
+    { "templateFamilyId": "zscaler.zia.nss.authentication", "productionTarget": "clientUserName", "reviewedRole": "account authenticating from the client" },
+    { "templateFamilyId": "paloalto.panos.syslog.globalprotect", "productionTarget": "clientUserName", "reviewedRole": "account associated with the GlobalProtect client" },
+    { "templateFamilyId": "fortinet.fortios.event.ssl-vpn", "productionTarget": "clientUserName", "reviewedRole": "account associated with the SSL-VPN client" },
+    { "templateFamilyId": "microsoft-defender-xdr.device-events", "productionTarget": "sourceUsername", "reviewedRole": "initiating actor account" },
+    { "templateFamilyId": "microsoft-defender-xdr.device-network-events", "productionTarget": "sourceUsername", "reviewedRole": "initiating network actor account" },
+    { "templateFamilyId": "entra.graph.directory-audit", "productionTarget": "sourceUsername", "reviewedRole": "initiatedBy actor account" },
+    { "templateFamilyId": "entra.monitor.auditlogs", "productionTarget": "sourceUsername", "reviewedRole": "initiatedBy actor account" },
+    { "templateFamilyId": "m365.activity.exchange-admin", "productionTarget": "sourceUsername", "reviewedRole": "administrative actor account" },
+    { "templateFamilyId": "m365.activity.entra-application-audit", "productionTarget": "sourceUsername", "reviewedRole": "application-audit actor account" },
+    { "templateFamilyId": "m365.activity.teams-audit", "productionTarget": "sourceUsername", "reviewedRole": "Teams audit actor account" },
+    { "templateFamilyId": "m365.activity.defender-url-click", "productionTarget": "sourceUsername", "reviewedRole": "URL-click actor account" },
+    { "templateFamilyId": "google-secops.udm-network-event", "productionTarget": "sourceUsername", "reviewedRole": "UDM principal user account" },
+    { "templateFamilyId": "zscaler.zia.nss.admin-audit", "productionTarget": "sourceUsername", "reviewedRole": "administrator actor account" }
+  ]
+}

@@ -41,7 +41,7 @@ export function createAssistantServer({
 
   const assistant = createAssistantRouter(routerOptions ?? {});
   const rpcHandler = new RPCHandler(assistant.router, {
-    plugins: [new BodyLimitPlugin({ maxBodySize: 65536 })]
+    plugins: [new BodyLimitPlugin({ maxBodySize: 256 * 1024 })]
   });
 
   app.use("*", async (context, next) => {

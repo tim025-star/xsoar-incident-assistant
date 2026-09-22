@@ -2,17 +2,20 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid
 import { render } from "solid-js/web";
 
 import { rpc, sessionToken } from "./rpc";
+import { LAYA_TARGET_CATALOGUE } from "../../src/laya-targets.js";
 import "./styles.css";
 
 type AppConfig = Awaited<ReturnType<typeof rpc.config.get>>;
 type Status = Awaited<ReturnType<typeof rpc.status>>;
 type LocalAiStatus = Awaited<ReturnType<typeof rpc.localAi.status>>;
+type LayaStatus = Awaited<ReturnType<typeof rpc.layaMapper.status>>;
+type LayaDiagnostic = Awaited<ReturnType<typeof rpc.layaMapper.diagnostics>>;
 type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "searchQueryParameter";
 type NumberSetting = "maxHistoricalIncidents" | "pageReadyTimeoutMs";
 type TemplateSetting = keyof AppConfig["xsoar"]["template"];
 type FieldLabelSetting = keyof AppConfig["xsoar"]["fieldLabels"];
 
-const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting; name: string; use: string }> = [
+const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting & keyof typeof LAYA_TARGET_CATALOGUE; name: string; use: string }> = [
   { key: "customerName", name: "Customer name", use: "customer.name → greeting and historic match" },
   { key: "occurred", name: "Time stamp", use: "@timestamp → event breakdown" },
   { key: "sourceUsername", name: "Source user", use: "source.user.name → user and source" },
@@ -36,6 +39,18 @@ const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting; name: string; use: string 
   { key: "descriptionLong", name: "Long description", use: "event.description → factual AI context" }
 ];
 
+const DEFAULT_MAPPER_TEST_TARGETS: FieldLabelSetting[] = ["sourceIp"];
+const DEFAULT_MAPPER_TEST_JSON = JSON.stringify({
+  alertEnvelope: {
+    tenantDisplay: "Example Test Customer",
+    policyTitle: "Impossible travel sign-in",
+    categoryText: "Identity alert",
+    actor: { principal: "alex.taylor@example.test", endpoint: "TEST-LAPTOP-17" },
+    network: { peer: "203.0.113.8", target: "198.51.100.22" },
+    observedAt: "2026-09-22T05:30:00Z"
+  }
+}, null, 2);
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -46,12 +61,19 @@ function splitLabels(value: string) {
 
 function App() {
   let draftElement: HTMLTextAreaElement | undefined;
+  let mapperTestTimer: number | undefined;
   let previousResponse = "";
   let followLiveOutput = true;
   const configurationPage = location.pathname === "/configuration";
   const [config, setConfig] = createSignal<AppConfig>();
   const [status, setStatus] = createSignal<Status>();
   const [localAiStatus, setLocalAiStatus] = createSignal<LocalAiStatus>();
+  const [layaStatus, setLayaStatus] = createSignal<LayaStatus>();
+  const [mapperTestJson, setMapperTestJson] = createSignal(DEFAULT_MAPPER_TEST_JSON);
+  const [mapperTestTargets, setMapperTestTargets] = createSignal<FieldLabelSetting[]>(DEFAULT_MAPPER_TEST_TARGETS);
+  const [mapperTestResult, setMapperTestResult] = createSignal<LayaDiagnostic>();
+  const [mapperTestRunning, setMapperTestRunning] = createSignal(false);
+  const [mapperTestElapsedSeconds, setMapperTestElapsedSeconds] = createSignal(0);
   const [pullingModel, setPullingModel] = createSignal(false);
   const [incidentId, setIncidentId] = createSignal("");
   const [message, setMessage] = createSignal(sessionToken
@@ -146,6 +168,9 @@ function App() {
     setMessage(next.detail);
   };
   const refreshLocalAi = async () => setLocalAiStatus(await rpc.localAi.status());
+  const refreshLaya = async () => {
+    setLayaStatus(await rpc.layaMapper.status());
+  };
   const runAction = async (action: () => Promise<unknown>) => {
     setBusy(true);
     setMessage("Running…");
@@ -180,6 +205,47 @@ function App() {
       if (persisted) setConfig(persisted);
       throw error;
     }
+  };
+  const persistLayaSettings = async () => {
+    const current = config();
+    if (!current) return;
+    const layaMapper = await rpc.config.saveLayaMapper(current.layaMapper);
+    setConfig((latest) => latest ? { ...latest, layaMapper } : latest);
+  };
+  const updateLayaMapper = (key: "workerMode" | "workerCount", value: string) => {
+    setConfig((current) => {
+      if (!current) return current;
+      const next = structuredClone(current);
+      if (key === "workerMode") next.layaMapper.workerMode = value as "auto" | "manual";
+      else next.layaMapper.workerCount = Number(value);
+      return next;
+    });
+  };
+  const toggleMapperTestTarget = (target: FieldLabelSetting, checked: boolean) => {
+    setMapperTestTargets((current) => checked
+      ? [...new Set([...current, target])]
+      : current.filter((item) => item !== target));
+  };
+  const runMapperTest = async () => {
+    const parsed = JSON.parse(mapperTestJson());
+    const documents = Array.isArray(parsed) ? parsed : [parsed];
+    const startedAt = Date.now();
+    setMapperTestResult(undefined);
+    setMapperTestElapsedSeconds(0);
+    setMapperTestRunning(true);
+    window.clearInterval(mapperTestTimer);
+    mapperTestTimer = window.setInterval(() => setMapperTestElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    try {
+      setMapperTestResult(await rpc.layaMapper.diagnostics({ documents, targets: mapperTestTargets() }));
+    } finally {
+      window.clearInterval(mapperTestTimer);
+      mapperTestTimer = undefined;
+      setMapperTestRunning(false);
+    }
+  };
+  const cancelMapperTest = async () => {
+    try { await rpc.layaMapper.cancelDiagnostic(); }
+    catch (error) { setMessage(errorMessage(error)); }
   };
 
   const generateDraft = () => runAction(async () => {
@@ -231,8 +297,16 @@ function App() {
       setMessage(errorMessage(error));
     }
     refreshLocalAi().catch((error) => setLocalAiStatus({ available: false, models: [], detail: errorMessage(error) }));
+    refreshLaya().catch((error) => setMessage(errorMessage(error)));
     const interval = window.setInterval(() => refresh().catch(() => {}), 500);
-    onCleanup(() => window.clearInterval(interval));
+    const layaInterval = configurationPage
+      ? window.setInterval(() => refreshLaya().catch(() => {}), 2000)
+      : undefined;
+    onCleanup(() => {
+      window.clearInterval(interval);
+      window.clearInterval(mapperTestTimer);
+      if (layaInterval !== undefined) window.clearInterval(layaInterval);
+    });
   });
 
   const Header = () => (
@@ -296,6 +370,7 @@ function App() {
         <label class="field">Processed incident data
           <textarea ref={draftElement} id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="Processed source fields appear here." value={processedResponse()} onScroll={updateLiveOutputFollow} />
           <span class="helper">The model extracts facts from the selected alert only. In parallel, the app searches three months of matching XSOAR history and appends past resolutions under Historic.</span>
+          <Show when={status()?.processingMode}><span id="processingMode" class="helper">Processing used: {status()?.processingMode}.</span></Show>
         </label>
         <button id="copy" class="button button-secondary mt-4" type="button" disabled={busy() || !status()?.draft} onClick={copyDraft}>Copy processed data</button>
       </section>
@@ -351,6 +426,81 @@ function App() {
             </div>
           </details>
         </fieldset>
+      </section>
+
+      <section class="panel">
+        <div class="mb-5">
+          <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Optional semantic mapping</p>
+          <h2 class="m-0 text-xl font-bold">Laya-mapper</h2>
+          <p class="helper mb-0 mt-2">An experimental, coverage-first baseline for mapping local JSON fields. Normal incident processing remains deterministic.</p>
+        </div>
+        <p id="layaModelIdentity" class="helper">English base checkpoint · <code>base-english</code> · revision <code>1c5edc17a7acd8701df6fc341c0d179f1c62c982</code>. CPU only, unchanged weights. Diagnostics only; never applied to incidents.</p>
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <label class="field">Worker mode
+            <select id="layaWorkerMode" class="control" disabled={busy()} value={settings().layaMapper.workerMode} onChange={(event) => { updateLayaMapper("workerMode", event.currentTarget.value); void runAction(persistLayaSettings); }}>
+              <option value="auto">Automatic</option><option value="manual">Manual</option>
+            </select>
+          </label>
+          <Show when={settings().layaMapper.workerMode === "manual"}><label class="field">Workers
+            <select id="layaWorkerCount" class="control" disabled={busy()} value={settings().layaMapper.workerCount} onChange={(event) => { updateLayaMapper("workerCount", event.currentTarget.value); void runAction(persistLayaSettings); }}>
+              <For each={[1, 2, 3, 4]}>{(count) => <option value={count}>{count}</option>}</For>
+            </select>
+          </label></Show>
+        </div>
+        <div class="mt-3 flex flex-wrap gap-2.5">
+          <button id="installLayaMapper" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(async () => { await rpc.layaMapper.install(); await refreshLaya(); })}>Install Laya-mapper</button>
+          <button id="refreshLayaMapper" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(refreshLaya)}>Check Laya-mapper</button>
+        </div>
+        <p id="layaMapperStatus" class="helper mb-0 mt-4" aria-live="polite">{layaStatus()?.detail || "Check Laya-mapper status."}</p>
+
+        <details class="mt-5 border-t border-line pt-4" open>
+          <summary class="cursor-pointer font-bold">Test Laya-mapper without XSOAR</summary>
+          <p class="helper">Paste fictional or approved alert JSON. This runs the fixed English base model locally with exact typed-value grouping. Repeated values retain every source pointer and alias assessment in provenance; one assessed representative continues into the distinct-value comparison. Every eligible field reaches final assessment. Pasted alerts and results are not saved automatically. Model scores are not calibrated probabilities of correctness.</p>
+          <label class="field">Test alert JSON
+            <textarea id="layaTestJson" class="control min-h-64 font-mono text-xs" value={mapperTestJson()} onInput={(event) => { setMapperTestJson(event.currentTarget.value); setMapperTestResult(undefined); }} />
+          </label>
+          <fieldset class="mt-4" disabled={busy()}>
+            <legend class="field mb-2">Canonical fields to map</legend>
+            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <For each={FIELD_MAPPINGS}>{(mapping) => (
+                <label class="flex items-center gap-2 text-sm" title={LAYA_TARGET_CATALOGUE[mapping.key].description}>
+                  <input type="checkbox" checked={mapperTestTargets().includes(mapping.key)} onChange={(event) => toggleMapperTestTarget(mapping.key, event.currentTarget.checked)} />
+                  {mapping.name}
+                </label>
+              )}</For>
+            </div>
+          </fieldset>
+          <div class="mt-4 flex flex-wrap gap-2.5">
+            <button id="runLayaTest" class="button" type="button" disabled={busy() || !mapperTestJson().trim() || !mapperTestTargets().length || !layaStatus()?.available} onClick={() => runAction(runMapperTest)}>Run local mapper test</button>
+            <Show when={mapperTestRunning()}><button id="cancelLayaTest" class="button button-secondary" type="button" onClick={cancelMapperTest}>Cancel test</button></Show>
+            <button class="button button-secondary" type="button" disabled={busy()} onClick={() => { setMapperTestJson(DEFAULT_MAPPER_TEST_JSON); setMapperTestTargets(DEFAULT_MAPPER_TEST_TARGETS); setMapperTestResult(undefined); }}>Reset fictional example</button>
+          </div>
+          <Show when={mapperTestRunning()}>
+            <div id="layaTestProgress" class="mt-4 rounded-xl border border-brand/30 bg-blue-50 p-4" role="status" aria-live="polite">
+              <div class="flex items-center justify-between gap-3 text-sm"><span>{message()}</span><span class="shrink-0 font-mono">{mapperTestElapsedSeconds()}s elapsed</span></div>
+              <progress class="mt-3 w-full">Working</progress>
+              <p class="helper mb-0 mt-2">CPU inference can take several minutes for large alerts or many selected fields. The current stage updates as each model comparison completes.</p>
+            </div>
+          </Show>
+          <Show when={mapperTestResult()}>{(result) => (
+            <div id="layaTestResult" class="mt-4 grid gap-3">
+              <Show when={result().warning}><p class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm" role="alert">{result().warning}</p></Show>
+              <p class="helper">Workers: {result().runtime?.effectiveWorkers ?? 0} · Fields: {result().leaves} · Source complete: {String(result().sourceComplete)} · Model processing complete: {String(result().processingComplete)} · {result().timings.totalMs} ms</p>
+              <div class="overflow-auto rounded-xl border border-line">
+                <table class="w-full text-left text-sm">
+                  <thead class="bg-slate-50"><tr><th class="p-3">Canonical field</th><th class="p-3">Status</th><th class="p-3">Value / best guess</th><th class="p-3">Exact pointer and alternatives</th></tr></thead>
+                  <tbody><For each={Object.entries(result().statuses)}>{([field, status]) => <tr class="border-t border-line">
+                    <td class="p-3 font-bold">{field}</td><td class="p-3">{String(status)}</td><td class="p-3"><span>{String(result().fields[field] ?? "—")}</span><div class="mt-1 text-xs text-muted">Value agreement: {result().provenance[field].agreement?.value || "not recorded"}</div></td>
+                    <td class="p-3 font-mono text-xs">{result().paths[field] || "—"}<Show when={status === "tentative"}><div class="mt-2 text-amber-800">Alternatives: {[...new Set([...(result().provenance[field].nominees || []), ...(result().provenance[field].pointerNominees || [])])].map((id: string) => result().provenance[field].candidates.find((candidate: { id: string }) => candidate.id === id)?.pointer || "none").join(" / ")}</div></Show></td>
+                  </tr>}</For></tbody>
+                </table>
+              </div>
+              <details><summary class="cursor-pointer text-sm font-bold">Full model diagnostics and provenance</summary><pre class="control mt-2 max-h-96 overflow-auto text-xs">{JSON.stringify(result(), null, 2)}</pre></details>
+            </div>
+          )}</Show>
+        </details>
+
+        <p class="helper mt-4">Training and custom checkpoints are deferred. Existing datasets and downloaded checkpoints are preserved.</p>
       </section>
 
       <section class="panel">

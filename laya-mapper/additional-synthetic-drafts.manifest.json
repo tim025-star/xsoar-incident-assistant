@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "status": "review-required-draft-input-only",
+  "file": "additional-synthetic-drafts.jsonl",
+  "sha256": "ba3a7f01906fa924b010d605bf519cfe97b2dd8aa309eb80181332c53e62fe3d",
+  "records": 4,
+  "families": 2,
+  "splits": {
+    "train": 2,
+    "development": 2,
+    "frozen-test": 0
+  },
+  "purpose": "Separate Entra train vector-wrapper and structurally distinct development record-collection source/client role coverage. Not part of the frozen regression corpus."
+}

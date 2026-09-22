@@ -22,7 +22,8 @@ async function closeServer(server) {
 function deferred() { let resolve; const promise = new Promise((next) => { resolve = next; }); return { promise, resolve }; }
 
 test("current Chrome is the only browser interface", () => {
-  assert.equal(DEFAULT_APP_CONFIG.configVersion, 12);
+  assert.equal(DEFAULT_APP_CONFIG.configVersion, 14);
+  assert.deepEqual(DEFAULT_APP_CONFIG.layaMapper, { enabled: false, checkpointId: "base-english", workerMode: "auto", workerCount: 1 });
   assert.equal("session" in DEFAULT_APP_CONFIG, false);
   assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "");
   assert.deepEqual(DEFAULT_APP_CONFIG.localAi, { enabled: false, model: "qwen3.5:9b" });
@@ -58,13 +59,15 @@ test("XSOAR settings persist without browser-mode settings", async () => {
 
 test("the published Windows installer is per-user, self-contained, PowerShell-free for users, and releases without signing credentials", async () => {
   const root = new URL("../", import.meta.url);
-  const [installer, launcher, packager, runtimeDownloader, localAiCli, localAiInstaller, releaseWorkflow, ciWorkflow] = await Promise.all([
+  const [installer, launcher, packager, runtimeDownloader, localAiCli, localAiInstaller, layaCli, layaInstaller, releaseWorkflow, ciWorkflow] = await Promise.all([
     readFile(new URL("installer/XSOARIncidentAssistant.iss", root), "utf8"),
     readFile(new URL("installer/launcher.vbs", root), "utf8"),
     readFile(new URL("scripts/package-windows.mjs", root), "utf8"),
     readFile(new URL("installer/download-node-runtime.ps1", root), "utf8"),
     readFile(new URL("scripts/install-local-ai.mjs", root), "utf8"),
     readFile(new URL("src/local-ai-installer.js", root), "utf8"),
+    readFile(new URL("scripts/install-laya-mapper.mjs", root), "utf8"),
+    readFile(new URL("src/laya-mapper-installer.js", root), "utf8"),
     readFile(new URL(".github/workflows/release.yml", root), "utf8"),
     readFile(new URL(".github/workflows/ci.yml", root), "utf8")
   ]);
@@ -76,21 +79,33 @@ test("the published Windows installer is per-user, self-contained, PowerShell-fr
   assert.match(installer, /^Source: "\{#StageDir\}\\\*"; DestDir: "\{app\}"; Flags: recursesubdirs createallsubdirs$/m);
   assert.match(installer, /^Name: "\{autodesktop\}\\\{#AppName\}";.*Tasks: desktopicon$/m);
   assert.match(installer, /^Name: "installollama";.*Flags: unchecked$/m);
+  assert.match(installer, /^Name: "installlayamapper";.*Flags: unchecked$/m);
   assert.match(installer, /Tasks: installollama; Flags: postinstall skipifsilent$/m);
   assert.match(installer, /runtime\\node\.exe/);
   assert.match(installer, /scripts\\install-local-ai\.mjs/);
+  assert.match(installer, /scripts\\install-laya-mapper\.mjs/);
   assert.doesNotMatch(installer, /powershell|install-ollama\.ps1|winget/i);
   assert.match(launcher, /runtime\\node\.exe/);
   assert.doesNotMatch(launcher, /npm(?:\.cmd)?/i);
   assert.match(packager, /npmCliPath, "ci", "--omit=dev", "--ignore-scripts"/);
   assert.match(packager, /Portable Node\.js runtime/);
   assert.match(packager, /scripts["'], ["']install-local-ai\.mjs/);
+  assert.match(packager, /LAYA_MAPPER_MANIFEST_PATH/);
+  assert.match(packager, /scripts["'], ["']install-laya-mapper\.mjs/);
   assert.doesNotMatch(packager, /keyboard-trigger\.(?:ps1|exe)/);
   assert.match(runtimeDownloader, /dist\/v24\.14\.0\/win-x64\/node\.exe/);
   assert.match(runtimeDownloader, /63c259c81e5d472b5f11c8d506070130cb04a1ecf84b80377a34ed6ec9048088/);
   assert.doesNotMatch(`${localAiCli}\n${localAiInstaller}`, /powershell|winget/i);
+  assert.doesNotMatch(`${layaCli}\n${layaInstaller}`, /powershell|winget|huggingface\.co/i);
+  assert.match(layaCli, /--offline-directory/);
+  assert.match(layaInstaller, /tar\.exe/);
+  assert.match(layaInstaller, /offline-assets/);
+  assert.match(layaInstaller, /sha256/);
+  assert.match(layaInstaller, /github\.com/);
   assert.match(localAiInstaller, /installDefaultModel/);
   assert.match(releaseWorkflow, /download-node-runtime\.ps1/);
+  assert.match(releaseWorkflow, /LAYA_MAPPER_MANIFEST_SHA256/);
+  assert.match(releaseWorkflow, /LAYA_MAPPER_MANIFEST_PATH/);
   assert.match(releaseWorkflow, /choco install innosetup --version=6\.7\.1/);
   assert.doesNotMatch(releaseWorkflow, /WINDOWS_SIGNING_CERTIFICATE_BASE64/);
   assert.doesNotMatch(releaseWorkflow, /signtool\.FullName verify \/pa \/v/);
@@ -122,12 +137,13 @@ test("legacy settings migrate by discarding retired fields", () => {
       template: { analystName: "" }
     }
   }, { requireTenant: false });
-  assert.equal(migrated.configVersion, 12);
+  assert.equal(migrated.configVersion, 14);
   assert.equal("session" in migrated, false);
   for (const key of ["customerShortName", "owner", "phase", "description"]) {
     assert.equal(key in migrated.xsoar.fieldLabels, false);
   }
   assert.deepEqual(migrated.localAi, { enabled: false, model: "qwen3.5:9b" });
+  assert.deepEqual(migrated.layaMapper, { enabled: false, checkpointId: "base-english", workerMode: "auto", workerCount: 1 });
 });
 
 test("local AI settings can be saved while Chrome remains connected", async () => {
@@ -170,7 +186,7 @@ test("version 10 settings gain the default incident path template and log-table 
     xsoar: { configVersion: 2, allowedOrigin: "https://xsoar.example.test" }
   });
 
-  assert.equal(upgraded.configVersion, 12);
+  assert.equal(upgraded.configVersion, 14);
   assert.equal(upgraded.xsoar.configVersion, 3);
   assert.equal(upgraded.xsoar.incidentPathTemplate, "/Custom/GenericLayout/{id}");
   assert.ok(upgraded.xsoar.fieldLabels.sourceIp.includes("Source IP Address"));

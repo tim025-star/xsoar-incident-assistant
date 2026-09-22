@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Tiny overfit, save/reload and renderer-parity proof only; never promotion evidence.",
+  "records": [
+    "crowdstrike-edr.network-connect-ip4.01-baseline",
+    "crowdstrike-edr.network-connect-ip4.03-duplicate",
+    "crowdstrike-edr.network-connect-ip4.04-missing-no-match",
+    "microsoft-defender-xdr.device-network-events.baseline",
+    "microsoft-defender-xdr.device-network-events.duplicate",
+    "microsoft-defender-xdr.device-network-events.missing-no-match",
+    "microsoft-defender-xdr.device-network-events.array-or-kv",
+    "entra.graph.signin.01",
+    "entra.graph.signin.03",
+    "entra.graph.signin.05",
+    "entra.graph.signin.06",
+    "siem-incidents.google-secops.udm-network-event.baseline",
+    "siem-incidents.google-secops.udm-network-event.role-confusion",
+    "siem-incidents.google-secops.udm-network-event.duplicate",
+    "siem-incidents.google-secops.udm-network-event.missing-no-match",
+    "siem-incidents.google-secops.udm-network-event.array-or-kv",
+    "siem-incidents.google-secops.udm-network-event.opaque-reordered-wrapper",
+    "zscaler-network.zscaler.zia.nss.web.baseline"
+  ],
+  "requiredTargetOverrides": {
+    "entra.graph.signin.01": {"sourceIp":{"primaryPointer":"/ipAddress","acceptedPointers":[],"originalType":"string","rationale":"The sign-in client address is the originating activity source under the production sourceIp contract."}},
+    "entra.graph.signin.03": {"sourceIp":{"primaryPointer":"/ipAddress","acceptedPointers":["/duplicate/ipAddress"],"originalType":"string","rationale":"The sign-in client address is the originating activity source; the duplicate projection is typed-value equivalent."}},
+    "entra.graph.signin.05": {"sourceIp":{"primaryPointer":"/events/0/ipAddress","acceptedPointers":[],"originalType":"string","rationale":"The sign-in client address is the originating activity source under the production sourceIp contract."}},
+    "entra.graph.signin.06": {"sourceIp":{"primaryPointer":"/payload/event/ipAddress","acceptedPointers":[],"originalType":"string","rationale":"The sign-in client address is the originating activity source under the production sourceIp contract."}},
+    "siem-incidents.google-secops.udm-network-event.baseline": {"clientIp":{"primaryPointer":"/principal/ip/0","acceptedPointers":[],"originalType":"string","rationale":"UDM principal is the acting entity originating this NETWORK_CONNECTION and therefore its IP is the client IP."}},
+    "siem-incidents.google-secops.udm-network-event.role-confusion": {"clientIp":{"primaryPointer":"/principal/ip/0","acceptedPointers":[],"originalType":"string","rationale":"UDM principal is the acting entity originating this NETWORK_CONNECTION and therefore its IP is the client IP."}},
+    "siem-incidents.google-secops.udm-network-event.duplicate": {"clientIp":{"primaryPointer":"/principal/ip/0","acceptedPointers":["/equivalent/sourceIp"],"originalType":"string","rationale":"UDM principal is the originating client; the equivalent source projection preserves the same typed value and role."}},
+    "siem-incidents.google-secops.udm-network-event.array-or-kv": {"clientIp":{"primaryPointer":"/records/0/principal/ip/0","acceptedPointers":[],"originalType":"string","rationale":"UDM principal is the acting entity originating this NETWORK_CONNECTION and therefore its IP is the client IP."}},
+    "siem-incidents.google-secops.udm-network-event.opaque-reordered-wrapper": {"clientIp":{"primaryPointer":"/transport/opaqueEnvelope/principal/ip/0","acceptedPointers":[],"originalType":"string","rationale":"UDM principal is the acting entity originating this NETWORK_CONNECTION and therefore its IP is the client IP."}},
+    "microsoft-defender-xdr.device-network-events.duplicate": {"clientIp":{"primaryPointer":"/LocalIP","acceptedPointers":["/EquivalentProjection/sourceIp"],"originalType":"string","rationale":"The equivalent projection preserves the same local initiating endpoint value and client role."}}
+  },
+  "expectedDirectDecisions": 108,
+  "expectedDirectPositive": 79,
+  "expectedDirectNone": 29,
+  "expectedTierAPositiveIdentity": 14
+}

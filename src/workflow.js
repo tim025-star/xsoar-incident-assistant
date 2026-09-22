@@ -9,6 +9,7 @@ import {
   mergeIncidentDetails,
   resolveSettings
 } from "./domain.js";
+import { HISTORIC_LAYA_TARGETS, LAYA_MAPPER_TARGETS } from "./laya-mapper.js";
 
 const HISTORIC_LOOKBACK_QUERY = 'created:>="3 months ago"';
 const HISTORIC_SEARCH_SAFETY_LIMIT = 1000;
@@ -29,6 +30,29 @@ function hasHistoricResolution(candidate) {
   return Boolean(cleanText(candidate?.historicalRecommendations)
     || cleanText(candidate?.closeNotes)
     || cleanText(candidate?.incidentOutcome));
+}
+
+function nonEmptyMappedFields(fields = {}) {
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => cleanText(value)));
+}
+
+async function applyLayaMapping(incident, mapIncident, targets = LAYA_MAPPER_TARGETS) {
+  if (!mapIncident) return { incident, warning: "", mapped: false };
+  try {
+    const result = await mapIncident({ incident, targets });
+    const fields = nonEmptyMappedFields(result?.fields);
+    return {
+      incident: { ...incident, ...fields },
+      warning: cleanText(result?.warning),
+      mapped: Object.keys(fields).length > 0
+    };
+  } catch {
+    return {
+      incident,
+      warning: "Laya-mapper could not map this alert; configured source-field mappings were used.",
+      mapped: false
+    };
+  }
 }
 
 function ticketIdFromIncidentUrl(value, settings, description) {
@@ -113,6 +137,7 @@ async function readHistoricCandidate({
   originalTab,
   temporaryTabs,
   ticketId,
+  mapIncident,
   onProgress = async () => {}
 }) {
   let tab;
@@ -132,19 +157,24 @@ async function readHistoricCandidate({
         const finalUrl = assertIncidentUrl(await adapter.getTabUrl(tab.id), settings, "Historic incident navigation");
         const finalTicketId = finalUrl.pathname.match(/\/(\d+)\/?$/)?.[1];
         if (finalTicketId !== String(ticketId)) throw new Error("XSOAR opened a different historic incident than requested.");
-        const detail = await extractIncidentViews({
+        let detail = await extractIncidentViews({
           adapter,
           settings,
           primaryTab: tab,
           primaryUrl: finalUrl.toString(),
           temporaryTabs,
-          requiredFields: ["customerName", "ruleName", "caseType"],
-          requiredAnyFields: ["historicalRecommendations", "closeNotes", "incidentOutcome"],
+          requiredFields: mapIncident ? [] : ["customerName", "ruleName", "caseType"],
+          requiredAnyFields: mapIncident ? [] : ["historicalRecommendations", "closeNotes", "incidentOutcome"],
+          requireAlertJson: false,
           focusOpenedTabs: true
         });
+        const mapped = await applyLayaMapping(detail, mapIncident, HISTORIC_LAYA_TARGETS);
+        detail = mapped.incident;
         if (String(detail.ticketId) !== String(ticketId)) {
           throw new Error("XSOAR opened a different historic incident than requested.");
         }
+        const missingIdentity = ["customerName", "ruleName", "caseType"].filter((key) => !cleanText(detail[key]));
+        if (missingIdentity.length) throw new Error(`Required incident fields did not become ready: ${missingIdentity.join(", ")}.`);
         if (!isSameClientAndAlertType(incident, detail)) return { unrelated: true, ticketId: String(ticketId) };
         const candidate = {
           ticketId: detail.ticketId,
@@ -155,7 +185,7 @@ async function readHistoricCandidate({
         if (!hasHistoricResolution(candidate)) {
           throw new Error("Required historic resolution fields did not become ready.");
         }
-        return candidate;
+        return { ...candidate, mappingWarning: mapped.warning, layaMapped: mapped.mapped };
       } catch (error) {
         lastError = error;
         if (attempt === 1) throw error;
@@ -172,7 +202,7 @@ async function readHistoricCandidate({
   }
 }
 
-async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs, onProgress = async () => {} }) {
+async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs, mapIncident, onProgress = async () => {} }) {
   try {
     const query = buildSearchQuery(incident.incidentName, incident.caseType, HISTORIC_LOOKBACK_QUERY);
     const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, ""), { focusBeforeNavigation: true });
@@ -186,12 +216,13 @@ async function collectHistoric({ adapter, settings, incident, originalTab, tempo
     const ticketIds = result.ticketIds.filter((ticketId) => String(ticketId) !== String(incident.ticketId));
     const items = [];
     const failures = [];
+    const warnings = [];
     await onProgress(`Found ${ticketIds.length} historic incident candidate(s).`);
     for (const [index, ticketId] of ticketIds.entries()) {
       if (items.length >= settings.maxHistoricalIncidents) break;
       await onProgress(`Reviewing historic incident #${ticketId} (${index + 1} of ${ticketIds.length}).`);
       const candidate = await readHistoricCandidate({
-        adapter, settings, incident, originalTab, temporaryTabs, ticketId, onProgress
+        adapter, settings, incident, originalTab, temporaryTabs, ticketId, mapIncident, onProgress
       });
       if (candidate?.error) {
         const warning = `Historic incident #${candidate.ticketId} could not be read: ${candidate.error}`;
@@ -201,14 +232,14 @@ async function collectHistoric({ adapter, settings, incident, originalTab, tempo
         await onProgress(`Skipped historic incident #${candidate.ticketId} because its client or alert type did not match.`);
       } else if (candidate) {
         items.push(candidate);
+        if (candidate.mappingWarning) warnings.push(candidate.mappingWarning);
       }
     }
-    const warnings = [];
     warnings.push(...failures);
     if (result.truncated) warnings.push("Historic search results were incomplete; older matches may be omitted.");
     return {
       items,
-      warning: warnings.join(" ")
+      warning: [...new Set(warnings)].join(" ")
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -234,7 +265,14 @@ function uniqueTrustedTabUrls(details, settings) {
   return [...urls];
 }
 
-export async function runIncidentDraft({ adapter, settings: inputSettings, incidentId = "", onProgress = async () => {}, enrichDraft }) {
+export async function runIncidentDraft({
+  adapter,
+  settings: inputSettings,
+  incidentId = "",
+  onProgress = async () => {},
+  mapIncident,
+  enrichDraft
+}) {
   if (!adapter) throw new Error("A browser adapter is required.");
   const settings = resolveSettings(inputSettings);
   const temporaryTabs = new Set();
@@ -269,7 +307,7 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
     if (requestedIncidentId && String(initial.ticketId) !== requestedIncidentId) {
       throw new Error("XSOAR opened a different incident than the requested Incident ID.");
     }
-    const incident = await extractIncidentViews({
+    const extractedIncident = await extractIncidentViews({
       adapter,
       settings,
       primaryTab: originalTab,
@@ -279,6 +317,9 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
       requireAlertJson: Boolean(enrichDraft),
       onView: () => onProgress("Collecting evidence from another incident view.")
     });
+    if (mapIncident) await onProgress("Mapping source fields with local Laya-mapper.");
+    const mapped = await applyLayaMapping(extractedIncident, mapIncident);
+    const incident = mapped.incident;
     await onProgress("Processing the selected alert and searching three months of history.");
     const enrichmentPromise = (async () => {
       if (!enrichDraft) return { enrichment: null, warning: "", aiEnriched: false };
@@ -302,15 +343,20 @@ export async function runIncidentDraft({ adapter, settings: inputSettings, incid
       }
     })();
     const historicPromise = collectHistoric({
-      adapter, settings, incident, originalTab, temporaryTabs, onProgress
+      adapter, settings, incident, originalTab, temporaryTabs, mapIncident, onProgress
     });
     const [processed, historic] = await Promise.all([enrichmentPromise, historicPromise]);
     const draft = buildDraft({ ...incident, historical: historic.items }, settings.template, processed.enrichment);
+    const processingMode = mapped.mapped
+      ? (processed.aiEnriched ? "Laya mapping + Qwen enrichment" : "Laya mapping")
+      : (processed.aiEnriched ? "Deterministic extraction + Qwen enrichment" : "Deterministic extraction");
     return {
       draft,
-      warning: [processed.warning, historic.warning].filter(Boolean).join(" "),
+      warning: [mapped.warning, processed.warning, historic.warning].filter(Boolean).join(" "),
       reviewed: historic.items.length,
-      aiEnriched: processed.aiEnriched
+      aiEnriched: processed.aiEnriched,
+      layaMapped: mapped.mapped,
+      processingMode
     };
   } finally {
     for (const tab of [...temporaryTabs].reverse()) {

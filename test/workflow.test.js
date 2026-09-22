@@ -296,6 +296,7 @@ test("workflow retains the source-field response if local processing fails", asy
   assert.match(result.draft, /Processed Incident Data/);
   assert.match(result.warning, /source-field response is ready/);
   assert.equal(result.aiEnriched, false);
+  assert.equal(result.processingMode, "Deterministic extraction");
 });
 
 test("workflow reports a safe detailed-JSON failure instead of hiding it", async () => {
@@ -350,5 +351,66 @@ test("workflow inserts factual local processing without changing browser concurr
   assert.doesNotMatch(result.draft, /Hello n\/a/i);
   assert.doesNotMatch(result.draft, /Recommended Actions|Vendor Guidance|Related Ticket Records/);
   assert.equal(result.aiEnriched, true);
+  assert.equal(result.processingMode, "Deterministic extraction + Qwen enrichment");
   assert.equal(extractionCalls[0].settings.requireAlertJson, true);
+});
+
+test("Laya mapping populates canonical fields before deterministic template generation", async () => {
+  const calls = [];
+  const extractionCalls = [];
+  const result = await runIncidentDraft({
+    adapter: createAdapter({
+      currentIncident: { sourceIp: "", alertJson: [{ opaque: "203.0.113.77" }], alertJsonComplete: true },
+      searchTicketIds: ["4200"],
+      onExtract: (call) => extractionCalls.push(call)
+    }),
+    settings,
+    mapIncident: async ({ incident, targets }) => {
+      calls.push({ incident, targets });
+      return { fields: { sourceIp: "203.0.113.77" }, warning: "" };
+    }
+  });
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].targets.includes("sourceIp"));
+  assert.match(result.draft, /Source: 203\.0\.113\.77/);
+  assert.equal(result.layaMapped, true);
+  assert.equal(result.aiEnriched, false);
+  assert.equal(result.processingMode, "Laya mapping");
+  assert.equal(extractionCalls[0].settings.requireAlertJson, false);
+});
+
+test("Qwen receives Laya-mapped canonical fields when both local processors are enabled", async () => {
+  let enrichedIncident;
+  const result = await runIncidentDraft({
+    adapter: createAdapter({
+      currentIncident: { alertJson: [{ opaque: "example.user" }], alertJsonComplete: true },
+      searchTicketIds: ["4200"]
+    }),
+    settings,
+    mapIncident: async () => ({ fields: { sourceUsername: "example.user" }, warning: "" }),
+    enrichDraft: async ({ incident }) => {
+      enrichedIncident = incident;
+      return { eventSummary: "Mapped event.", observedFacts: [] };
+    }
+  });
+  assert.equal(enrichedIncident.sourceUsername, "example.user");
+  assert.equal(result.layaMapped, true);
+  assert.equal(result.aiEnriched, true);
+  assert.equal(result.processingMode, "Laya mapping + Qwen enrichment");
+});
+
+test("Laya failure falls back to configured fields with a visible warning", async () => {
+  const result = await runIncidentDraft({
+    adapter: createAdapter({
+      currentIncident: { sourceIp: "192.0.2.12", alertJson: [{ opaque: "value" }], alertJsonComplete: false },
+      searchTicketIds: ["4200"]
+    }),
+    settings,
+    mapIncident: async () => { throw new Error("private model detail"); }
+  });
+  assert.match(result.draft, /Source: 192\.0\.2\.12/);
+  assert.match(result.warning, /configured source-field mappings were used/);
+  assert.doesNotMatch(result.warning, /private model detail/);
+  assert.equal(result.layaMapped, false);
+  assert.equal(result.processingMode, "Deterministic extraction");
 });
