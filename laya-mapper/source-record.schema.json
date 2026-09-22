@@ -108,6 +108,7 @@
         "resolvedValue": { "type": ["string", "number", "boolean", "null"] },
         "semanticIntent": { "type": "string" },
         "rationale": { "type": "string" },
+        "reviewFinding": { "type": "string", "minLength": 1 },
         "securityCritical": { "type": "boolean" },
         "disputed": { "type": "boolean" },
         "independentModelReviewed": { "type": "boolean" }

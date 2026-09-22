@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createLayaMapper as createMapper, flattenAlertDocuments, resolveAlertPointer } from "../src/laya-mapper.js";
+import { createLayaMapper as createMapper, flattenAlertDocuments, rejectionReason, resolveAlertPointer } from "../src/laya-mapper.js";
 import { chooseWorkerCount, createLayaWorkerPool, createLayaSidecarRunner } from "../src/laya-worker.js";
 
 const NONE = "__none__";
@@ -32,6 +32,12 @@ test("stable records preserve JSON pointers, arrays and object-order independenc
   for (const leaf of flattenAlertDocuments(a)) assert.equal(resolveAlertPointer(a, leaf.pointer), leaf.value);
   assert.equal(resolveAlertPointer(a, "/documents/0/__proto__"), undefined);
   assert.throws(() => flattenAlertDocuments([{ text: "x".repeat(100000) }]), /limit/);
+});
+
+test("timestamp structural eligibility rejects invalid calendar dates", () => {
+  assert.equal(rejectionReason("occurred", "2024-02-29T04:14:00Z"), "");
+  assert.equal(rejectionReason("occurred", "2026-02-29T04:14:00Z"), "invalid_event_time");
+  assert.equal(rejectionReason("occurred", "2026-09-20T24:14:00Z"), "invalid_event_time");
 });
 
 test("typed value groups assess every alias and compare distinct values without fixed semantic winners", async () => {

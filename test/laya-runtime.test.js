@@ -124,7 +124,9 @@ test("installed Laya verification requires a protocol-2 status and real inferenc
       status: async () => ({ available: true, protocolVersion: 2, model: LAYA_MODEL, promptVersion: "english-fields-v3" }),
       evaluate: async (input) => {
         calls.push({ options, input });
-        return { results: [{ id: "install-smoke", score: 0.75 }], runtime: { ready: true } };
+        return { results: [{ id: "install-smoke", score: 0.75 }], runtime: {
+          ready: true, protocolVersion: 2, model: LAYA_MODEL, promptVersion: "english-fields-v3"
+        } };
       },
       close: () => { calls.push("closed"); }
     })
@@ -133,6 +135,30 @@ test("installed Laya verification requires a protocol-2 status and real inferenc
   assert.equal(calls[0].options.env.LAYA_MAPPER_ROOT, "C:\\Laya Test");
   assert.equal(calls[0].input.decisions[0].field.value, "203.0.113.8");
   assert.equal(calls.at(-1), "closed");
+});
+
+test("installed Laya verification rejects stale checkpoint and prompt identities", async () => {
+  for (const mutation of [
+    (status) => ({ ...status, model: { ...status.model, revision: "stale-revision" } }),
+    (status) => ({ ...status, promptVersion: "english-fields-v2" })
+  ]) {
+    const expected = { available: true, protocolVersion: 2, model: LAYA_MODEL, promptVersion: "english-fields-v3" };
+    await assert.rejects(verifyLayaMapperInstallation({
+      rootDirectory: "C:\\Laya Test",
+      runnerFactory: () => ({ status: async () => mutation(expected), evaluate: async () => { throw new Error("must not infer"); }, close() {} })
+    }), /identity.*pinned manifest/i);
+  }
+  const expected = { available: true, protocolVersion: 2, model: LAYA_MODEL, promptVersion: "english-fields-v3" };
+  await assert.rejects(verifyLayaMapperInstallation({
+    rootDirectory: "C:\\Laya Test",
+    runnerFactory: () => ({
+      status: async () => expected,
+      evaluate: async () => ({ results: [{ id: "install-smoke", score: 0.75 }], runtime: {
+        ready: true, ...expected, model: { ...LAYA_MODEL, id: "wrong-checkpoint" }
+      } }),
+      close() {}
+    })
+  }), /identity.*pinned manifest/i);
 });
 
 test("Laya runtime extraction rejects archive traversal before writing files", async (context) => {

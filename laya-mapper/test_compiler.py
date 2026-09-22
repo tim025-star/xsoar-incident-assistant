@@ -92,6 +92,11 @@ class CompilerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "rawHash"):
             compiler.validate_source_record(tampered)
 
+    def test_timestamp_structural_eligibility_matches_calendar_rules(self):
+        self.assertTrue(compiler.structurally_eligible("occurred", "2024-02-29T04:14:00Z"))
+        self.assertFalse(compiler.structurally_eligible("occurred", "2026-02-29T04:14:00Z"))
+        self.assertFalse(compiler.structurally_eligible("occurred", "2026-09-20T24:14:00Z"))
+
     def test_fixed_template_family_splits_cannot_leak(self):
         rows = [source("a", "train"), source("b", "train")]
         partitions = compiler.split_groups(rows)
@@ -198,6 +203,36 @@ class CompilerTests(unittest.TestCase):
         self.assertEqual(record["provenance"]["reviewArtifactSha256"], "c" * 64)
         self.assertEqual(record["provenance"]["additionalDraftsSha256"], "d" * 64)
         self.assertEqual(record["certificationHash"], compiler.certification_hash(record))
+
+    def test_tier_a_mapping_requires_record_target_approval(self):
+        row = {
+            "recordId": "fixture.tier-a", "sourceFamily": "fixture", "templateFamilyId": "fixture.tier", "split": "train",
+            "sourceSchema": {"provenanceId": "fixture.v1"}, "alert": {"account": "actor@example.test"},
+            "targetLabels": {
+                "occurredAt": {"primaryPointer": None, "expectedStatus": "no-match", "rationale": "Absent."},
+                "sourceIp": {"primaryPointer": None, "expectedStatus": "no-match", "rationale": "Absent."},
+                "destinationIp": {"primaryPointer": None, "expectedStatus": "no-match", "rationale": "Absent."},
+                "clientIp": {"primaryPointer": None, "expectedStatus": "no-match", "rationale": "Absent."},
+                "clientHostname": {"primaryPointer": None, "expectedStatus": "no-match", "rationale": "Absent."},
+                "customerOrOrganization": {"primaryPointer": None, "expectedStatus": "no-match", "rationale": "Absent."},
+                "accountUpn": {"primaryPointer": "/account", "originalType": "string", "expectedStatus": "matched", "rationale": "Actor."},
+            },
+            "acceptedAlternatives": {}, "generatorMetadata": {"generator": "fixture-generator"},
+        }
+        reviewer = {"kind": "independent-model", "model": "gpt-6-astra", "version": "test", "promptHash": "b" * 64}
+        generic = {"gate": "pilotOnly", "reviewer": reviewer}
+        tier = {"productionTarget": "sourceUsername", "sourceTarget": "accountUpn", "version": "test"}
+        without_target = ingest_factory.derived_record(row, generic, "a" * 64, "c" * 64, "d" * 64, tier, "e" * 64)
+        self.assertEqual(without_target["decisions"]["sourceUsername"]["state"], "unlabelled")
+        bypass = {**generic, "targetOverrides": {"sourceUsername": {"sourceTarget": "accountUpn"}}}
+        with self.assertRaisesRegex(ValueError, "requires a target-specific approval"):
+            ingest_factory.derived_record(row, bypass, "a" * 64, "c" * 64, "d" * 64, tier, "e" * 64)
+        explicit = {**generic, "targetApprovals": {"sourceUsername": {
+            "status": "approved", "sourceTarget": "accountUpn", "finding": "The account is the initiating actor."
+        }}}
+        with_target = ingest_factory.derived_record(row, explicit, "a" * 64, "c" * 64, "d" * 64, tier, "e" * 64)
+        self.assertEqual(with_target["decisions"]["sourceUsername"]["state"], "mapped")
+        self.assertEqual(with_target["decisions"]["sourceUsername"]["reviewFinding"], "The account is the initiating actor.")
 
     @unittest.skipUnless(os.environ.get("LAYA_MODEL_PATH"), "real pinned checkpoint not configured")
     def test_real_renderer_golden_projection_is_exact(self):

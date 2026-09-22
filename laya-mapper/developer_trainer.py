@@ -140,11 +140,6 @@ def save_checkpoint(model, tokenizer, cfg, output: Path, manifest: dict[str, Any
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
-def resume_identity(run_id: str, compilation_hash: str, base_manifest_hash: str) -> dict[str, Any]:
-    return {"schemaVersion": 1, "runId": run_id, "contract": CONTRACT,
-            "compilationManifestHash": compilation_hash, "baseModelManifestHash": base_manifest_hash}
-
-
 def verify_reload(model, cfg, checkpoint: Path, probe, pad_id, device, *, detach_encoder=False):
     before = predict(model, probe, pad_id, device, detach_encoder=detach_encoder)
     reloaded = build_model(cfg, encoder_dir=checkpoint / "encoder")
@@ -193,14 +188,7 @@ def train(args) -> None:
     if args.device == "cuda" and not torch.cuda.is_available():
         raise ValueError("CUDA was requested but is unavailable")
     run_id = args.run_id
-    rolling = Path(args.output).parent / ".rolling" / run_id
-    identity = resume_identity(run_id, compilation_hash, base_manifest_hash)
     weights_path = base / "model.safetensors"
-    if args.resume:
-        resume_manifest = json.loads((rolling / "resume-manifest.json").read_text(encoding="utf-8"))
-        if resume_manifest != identity:
-            raise ValueError("resume checkpoint is not bound to this run, dataset, base, and contract")
-        weights_path = rolling / "model.safetensors"
     model = build_model(cfg, encoder_dir=base / "encoder")
     model.load_state_dict(load_file(weights_path), strict=True)
     scope = args.training_scope
@@ -276,9 +264,6 @@ def train(args) -> None:
                 optimizer_steps += 1
             completed = epoch * len(train_items) + min(len(train_items), start + micro_batch)
             progress(f"Training epoch {epoch + 1} of {epochs} on {device.type}.", 5 + 80 * completed / (len(train_items) * epochs))
-        rolling_manifest = {**identity, "optimizerSteps": optimizer_steps}
-        save_checkpoint(model, tokenizer, cfg, rolling, rolling_manifest)
-        (rolling / "resume-manifest.json").write_text(json.dumps(identity, indent=2) + "\n", encoding="utf-8")
     metrics = sequence_metrics(development_items, predict(model, development_items, tokenizer.pad_token_id, device, detach_encoder=scope == "head-only"))
     if args.pilot and metrics["sequenceAccuracy"] < float(config.get("pilotMinimumAccuracy", 0.95)):
         raise ValueError("tiny-overfit pilot did not reach its reviewed sequence target")
@@ -312,7 +297,6 @@ def main() -> None:
     command.add_argument("--output", required=True)
     command.add_argument("--run-id", required=True)
     command.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
-    command.add_argument("--resume", action="store_true")
     command.add_argument("--pilot", action="store_true")
     command.add_argument("--pilot-manifest", default=str(Path(__file__).with_name("tiny-overfit-pilot.json")))
     command.add_argument("--training-scope", choices=["head-only", "last-layer-head", "full"], default="head-only")

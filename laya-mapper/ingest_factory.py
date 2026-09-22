@@ -52,13 +52,13 @@ def prefixed(pointer: str) -> str:
     return "/documents/0" + pointer
 
 
-def load_approvals(path: Path | None, manifest_hash: str, additional_hash: str) -> tuple[dict[str, Any], str, str | None]:
+def load_approvals(path: Path | None, manifest_hash: str, additional_hash: str, tier_hash: str) -> tuple[dict[str, Any], str, str | None]:
     if path is None:
         return {}, hashlib.sha256(b"no-approvals").hexdigest(), None
     raw = path.read_bytes()
     value = json.loads(raw)
     if (value.get("schemaVersion") != 1 or value.get("datasetManifestSha256") != manifest_hash
-            or value.get("additionalDraftsSha256") != additional_hash):
+            or value.get("additionalDraftsSha256") != additional_hash or value.get("tierAMappingSha256") != tier_hash):
         raise ValueError("approval file is not bound to this dataset manifest")
     gate = value.get("gate")
     reviewer = value.get("reviewer")
@@ -76,6 +76,14 @@ def load_approvals(path: Path | None, manifest_hash: str, additional_hash: str) 
         if (not isinstance(record_id, str) or record_id in by_id or approval.get("status") != "approved"
                 or not isinstance(approval.get("findings"), list)):
             raise ValueError("review entries require unique approved record IDs and findings")
+        target_approvals = approval.get("targetApprovals", {})
+        if not isinstance(target_approvals, dict) or any(target not in TARGET_TYPES for target in target_approvals):
+            raise ValueError("record targetApprovals must name production targets")
+        for target, target_approval in target_approvals.items():
+            if (not isinstance(target_approval, dict) or target_approval.get("status") != "approved"
+                    or not isinstance(target_approval.get("sourceTarget"), str)
+                    or not isinstance(target_approval.get("finding"), str) or not target_approval["finding"].strip()):
+                raise ValueError(f"target-specific approval is incomplete for {record_id}/{target}")
         by_id[record_id] = {**approval, "gate": gate, "reviewer": reviewer}
     return by_id, hashlib.sha256(raw).hexdigest(), gate
 
@@ -119,9 +127,16 @@ def derived_record(row: dict[str, Any], approval: dict[str, Any], manifest_hash:
     overrides = approval.get("targetOverrides", {})
     if not isinstance(overrides, dict) or any(target not in TARGET_TYPES for target in overrides):
         raise ValueError("approval contains an invalid production target override")
+    for target, target_approval in approval.get("targetApprovals", {}).items():
+        if (not tier_mapping or target != tier_mapping["productionTarget"]
+                or target_approval.get("sourceTarget") != tier_mapping["sourceTarget"]):
+            raise ValueError(f"target approval is not authorized by Tier A family metadata: {target}")
     decisions = {}
     for target in TARGET_TYPES:
-        tier_target = tier_mapping and tier_mapping["productionTarget"] == target
+        target_approval = approval.get("targetApprovals", {}).get(target)
+        tier_target = bool(tier_mapping and tier_mapping["productionTarget"] == target
+                           and target_approval
+                           and target_approval.get("sourceTarget") == tier_mapping["sourceTarget"])
         override = overrides.get(target, {})
         if (not isinstance(override, dict)
                 or any(key not in ("sourceTarget", "primaryPointer", "acceptedPointers", "originalType", "rationale", "positiveWindows")
@@ -135,6 +150,8 @@ def derived_record(row: dict[str, Any], approval: dict[str, Any], manifest_hash:
                                               or not isinstance(override.get("acceptedPointers", []), list)):
             raise ValueError(f"reviewed pointer override is incomplete for {target}")
         source_target = override.get("sourceTarget") or (tier_mapping["sourceTarget"] if tier_target else DIRECT_TARGETS.get(target))
+        if target in ("clientUserName", "sourceUsername") and source_target == "accountUpn" and not tier_target:
+            raise ValueError(f"Tier A mapping for {target} requires a target-specific approval and finding")
         if not source_target:
             decisions[target] = {"state": "unlabelled"}
             continue
@@ -159,6 +176,8 @@ def derived_record(row: dict[str, Any], approval: dict[str, Any], manifest_hash:
                 "resolvedValue": resolved, "rationale": override.get("rationale") or label.get("rationale", ""),
                 "independentModelReviewed": True,
             }
+            if tier_target:
+                decision["reviewFinding"] = target_approval["finding"]
             windows = overrides.get(target, {}).get("positiveWindows")
             if windows is not None:
                 decision["positiveWindows"] = {prefixed(key): value for key, value in windows.items()}
@@ -231,8 +250,12 @@ def main() -> None:
             or any(row.get("split") == "frozen-test" for row in additional_rows)):
         raise ValueError("additional synthetic drafts do not match their review-required manifest")
     rows.extend(additional_rows)
-    approvals, approval_hash, review_gate = load_approvals(args.approvals, manifest_hash, additional_hash)
+    tier_bytes = args.tier_a.read_bytes()
+    tier_hash = hashlib.sha256(tier_bytes).hexdigest()
+    approvals, approval_hash, review_gate = load_approvals(args.approvals, manifest_hash, additional_hash, tier_hash)
     if review_gate == "pilotOnly":
+        if json.loads(args.approvals.read_text(encoding="utf-8")).get("pilotManifestSha256") != sha256_file(args.pilot_manifest):
+            raise ValueError("pilot review is not bound to the exact pilot manifest")
         pilot = json.loads(args.pilot_manifest.read_text(encoding="utf-8"))
         pilot_ids = set(pilot.get("records", []))
         if set(approvals) != pilot_ids:
@@ -241,11 +264,9 @@ def main() -> None:
         for record_id, expected_overrides in required_overrides.items():
             if approvals.get(record_id, {}).get("targetOverrides", {}) != expected_overrides:
                 raise ValueError(f"pilot review is missing the exact semantic adjudication for {record_id}")
-    tier_bytes = args.tier_a.read_bytes()
     tier = json.loads(tier_bytes)
     if tier.get("schemaVersion") != 1 or tier.get("positiveOnly") is not True or tier.get("sourceTarget") != "accountUpn":
         raise ValueError("Tier A mapping metadata is invalid")
-    tier_hash = hashlib.sha256(tier_bytes).hexdigest()
     tier_by_family = {}
     for mapping in tier.get("mappings", []):
         family = mapping.get("templateFamilyId")

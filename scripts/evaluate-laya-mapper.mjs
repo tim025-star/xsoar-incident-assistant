@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { createLayaMapper, resolveAlertPointer } from "../src/laya-mapper.js";
 import { LAYA_EXPERIMENTS, DEFAULT_LAYA_EXPERIMENT } from "../src/laya-targets.js";
 import { createLayaWorkerPool, createLayaSidecarRunner } from "../src/laya-worker.js";
+import { assertStableRuntimeIdentity, canonical, caseTargetSetSha256, fileSha256, implementationSha256, runtimeContract, sha256 } from "./laya-evaluation-identity.mjs";
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
@@ -12,27 +13,62 @@ const split = option("--split", "development");
 const workers = Number(option("--workers", "1"));
 const runs = Number(option("--runs", "1"));
 const experiments = option("--variants", DEFAULT_LAYA_EXPERIMENT).split(",");
+const checkpointManifestOption = option("--checkpoint-manifest");
+const checkpointWeightsOption = option("--checkpoint-weights");
+const runtimeArtifactOption = option("--runtime-artifact");
+const modelOption = option("--model");
 if (!experiments.length || new Set(experiments).size !== experiments.length || experiments.some((name) => !Object.hasOwn(LAYA_EXPERIMENTS, name))) throw new Error("Invalid experiment selection.");
-if (!["development", "evaluation", "all"].includes(split) || ![1, 2, 3, 4].includes(workers) || !Number.isInteger(runs) || runs < 1) throw new Error("Invalid evaluation options.");
+if (!["development", "evaluation", "all"].includes(split) || ![1, 2, 3, 4].includes(workers) || !Number.isInteger(runs) || runs < 1
+    || !checkpointManifestOption || !checkpointWeightsOption || !runtimeArtifactOption || !modelOption) throw new Error("Evaluation requires valid split/runs plus --model, --checkpoint-manifest, --checkpoint-weights and --runtime-artifact identity inputs.");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const corpusPath = path.resolve(option("--corpus", path.join(root, "test/fixtures/laya-baseline-cases.json")));
-const corpus = JSON.parse(await readFile(corpusPath, "utf8"));
+const corpusText = await readFile(corpusPath, "utf8");
+const corpus = JSON.parse(corpusText);
 const output = path.resolve(option("--output", "artifacts/laya-improvements/evaluation.json"));
 await mkdir(path.dirname(output), { recursive: true });
 // --python is a development convenience only; the default always uses the packaged executable.
 const python = option("--python");
-const mapper = createLayaMapper({ runner: createLayaWorkerPool({ runnerFactory: (settings) => createLayaSidecarRunner({ ...settings, ...(python ? { executable: path.resolve(python), arguments_: [path.join(root, "laya-mapper/runner.py"), "serve"] } : {}) }) }) });
-const report = { schemaVersion: 2, createdAt: new Date().toISOString(), corpus: path.relative(root, corpusPath), split, workers, experiments, host: { processors: os.availableParallelism(), totalMemory: os.totalmem(), cpu: os.cpus()[0]?.model }, cases: [] };
+const modelPath = path.resolve(modelOption);
+const checkpointWeightsPath = path.resolve(checkpointWeightsOption);
+const runtimeExecutablePath = path.resolve(python || runtimeArtifactOption);
+if (python && runtimeExecutablePath !== path.resolve(runtimeArtifactOption)) throw new Error("Runtime artifact identity must name the executable actually used.");
+if (checkpointWeightsPath !== path.join(modelPath, "model.safetensors")) throw new Error("Checkpoint weights identity must name the model directory's model.safetensors.");
+const mapper = createLayaMapper({ runner: createLayaWorkerPool({ runnerFactory: (settings) => createLayaSidecarRunner({
+  ...settings,
+  executable: runtimeExecutablePath,
+  ...(python ? { arguments_: [path.join(root, "laya-mapper/runner.py"), "serve"] } : {}),
+  env: { LAYA_MODEL_PATH: modelPath }
+}) }) });
 const selectedCases = corpus.cases.filter((item) => (split === "all" || item.split === split) && (!option("--case") || item.id === option("--case")));
 if (!selectedCases.length) throw new Error("No evaluation cases matched.");
+const loadedInputs = await Promise.all(selectedCases.map(async (entry) => {
+  if (entry.documents) return { id: entry.id, documents: entry.documents, sha256: sha256(canonical(entry.documents)) };
+  const bytes = await readFile(path.join(root, "test/fixtures", entry.fixture));
+  return { id: entry.id, documents: [JSON.parse(bytes.toString("utf8"))], sha256: sha256(bytes) };
+}));
+const selectedInputs = new Map(loadedInputs.map((entry) => [entry.id, entry.documents]));
+if (selectedInputs.size !== selectedCases.length) throw new Error("Evaluation corpus contains duplicate selected case IDs.");
+const report = {
+  schemaVersion: 3, createdAt: new Date().toISOString(), corpus: path.relative(root, corpusPath), split, workers, experiments,
+  corpusSha256: sha256(corpusText), expectedRuns: runs, selectedCaseCount: selectedCases.length,
+  sourceDocumentsSha256: sha256(canonical(loadedInputs.map(({ id, sha256 }) => ({ id, sha256 })).sort((left, right) => left.id.localeCompare(right.id)))),
+  caseTargetSetSha256: caseTargetSetSha256(selectedCases.map((entry) => ({ id: entry.id, targets: Object.keys(entry.expected) }))),
+  implementationSha256: await implementationSha256(root, "scripts/evaluate-laya-mapper.mjs"),
+  checkpoint: { manifestSha256: await fileSha256(path.resolve(checkpointManifestOption)), weightsSha256: await fileSha256(checkpointWeightsPath) },
+  runtimeArtifactSha256: await fileSha256(runtimeExecutablePath),
+  host: { processors: os.availableParallelism(), totalMemory: os.totalmem(), cpu: os.cpus()[0]?.model }, cases: []
+};
 try {
  for (const experiment of experiments) {
   mapper.close();
   let firstRun = true;
   for (const entry of selectedCases) {
-    const documents = entry.documents || [JSON.parse(await readFile(path.join(root, "test/fixtures", entry.fixture), "utf8"))];
+    const documents = selectedInputs.get(entry.id);
     for (let run = 0; run < runs; run++) {
       const result = await mapper.mapIncident({ documents, targets: Object.keys(entry.expected), workerMode: "manual", workerCount: workers, experiment, onProgress: ({ detail }) => { if (args.includes("--progress")) console.error(detail); } });
+      const identity = runtimeContract(result.runtime);
+      if (!report.runtime) report.runtime = identity;
+      else assertStableRuntimeIdentity(report.runtime, result.runtime);
       const targets = Object.entries(entry.expected).map(([target, expected]) => {
         const actual = result.paths[target] || null;
         const trace = result.provenance[target];
@@ -57,5 +93,6 @@ return { targets: rows.length, exact: count((r) => r.exact), accepted: count((r)
 }
 report.metrics = metrics(report.cases);
 report.byExperiment = Object.fromEntries(experiments.map((name) => [name, metrics(report.cases.filter((c) => c.experiment === name))]));
+if (report.cases.length !== selectedCases.length * runs * experiments.length) throw new Error("Evaluation report has an unexpected case/run count.");
 await writeFile(output, JSON.stringify(report, null, 2) + "\n");
 console.log(JSON.stringify({ output, byExperiment: report.byExperiment }));

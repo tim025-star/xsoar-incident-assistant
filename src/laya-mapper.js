@@ -19,7 +19,20 @@ const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const pointerPart = (value) => String(value).replaceAll("~", "~0").replaceAll("/", "~1");
 const scalarText = (value) => value == null ? "" : String(value).trim();
 const valueIdentity = (field) => JSON.stringify([field.type, field.value]);
+const ISO_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:Z|[+-]\d{2}:\d{2})?$/;
 function cancelled(signal) { if (signal?.aborted) throw new Error("Laya-mapper operation was cancelled."); }
+
+function isoTimestampMs(text) {
+  const match = ISO_TIMESTAMP.exec(text);
+  if (!match) return NaN;
+  const [, year, month, day, hour, minute, second] = match;
+  const parts = [year, month, day, hour, minute, second].map(Number);
+  const structural = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5]));
+  if (structural.getUTCFullYear() !== parts[0] || structural.getUTCMonth() !== parts[1] - 1
+      || structural.getUTCDate() !== parts[2] || structural.getUTCHours() !== parts[3]
+      || structural.getUTCMinutes() !== parts[4] || structural.getUTCSeconds() !== parts[5]) return NaN;
+  return Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(text) ? text : `${text}Z`);
+}
 
 export function flattenAlertDocuments(documents) {
   if (!Array.isArray(documents)) throw new Error("Laya-mapper requires an array of alert JSON documents.");
@@ -57,7 +70,7 @@ export function rejectionReason(target, value) {
   if (type === "url") { try { return ["https:", "http:"].includes(new URL(text).protocol) ? "" : "invalid_url"; } catch { return "invalid_url"; } }
   if (type === "timestamp") {
     const numeric = typeof value === "number" || /^\d+(?:\.\d+)?$/.test(text) ? Number(value) : NaN;
-    const ms = Number.isFinite(numeric) ? numeric >= 1e12 ? numeric : numeric * 1000 : /^\d{4}-\d{2}-\d{2}[T ]/.test(text) ? Date.parse(text) : NaN;
+    const ms = Number.isFinite(numeric) ? numeric >= 1e12 ? numeric : numeric * 1000 : isoTimestampMs(text);
     return Number.isFinite(ms) && ms >= Date.UTC(2000, 0, 1) && ms < Date.UTC(2100, 0, 1) ? "" : "invalid_event_time";
   }
   return typeof value === "string" ? "" : type === "identifier" ? "requires_text_or_number" : "requires_text";

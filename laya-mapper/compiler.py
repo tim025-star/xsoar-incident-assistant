@@ -16,6 +16,7 @@ import os
 import re
 import sys
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -39,6 +40,7 @@ TARGET_TYPES = {
     "sourceHostname": "identifier", "sourceIp": "ip", "sourceUsername": "identifier",
     "descriptionLong": "text", "historicalSummary": "text", "historicalRecommendations": "text",
 }
+ISO_TIMESTAMP = re.compile(r"^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?$")
 
 
 def canonical_json(value: Any) -> str:
@@ -142,7 +144,15 @@ def structurally_eligible(target: str, value: Any) -> bool:
         if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
             seconds = float(value) / 1000 if float(value) >= 1e12 else float(value)
             return 946684800 <= seconds < 4102444800
-        return isinstance(value, str) and bool(re.match(r"^\d{4}-\d{2}-\d{2}[T ]", value))
+        if not isinstance(value, str) or not ISO_TIMESTAMP.fullmatch(value):
+            return False
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return datetime(2000, 1, 1, tzinfo=timezone.utc) <= parsed.astimezone(timezone.utc) < datetime(2100, 1, 1, tzinfo=timezone.utc)
+        except ValueError:
+            return False
     return isinstance(value, str)
 
 

@@ -1,12 +1,11 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createInterface } from "node:readline";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createLayaMapper, flattenAlertDocuments, rejectionReason, resolveAlertPointer } from "../src/laya-mapper.js";
 import { LAYA_MAPPER_TARGETS } from "../src/laya-targets.js";
+import { createPrepareBridge } from "./laya-prepare-bridge.mjs";
 
 const NONE = "__none__";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -53,36 +52,6 @@ function approvedRecord(value) {
     }
   }
   return value;
-}
-
-function createPrepareBridge() {
-  const child = spawn("python", [path.join(root, "laya-mapper", "compiler.py"), "prepare-server", "--base", basePath], {
-    windowsHide: true, stdio: ["pipe", "pipe", "inherit"], env: { ...process.env, PYTHONUNBUFFERED: "1" }
-  });
-  const pending = new Map();
-  let nextId = 0;
-  createInterface({ input: child.stdout }).on("line", (line) => {
-    const response = JSON.parse(line);
-    const request = pending.get(response.id);
-    if (!request) return;
-    pending.delete(response.id);
-    if (response.error) request.reject(new Error(response.error));
-    else request.resolve(response.result);
-  });
-  child.once("exit", () => {
-    for (const request of pending.values()) request.reject(new Error("Production renderer stopped."));
-    pending.clear();
-  });
-  return {
-    prepare(decisions) {
-      const id = String(nextId++);
-      return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
-        child.stdin.write(`${JSON.stringify({ id, decisions })}\n`);
-      });
-    },
-    close() { child.kill(); }
-  };
 }
 
 async function traceRecord(record, bridge) {
@@ -151,7 +120,7 @@ async function traceRecord(record, bridge) {
 }
 
 const records = (await readFile(sourcePath, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => approvedRecord(JSON.parse(line)));
-const bridge = createPrepareBridge();
+const bridge = createPrepareBridge({ compilerPath: path.join(root, "laya-mapper", "compiler.py"), basePath });
 try {
   const traces = [];
   for (const record of records) traces.push(...await traceRecord(record, bridge));

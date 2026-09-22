@@ -5,10 +5,17 @@ import path from "node:path";
 
 import { downloadVerifiedAsset, verifyAssetFile } from "./local-ai-installer.js";
 import { createLayaSidecarRunner } from "./laya-worker.js";
-import { LAYA_MODEL, LAYA_TARGET_CATALOGUE } from "./laya-targets.js";
+import { LAYA_MODEL, LAYA_PROMPT_VERSION, LAYA_TARGET_CATALOGUE } from "./laya-targets.js";
 
 const PROCESS_OUTPUT_LIMIT = 2 * 1024 * 1024;
 const EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000;
+function assertInstalledRuntimeIdentity(value) {
+  if (value?.protocolVersion !== 2 || value?.model?.id !== LAYA_MODEL.id
+      || value?.model?.revision !== LAYA_MODEL.revision || value?.model?.sdkVersion !== LAYA_MODEL.sdkVersion
+      || value?.promptVersion !== LAYA_PROMPT_VERSION) {
+    throw new Error("The installed Laya runtime/checkpoint identity does not match the pinned manifest and prompt contract.");
+  }
+}
 
 function defaultRootDirectory() {
   const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
@@ -72,7 +79,8 @@ export async function verifyLayaMapperInstallation({ rootDirectory = defaultRoot
   });
   try {
     const status = await runner.status();
-    if (!status.available || status.protocolVersion !== 2) throw new Error("The installed Laya runtime did not pass its protocol check.");
+    if (!status.available) throw new Error("The installed Laya runtime did not pass its protocol check.");
+    assertInstalledRuntimeIdentity(status);
     const result = await runner.evaluate({ decisions: [{
       id: "install-smoke",
       kind: "classify",
@@ -83,6 +91,7 @@ export async function verifyLayaMapperInstallation({ rootDirectory = defaultRoot
     if (answer?.id !== "install-smoke" || !Number.isFinite(answer.score) || result?.runtime?.ready !== true) {
       throw new Error("The installed Laya runtime did not pass its inference check.");
     }
+    assertInstalledRuntimeIdentity(result.runtime);
     return { protocolVersion: status.protocolVersion, model: status.model, promptVersion: status.promptVersion };
   } finally {
     runner.close();

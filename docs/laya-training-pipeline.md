@@ -20,7 +20,7 @@ Only these six draft roles have conservative global mappings:
 - `clientHostname` to `clientHostname`
 - `customerOrOrganization` to `customerName`
 
-Every production target outside those six direct roles remains `unlabelled`, except for the reviewed positive-only Tier A mappings to `clientUserName` and `sourceUsername`; absence in the draft contract is never converted into a negative. Ambiguous or invalid-type direct labels are quarantined. Any additional mapping requires an explicit record/family review decision.
+Every production target outside those six direct roles remains `unlabelled`, except for reviewed positive-only Tier A mappings to `clientUserName` and `sourceUsername`; absence in the draft contract is never converted into a negative. Tier A family metadata is only an allowlist: every mapped record must also carry a `targetApprovals.<productionTarget>` object with `status: approved`, `sourceTarget: accountUpn`, and a non-empty target-specific semantic finding. Generic record approval cannot activate Tier A. Ambiguous or invalid-type direct labels are quarantined.
 
 ## Gates
 
@@ -32,6 +32,8 @@ Every production target outside those six direct roles remains `unlabelled`, exc
 6. Run a head-only tiny-overfit pilot first, only after all 18 pilot rows have the exact semantic adjudications in `tiny-overfit-pilot.json` (79 direct positives, 29 direct no-match decisions, and 14 Tier A positives). The trainer reports the exact trainable parameter count, optimizer-step count and timing, preserves shipped `temperature` and `temperature_by_options`, and verifies saved/reloaded sequence predictions. Last-encoder-layer plus head is a separate explicit fallback experiment.
 7. Sequence metrics are only teacher-forced diagnostics. They are never called pointer accuracy.
 8. After model selection is locked, run the full grouped production mapper on untouched development and frozen-test source families. `evaluate-laya-reviewed-sources.mjs` measures pointer/none outcomes, complete coverage and repeated saved/reloaded output equality. `verify-laya-promotion.mjs` compares the candidate with the base checkpoint. The compiled frozen-test partition is promotion-only and the trainer never loads it.
+
+Promotion reports bind the exact checkpoint manifest and weights, runtime artifact, prompt and protocol, worker/thread settings, evaluator implementation, source or corpus SHA-256, case-target set, and run count. The promotion verifier recomputes current input and implementation hashes and rejects stale, mislabeled, incomplete, or non-comparable reports. Warm runtime and peak RAM must remain within 15%; an exception requires a separate structured independent-model review artifact bound to the exact base and candidate report hashes and explicitly naming `warmTime` and/or `peakRam`. Accuracy gain alone is never a resource exception.
 
 Every derived row carries a content `recordHash` plus a separate `certificationHash` that binds reviewer identity, gate, review artifact, and additional-draft set. Changing `pilotOnly` to `releaseCandidate`, changing reviewer identity, or swapping a review artifact invalidates certification.
 
@@ -55,3 +57,5 @@ python laya-mapper/developer_trainer.py train --compiled "$Pilot/compiled" --con
 ```
 
 The trainer's final manifest must report `promotionEligible: false`, unchanged calibration, the exact optimizer-step count, and successful saved/reloaded choice and logit equality. Do not use the pilot checkpoint for release evaluation or promotion.
+
+The developer trainer deliberately has no resume option: optimizer, scheduler, epoch, scaler, and RNG state are not persisted, so interrupted experiments must restart under a new run ID.

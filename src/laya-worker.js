@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { LAYA_MODEL } from "./laya-targets.js";
+import { LAYA_MODEL, LAYA_PROMPT_VERSION } from "./laya-targets.js";
 
 export function chooseWorkerCount({ workerMode = "auto", workerCount = 1, workItems = 4 } = {}) {
   // One resident checkpoint with a divided CPU thread budget was fastest in the
@@ -79,7 +79,8 @@ export function createLayaSidecarRunner({ executable = executablePath(), argumen
   };
   return { close, evaluate: (input) => request("evaluate", input), async status() {
     const result = await request("status");
-    if (result.protocolVersion !== 2 || result.model?.id !== LAYA_MODEL.id || result.model?.revision !== LAYA_MODEL.revision || result.sdkVersion !== LAYA_MODEL.sdkVersion) throw new Error("Laya runtime/checkpoint mismatch; install the pinned base-English protocol-2 runtime.");
+    if (result.protocolVersion !== 2 || result.model?.id !== LAYA_MODEL.id || result.model?.revision !== LAYA_MODEL.revision
+        || result.sdkVersion !== LAYA_MODEL.sdkVersion || result.promptVersion !== LAYA_PROMPT_VERSION) throw new Error("Laya runtime/checkpoint mismatch; install the pinned base-English protocol-2 runtime.");
     return result;
   } };
 }
