@@ -150,9 +150,9 @@ test("worker scheduling does not change deterministic orchestration or omit deci
   for (const r of outputs) { assert.equal(r.decisionsCompleted, outputs[0].decisionsCompleted); assert.deepEqual(r.paths, outputs[0].paths); }
 });
 
-test("auto/manual worker counts respect resources and pending work", () => {
-  assert.equal(chooseWorkerCount({ processors: 16, availableMemory: 25 * 1024 ** 3 }), 4);
-  assert.equal(chooseWorkerCount({ processors: 8, availableMemory: 13 * 1024 ** 3 }), 2);
+test("automatic mode uses the measured single-worker default while manual mode respects pending work", () => {
+  assert.equal(chooseWorkerCount({ processors: 16, availableMemory: 25 * 1024 ** 3 }), 1);
+  assert.equal(chooseWorkerCount({ processors: 8, availableMemory: 13 * 1024 ** 3 }), 1);
   assert.equal(chooseWorkerCount({ processors: 16, availableMemory: 4 * 1024 ** 3 }), 1);
   assert.equal(chooseWorkerCount({ workerMode: "manual", workerCount: 4, workItems: 2 }), 2);
 });

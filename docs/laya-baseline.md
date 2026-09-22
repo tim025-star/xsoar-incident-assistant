@@ -32,7 +32,7 @@ The adapter splits long values into 64-token windows with 16-token overlap. It r
 
 Structural checks reject null/empty values, invalid IPs, non-HTTP(S) URLs, unsupported event times and non-text values for narrative/name targets. Identifier targets also accept numeric scalars so an account ID or numeric hostname can reach semantic assessment. The timestamp check supports ISO-style datetime strings and numeric epoch seconds/milliseconds in 2000–2099. Text checks do not apply vendor-specific hostname or username rules.
 
-Workers start on demand and reuse loaded checkpoints. Automatic selection uses 1 worker, 2 at 8 logical processors plus 12 GiB available RAM, or 4 at 16 processors plus 24 GiB. Manual mode accepts 1–4, capped by pending independent batches. A multi-worker start requires at least 2.5 GiB per worker plus 1 GiB spare. Memory pressure can still cause a worker failure; the result must then expose incomplete coverage.
+Workers start on demand and reuse loaded checkpoints. Automatic selection uses one resident model process and gives it the available CPU thread budget, reserving two logical processors for the application and operating system. Manual mode accepts 1–4, capped by pending independent batches. A multi-worker start requires at least 2.5 GiB per worker plus 1 GiB spare. Memory pressure can still cause a worker failure; the result must then expose incomplete coverage.
 
 The pool reserves two logical processors and divides the rest between workers. Python groups sequences by length and limits a forward pass to 16 decisions and 4,096 padded tokens. Dispatch starts the 180-second timeout, not queue entry. An interrupted request gets one retry on a fresh worker. Cancellation kills active processes and rejects queued work.
 
@@ -114,7 +114,7 @@ Host: AMD Ryzen 7 5800X3D, 16 logical processors, 31.93 GiB physical RAM. All ru
 | 2 | 7 | 68.911 s | 57.273 s | 5.50 GiB |
 | 4 | 3 | 96.274 s | 82.207 s | 10.99 GiB |
 
-Every setting assessed all 64 candidates in both directions and returned `/documents/0/z_clientHostname` as tentative. Worker-count changes did not change the answer. Extra workers slowed this fixture on this host, especially its sequential final sweep. The initial auto policy remains unchanged; use manual one-worker mode for this measured workload. A broader benchmark should precede a platform-wide policy change.
+Every setting assessed all 64 candidates in both directions and returned `/documents/0/z_clientHostname` as tentative. Worker-count changes did not change the answer. Extra workers slowed this fixture on this host, especially its sequential final sweep. Automatic mode therefore uses one worker; manual 1–4 worker selection remains available for other hardware and workload shapes.
 
 ### Verification and package
 

@@ -5,10 +5,11 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { LAYA_MODEL } from "./laya-targets.js";
 
-export function chooseWorkerCount({ workerMode = "auto", workerCount = 1, workItems = 4, processors = os.availableParallelism(), availableMemory = os.freemem() } = {}) {
-  const gib = availableMemory / 1024 ** 3;
-  const automatic = processors >= 16 && gib >= 24 ? 4 : processors >= 8 && gib >= 12 ? 2 : 1;
-  return Math.max(1, Math.min(workItems, workerMode === "manual" ? Math.max(1, Math.min(4, workerCount)) : automatic));
+export function chooseWorkerCount({ workerMode = "auto", workerCount = 1, workItems = 4 } = {}) {
+  // One resident checkpoint with a divided CPU thread budget was fastest in the
+  // fixed one/two/four-worker benchmark. Manual mode remains available for
+  // different hardware and genuinely independent workloads.
+  return Math.max(1, Math.min(workItems, workerMode === "manual" ? Math.max(1, Math.min(4, workerCount)) : 1));
 }
 
 function executablePath() {
