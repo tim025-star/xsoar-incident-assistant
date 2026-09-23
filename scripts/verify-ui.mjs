@@ -105,11 +105,11 @@ const app = createAssistantServer({
       }),
       mapIncident: async ({ targets, onProgress }) => {
         onProgress?.({ detail: "Final assessment sourceIp: forward 7/7 fields.", stage: "final_assessment", completed: 7, total: 7, target: "sourceIp", pass: "forward" });
-        await new Promise((resolve) => setTimeout(resolve, 700));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
         return {
           fields: targets.includes("sourceIp") ? { sourceIp: "203.0.113.8" } : {},
           paths: targets.includes("sourceIp") ? { sourceIp: "/documents/0/alertEnvelope/network/peer" } : {},
-          statuses: Object.fromEntries(targets.map((t) => [t, t === "sourceIp" ? "selected" : "no_supported_match"])), provenance: Object.fromEntries(targets.map((t) => [t, { agreement: { value: t === "sourceIp" ? "agreed" : "none" } }])), warning: "", complete: true, sourceComplete: true, processingComplete: true, runtime: { effectiveWorkers: 1 }, timings: { totalMs: 700 }, leaves: 7
+          statuses: Object.fromEntries(targets.map((t) => [t, t === "sourceIp" ? "selected" : "no_supported_match"])), provenance: Object.fromEntries(targets.map((t) => [t, { agreement: { value: t === "sourceIp" ? "agreed" : "none" } }])), warning: "", complete: true, sourceComplete: true, processingComplete: true, runtime: { effectiveWorkers: 1 }, timings: { totalMs: 2000 }, leaves: 7
         };
       },
       close: () => {}
