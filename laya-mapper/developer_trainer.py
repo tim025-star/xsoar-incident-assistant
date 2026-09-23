@@ -408,7 +408,10 @@ def train(args) -> None:
     optimizer_steps_per_epoch = math.ceil(micro_batches_per_epoch / accumulation)
     total_optimizer_steps = max(1, optimizer_steps_per_epoch * epochs)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_optimizer_steps, eta_min=1e-6)
-    scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
+    cuda_initial_grad_scale = float(config.get("cudaInitialGradScale", 1024))
+    if not math.isfinite(cuda_initial_grad_scale) or cuda_initial_grad_scale <= 0:
+        raise ValueError("CUDA initial gradient scale must be finite and positive")
+    scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda", init_scale=cuda_initial_grad_scale)
     optimizer_steps = 0
     epochs_completed = 0
     early_stopped = False
@@ -427,6 +430,7 @@ def train(args) -> None:
         "pilotManifestSha256": sha256_file(Path(args.pilot_manifest)) if args.pilot else None,
         "trainingScope": scope, "device": str(device), "randomSeed": random_seed,
         "microBatch": micro_batch, "gradientAccumulation": accumulation,
+        "cudaInitialGradScale": cuda_initial_grad_scale,
         "maximumEpochs": epochs, "maximumOptimizerSteps": total_optimizer_steps,
         "optimizerStepsPerEpoch": optimizer_steps_per_epoch,
         "trainingItemsSha256": sha256_json([item["itemHash"] for item in train_items]),
@@ -524,6 +528,7 @@ def train(args) -> None:
         "maximumOptimizerSteps": total_optimizer_steps, "epochsCompleted": epochs_completed,
         "maximumEpochs": epochs, "earlyStopped": early_stopped,
         "randomSeed": random_seed, "microBatch": micro_batch, "gradientAccumulation": accumulation,
+        "cudaInitialGradScale": cuda_initial_grad_scale,
         "trainingScope": scope, "trainableParameters": trainable_parameters, "totalParameters": total_parameters,
         "device": device.type, "durationSeconds": round(elapsed_before_resume + time.time() - started, 1),
         "resumed": bool(resume_path), "resumedFromEpoch": resumed_from_epoch,
