@@ -500,7 +500,7 @@ function App() {
           )}</Show>
         </details>
 
-        <p class="helper mt-4">Training and custom checkpoints are deferred. Existing datasets and downloaded checkpoints are preserved.</p>
+        <p class="helper mt-4">Training is an optional separate product and is not installed or run by this application. Existing local training data is not deleted.</p>
       </section>
 
       <section class="panel">

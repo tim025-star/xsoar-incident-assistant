@@ -8,7 +8,6 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
 import { createLayaMapperInstaller, extractLayaArchive, parseLayaInstallManifest, verifyLayaMapperInstallation } from "../src/laya-mapper-installer.js";
-import { createLayaTrainingManager, MINIMUM_TRAINING_EXAMPLES } from "../src/laya-training.js";
 import { LAYA_MODEL } from "../src/laya-targets.js";
 
 const digest = "a".repeat(64);
@@ -19,25 +18,23 @@ const asset = (name, size = 4) => ({
   url: `https://github.com/example/laya-assets/releases/download/v1/${name}`
 });
 const manifest = {
-  schemaVersion: 2,
+  schemaVersion: 3,
+  protocolVersion: 2,
+  model: LAYA_MODEL,
   layaVersion: "0.3.5",
   runtime: { ...asset("laya-mapper-runtime-cpu-x64.tar.gz"), entry: "laya-mapper.exe" },
-  trainers: {
-    cpu: { ...asset("laya-trainer-cpu-x64.tar.gz"), entry: "laya-trainer.exe" },
-    cuda: { ...asset("laya-trainer-cuda-x64.tar.gz"), entry: "laya-trainer.exe" }
-  },
   modelFiles: [{ ...asset("model.safetensors"), path: "model.safetensors" }]
 };
 
 test("English inference manifest requires the pinned identity and no trainer assets", async (context) => {
   const rootDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-english-install-"));
   context.after(() => rm(rootDirectory, { recursive: true, force: true }));
-  const baseline = { ...manifest, schemaVersion: 3, protocolVersion: 2, model: LAYA_MODEL };
-  delete baseline.trainers;
-  assert.deepEqual(parseLayaInstallManifest(baseline).trainers, {});
-  assert.throws(() => parseLayaInstallManifest({ ...baseline, model: { ...LAYA_MODEL, revision: "wrong" } }), /identity/);
+  assert.equal(parseLayaInstallManifest(manifest).model.id, "base-english");
+  assert.throws(() => parseLayaInstallManifest({ ...manifest, schemaVersion: 2 }), /invalid/);
+  assert.throws(() => parseLayaInstallManifest({ ...manifest, trainers: { cpu: {} } }), /must not contain trainer assets/);
+  assert.throws(() => parseLayaInstallManifest({ ...manifest, model: { ...LAYA_MODEL, revision: "wrong" } }), /identity/);
   const destinations = [];
-  const installer = createLayaMapperInstaller({ manifest: baseline, rootDirectory,
+  const installer = createLayaMapperInstaller({ manifest, rootDirectory,
     download: async (asset, destination) => { await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, Buffer.alloc(asset.size)); },
     extract: async (_, destination) => { destinations.push(destination); },
     verifyInstallation: async ({ rootDirectory: verifiedRoot }) => { assert.equal(verifiedRoot, rootDirectory); }
@@ -45,7 +42,6 @@ test("English inference manifest requires the pinned identity and no trainer ass
   assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: "base-english" });
   assert.deepEqual(destinations, [path.join(rootDirectory, "runtime-v2")]);
   await access(path.join(rootDirectory, "models/base-english/model.safetensors"));
-  await assert.rejects(installer.installTrainingTools({ backend: "cpu" }), /unavailable/);
 });
 
 test("Laya installation accepts only bounded GitHub release assets and installs verified files", async (context) => {
@@ -65,13 +61,10 @@ test("Laya installation accepts only bounded GitHub release assets and installs 
       await mkdir(destination, { recursive: true });
       await writeFile(path.join(destination, entry), "fixture");
     },
-    verifyInstallation: async () => {},
-    detectTrainingBackend: async () => "cpu"
+    verifyInstallation: async () => {}
   });
-  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: "base-multilingual" });
+  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: "base-english" });
   assert.deepEqual(downloaded, ["laya-mapper-runtime-cpu-x64.tar.gz", "model.safetensors"]);
-  assert.deepEqual(await installer.installTrainingTools(), { installed: true, backend: "cpu" });
-  assert.deepEqual(downloaded, ["laya-mapper-runtime-cpu-x64.tar.gz", "model.safetensors", "laya-trainer-cpu-x64.tar.gz"]);
   assert.throws(() => parseLayaInstallManifest({
     ...manifest,
     runtime: { ...manifest.runtime, name: "../outside.exe" }
@@ -82,7 +75,7 @@ test("Laya installation accepts only bounded GitHub release assets and installs 
   }), /GitHub release URLs/i);
 });
 
-test("Laya installation works from an offline asset pack and preserves both trainers", async (context) => {
+test("Laya inference installation works from an offline asset pack", async (context) => {
   const rootDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-offline-install-"));
   const offlineDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-offline-assets-"));
   context.after(() => Promise.all([
@@ -92,7 +85,7 @@ test("Laya installation works from an offline asset pack and preserves both trai
   const contents = Buffer.from("test");
   const offlineManifest = JSON.parse(JSON.stringify(manifest));
   const checksum = createHash("sha256").update(contents).digest("hex");
-  for (const item of [offlineManifest.runtime, ...Object.values(offlineManifest.trainers), ...offlineManifest.modelFiles]) {
+  for (const item of [offlineManifest.runtime, ...offlineManifest.modelFiles]) {
     item.size = contents.length;
     item.sha256 = checksum;
     await writeFile(path.join(offlineDirectory, item.name), contents);
@@ -106,14 +99,9 @@ test("Laya installation works from an offline asset pack and preserves both trai
       await mkdir(destination, { recursive: true });
       await writeFile(path.join(destination, entry), "fixture");
     },
-    verifyInstallation: async () => {},
-    detectTrainingBackend: async () => "cpu"
+    verifyInstallation: async () => {}
   });
   await installer.installInference();
-  await Promise.all(Object.values(offlineManifest.trainers).map((item) =>
-    access(path.join(rootDirectory, "offline-assets", item.name))
-  ));
-  assert.deepEqual(await installer.installTrainingTools(), { installed: true, backend: "cpu" });
 });
 
 test("installed Laya verification requires a protocol-2 status and real inference response", async () => {
@@ -202,72 +190,4 @@ test("Laya runtime extraction permits the normal tar archive root marker", async
   };
   await extractLayaArchive("fixture.tar.gz", path.join(rootDirectory, "runtime"), "laya-mapper.exe", { spawnImplementation });
   await access(path.join(rootDirectory, "runtime", "laya-mapper.exe"));
-});
-
-test("Laya training enforces the alert-level minimum before starting", async (context) => {
-  const rootDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-training-"));
-  context.after(() => rm(rootDirectory, { recursive: true, force: true }));
-  await mkdir(path.join(rootDirectory, "training-runtime"), { recursive: true });
-  await mkdir(path.join(rootDirectory, "models", "base-multilingual"), { recursive: true });
-  await writeFile(path.join(rootDirectory, "training-runtime", "laya-trainer.exe"), "fixture");
-  const datasetStore = {
-    list: async () => Array.from({ length: MINIMUM_TRAINING_EXAMPLES - 1 }, (_, index) => ({ id: String(index) })),
-    exportJsonl: async () => ""
-  };
-  const training = createLayaTrainingManager({ datasetStore, rootDirectory });
-  await assert.rejects(training.start(), /at least 50 labeled alerts/i);
-});
-
-test("checkpoint import rejects executable and pickle content", async (context) => {
-  const rootDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-checkpoints-"));
-  const sourceDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-checkpoint-source-"));
-  context.after(() => Promise.all([
-    rm(rootDirectory, { recursive: true, force: true }),
-    rm(sourceDirectory, { recursive: true, force: true })
-  ]));
-  await Promise.all([
-    writeFile(path.join(sourceDirectory, "manifest.json"), JSON.stringify({ schemaVersion: 1, id: "safe-checkpoint", base: "laya-multilingual" })),
-    writeFile(path.join(sourceDirectory, "model.safetensors"), "safe fixture"),
-    writeFile(path.join(sourceDirectory, "rl_agent_config.json"), "{}"),
-    writeFile(path.join(sourceDirectory, "pytorch_model.bin"), "pickle fixture")
-  ]);
-  const training = createLayaTrainingManager({
-    rootDirectory,
-    datasetStore: { list: async () => [], exportJsonl: async () => "" }
-  });
-  await assert.rejects(training.importCheckpoint(sourceDirectory), /unsupported files: pytorch_model\.bin/i);
-});
-
-test("cancelled Laya runs can restart from a compatible rolling checkpoint", async (context) => {
-  const rootDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-resume-"));
-  context.after(() => rm(rootDirectory, { recursive: true, force: true }));
-  const runId = "123e4567-e89b-42d3-a456-426614174000";
-  await Promise.all([
-    mkdir(path.join(rootDirectory, "training-runtime"), { recursive: true }),
-    mkdir(path.join(rootDirectory, "models", "base-multilingual"), { recursive: true }),
-    mkdir(path.join(rootDirectory, "training-runs", runId, "checkpoint_latest"), { recursive: true })
-  ]);
-  await Promise.all([
-    writeFile(path.join(rootDirectory, "training-runtime", "laya-trainer.exe"), "fixture"),
-    writeFile(path.join(rootDirectory, "training-runs", runId, "dataset.jsonl"), "{}\n"),
-    writeFile(path.join(rootDirectory, "training-runs", runId, "training-config.json"), "{}"),
-    writeFile(path.join(rootDirectory, "training-runs", runId, "checkpoint_latest", "model.safetensors"), "fixture")
-  ]);
-  let arguments_;
-  const child = new EventEmitter();
-  child.stdout = new PassThrough();
-  child.stderr = new PassThrough();
-  child.kill = () => queueMicrotask(() => child.emit("exit", 1));
-  const training = createLayaTrainingManager({
-    rootDirectory,
-    datasetStore: { list: async () => [], exportJsonl: async () => "" },
-    spawnImplementation: (_executable, input) => { arguments_ = input; return child; }
-  });
-  const run = await training.start({ device: "cpu", resumeRunId: runId });
-  assert.equal(run.id, runId);
-  assert.ok(arguments_.includes("--resume"));
-  const completion = training.waitForCompletion(runId);
-  await training.cancel();
-  await assert.rejects(completion, /cancelled/i);
-  assert.equal((await training.status()).lastRun.status, "cancelled");
 });

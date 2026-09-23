@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LAYA_MAPPER_TARGETS, LAYA_PROMPT_VERSION } from "../src/laya-targets.js";
-import { canonical, caseTargetSetSha256, fileSha256, implementationSha256, sha256 } from "./laya-evaluation-identity.mjs";
+import { LAYA_MAPPER_TARGETS, LAYA_PROMPT_VERSION } from "../../src/laya-targets.js";
+import { canonical, caseTargetSetSha256, fileSha256, implementationSha256, sha256 } from "../../scripts/laya-evaluation-identity.mjs";
 
 const args = process.argv.slice(2);
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const option = (name) => args.includes(name) ? args[args.indexOf(name) + 1] : "";
 const required = ["--frozen-base", "--frozen-candidate", "--fixed-base", "--fixed-candidate", "--robustness-candidate",
   "--frozen-source", "--fixed-corpus", "--robustness-corpus", "--base-checkpoint-manifest", "--base-checkpoint-weights",
@@ -142,7 +142,7 @@ await Promise.all([
   validateFixedReport(robustness.value, "Robustness candidate")
 ]);
 const expectedFixedImplementation = await implementationSha256(root, "scripts/evaluate-laya-mapper.mjs");
-const expectedFrozenImplementation = await implementationSha256(root, "scripts/evaluate-laya-reviewed-sources.mjs");
+const expectedFrozenImplementation = await implementationSha256(root, "trainer/scripts/evaluate-laya-reviewed-sources.mjs");
 if ([fixedBase.value, fixedCandidate.value, robustness.value].some((report) => report.implementationSha256 !== expectedFixedImplementation)
     || [frozenBase.value, frozenCandidate.value].some((report) => report.implementationSha256 !== expectedFrozenImplementation)) failures.push("An evaluation report was produced by stale evaluator or mapper code.");
 if (comparableIdentity(fixedBase.value) !== comparableIdentity(fixedCandidate.value)

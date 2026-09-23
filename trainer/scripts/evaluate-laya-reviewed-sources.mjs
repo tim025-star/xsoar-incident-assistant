@@ -3,13 +3,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createLayaMapper } from "../src/laya-mapper.js";
-import { createLayaSidecarRunner, createLayaWorkerPool } from "../src/laya-worker.js";
-import { LAYA_MAPPER_TARGETS } from "../src/laya-targets.js";
-import { assertStableRuntimeIdentity, caseTargetSetSha256, fileSha256, implementationSha256, runtimeContract } from "./laya-evaluation-identity.mjs";
+import { createLayaMapper } from "../../src/laya-mapper.js";
+import { createLayaSidecarRunner, createLayaWorkerPool } from "../../src/laya-worker.js";
+import { LAYA_MAPPER_TARGETS } from "../../src/laya-targets.js";
+import { assertStableRuntimeIdentity, caseTargetSetSha256, fileSha256, implementationSha256, runtimeContract } from "../../scripts/laya-evaluation-identity.mjs";
 
 const args = process.argv.slice(2);
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const option = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
 const sourceOption = option("--source", "");
 const runnerOption = option("--runner", "");
@@ -43,7 +43,7 @@ const report = {
   runs,
   expectedRuns: runs,
   caseTargetSetSha256: caseTargetSetSha256(records.map((record) => ({ sampleId: record.sampleId, targets: LAYA_MAPPER_TARGETS }))),
-  implementationSha256: await implementationSha256(root, "scripts/evaluate-laya-reviewed-sources.mjs"),
+  implementationSha256: await implementationSha256(root, "trainer/scripts/evaluate-laya-reviewed-sources.mjs"),
   checkpoint: { manifestSha256: await fileSha256(path.resolve(checkpointManifestOption)), weightsSha256: await fileSha256(path.resolve(checkpointWeightsOption)) },
   runtimeArtifactSha256: await fileSha256(executable),
   cases: []
