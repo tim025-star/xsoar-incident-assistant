@@ -34,6 +34,16 @@ function isoTimestampMs(text) {
   return Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(text) ? text : `${text}Z`);
 }
 
+function unixTimestampMs(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return NaN;
+  const magnitude = Math.abs(numeric);
+  if (magnitude >= 1e17) return numeric / 1e6; // nanoseconds
+  if (magnitude >= 1e14) return numeric / 1e3; // microseconds
+  if (magnitude >= 1e11) return numeric; // milliseconds
+  return numeric * 1000; // seconds
+}
+
 export function flattenAlertDocuments(documents) {
   if (!Array.isArray(documents)) throw new Error("Laya-mapper requires an array of alert JSON documents.");
   if (Buffer.byteLength(JSON.stringify(documents)) > 96 * 1024) throw new Error("The detailed alert JSON exceeds the Laya-mapper processing limit.");
@@ -70,7 +80,7 @@ export function rejectionReason(target, value) {
   if (type === "url") { try { return ["https:", "http:"].includes(new URL(text).protocol) ? "" : "invalid_url"; } catch { return "invalid_url"; } }
   if (type === "timestamp") {
     const numeric = typeof value === "number" || /^\d+(?:\.\d+)?$/.test(text) ? Number(value) : NaN;
-    const ms = Number.isFinite(numeric) ? numeric >= 1e12 ? numeric : numeric * 1000 : isoTimestampMs(text);
+    const ms = Number.isFinite(numeric) ? unixTimestampMs(numeric) : isoTimestampMs(text);
     return Number.isFinite(ms) && ms >= Date.UTC(2000, 0, 1) && ms < Date.UTC(2100, 0, 1) ? "" : "invalid_event_time";
   }
   return typeof value === "string" ? "" : type === "identifier" ? "requires_text_or_number" : "requires_text";

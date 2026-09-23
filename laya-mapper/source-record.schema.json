@@ -61,8 +61,8 @@
       "required": ["state", "blind", "gate", "reviewer"],
       "properties": {
         "state": { "const": "approved" },
-        "blind": { "const": true },
-        "gate": { "enum": ["pilotOnly", "releaseCandidate"] },
+        "blind": { "type": "boolean" },
+        "gate": { "enum": ["pilotOnly", "trainingOnly", "releaseCandidate"] },
         "reviewer": {
           "type": "object",
           "additionalProperties": false,

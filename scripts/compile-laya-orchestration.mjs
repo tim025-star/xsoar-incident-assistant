@@ -26,8 +26,11 @@ function approvedRecord(value) {
   if (!value || value.schemaVersion !== 2 || value.synthetic !== true || typeof value.sampleId !== "string") throw new Error("Source record is not synthetic schemaVersion 2 data.");
   if (!Array.isArray(value.documents) || value.documents.length < 1 || value.documents.length > 16 || Buffer.byteLength(JSON.stringify(value.documents)) > 96 * 1024) throw new Error(`Source record ${value.sampleId} exceeds production document limits.`);
   const reviewer = value.review?.reviewer;
-  if (value.review?.state !== "approved" || value.review?.blind !== true || !["pilotOnly", "releaseCandidate"].includes(value.review?.gate)
+  const gate = value.review?.gate;
+  if (value.review?.state !== "approved" || typeof value.review?.blind !== "boolean" || !["pilotOnly", "trainingOnly", "releaseCandidate"].includes(gate)
+      || (gate !== "trainingOnly" && value.review.blind !== true)
       || reviewer?.kind !== "independent-model" || typeof reviewer.model !== "string" || !reviewer.model
+      || (["trainingOnly", "releaseCandidate"].includes(gate) && !reviewer.model.toLowerCase().startsWith("gpt-6"))
       || !/^[a-f0-9]{64}$/.test(reviewer.promptHash || "")
       || reviewer.model !== value.provenance?.blindReviewerModel || reviewer.promptHash !== value.provenance?.blindReviewPromptHash
       || !/^[a-f0-9]{64}$/.test(value.provenance?.reviewArtifactSha256 || "")

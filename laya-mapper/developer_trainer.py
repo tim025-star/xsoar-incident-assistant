@@ -196,11 +196,11 @@ def require_finite(value, context):
         raise ValueError(f"non-finite training state: {context}")
 
 
-def save_pilot_state(path, model, optimizer, scheduler, scaler, bindings, epochs_completed,
-                     optimizer_steps, elapsed_seconds, metrics):
-    """Atomically replace recovery state; never export a promotable checkpoint."""
+def save_recovery_state(path, model, optimizer, scheduler, scaler, bindings, epochs_completed,
+                        optimizer_steps, elapsed_seconds, metrics, *, gate, kind):
+    """Atomically replace a run-bound recovery state; never export a promotable checkpoint."""
     state = {
-        "schemaVersion": 1, "kind": "pilot-resume-state", "gate": "pilotOnly", "promotionEligible": False,
+        "schemaVersion": 1, "kind": kind, "gate": gate, "promotionEligible": False,
         "bindings": bindings, "epochsCompleted": epochs_completed, "optimizerSteps": optimizer_steps,
         "elapsedSeconds": elapsed_seconds, "metrics": metrics,
         # Frozen parameters come from the hash-verified base; mutable buffers do not.
@@ -212,7 +212,7 @@ def save_pilot_state(path, model, optimizer, scheduler, scaler, bindings, epochs
         "rng": {"python": random.getstate(), "torch": torch.get_rng_state(),
                 "cuda": torch.cuda.get_rng_state_all() if bindings["device"].startswith("cuda") else []},
     }
-    require_finite(state, "pilot recovery")
+    require_finite(state, "training recovery")
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
@@ -228,25 +228,25 @@ def save_pilot_state(path, model, optimizer, scheduler, scaler, bindings, epochs
             temporary.unlink()
 
 
-def restore_pilot_state(path, model, optimizer, scheduler, scaler, bindings):
+def restore_recovery_state(path, model, optimizer, scheduler, scaler, bindings, *, gate, kind):
     # Explicit weights_only avoids arbitrary pickle execution from a supplied file.
     state = torch.load(path, map_location="cpu", weights_only=True)
-    if (state.get("schemaVersion") != 1 or state.get("kind") != "pilot-resume-state"
-            or state.get("gate") != "pilotOnly" or state.get("promotionEligible") is not False
+    if (state.get("schemaVersion") != 1 or state.get("kind") != kind
+            or state.get("gate") != gate or state.get("promotionEligible") is not False
             or state.get("bindings") != bindings):
-        raise ValueError("pilot recovery state does not match this exact run and its artifact/config/scope bindings")
+        raise ValueError("training recovery state does not match this exact run and its artifact/config/scope bindings")
     epoch, steps = state.get("epochsCompleted"), state.get("optimizerSteps")
     if (type(epoch) is not int or not 1 <= epoch <= bindings["maximumEpochs"]
             or type(steps) is not int or steps != epoch * bindings["optimizerStepsPerEpoch"]
             or state["scheduler"].get("last_epoch") != steps
             or state["scheduler"].get("T_max") != bindings["maximumOptimizerSteps"]):
-        raise ValueError("pilot recovery state has inconsistent epoch or fixed-schedule counters")
+        raise ValueError("training recovery state has inconsistent epoch or fixed-schedule counters")
     elapsed = state.get("elapsedSeconds")
     if not isinstance(elapsed, (int, float)) or not math.isfinite(elapsed) or elapsed < 0:
-        raise ValueError("pilot recovery state has invalid elapsed time")
+        raise ValueError("training recovery state has invalid elapsed time")
     rng = state["rng"]
     if len(rng["cuda"]) != (torch.cuda.device_count() if bindings["device"].startswith("cuda") else 0):
-        raise ValueError("pilot recovery state has incompatible CUDA RNG states")
+        raise ValueError("training recovery state has incompatible CUDA RNG states")
     parameters = {name: parameter for name, parameter in model.named_parameters() if parameter.requires_grad}
     buffers = dict(model.named_buffers())
     for key, current in (("parameters", parameters), ("buffers", buffers)):
@@ -254,8 +254,8 @@ def restore_pilot_state(path, model, optimizer, scheduler, scaler, bindings):
         if (not isinstance(stored, dict) or stored.keys() != current.keys()
                 or any(not isinstance(stored[name], torch.Tensor) or stored[name].shape != tensor.shape
                        or stored[name].dtype != tensor.dtype for name, tensor in current.items())):
-            raise ValueError(f"pilot recovery state has incompatible {key} keys, shapes or precision")
-    require_finite(state, "pilot recovery")
+            raise ValueError(f"training recovery state has incompatible {key} keys, shapes or precision")
+    require_finite(state, "training recovery")
     with torch.no_grad():
         for current, stored in ((parameters, state["parameters"]), (buffers, state["buffers"])):
             for name, tensor in current.items():
@@ -269,6 +269,20 @@ def restore_pilot_state(path, model, optimizer, scheduler, scaler, bindings):
         torch.cuda.set_rng_state_all(rng["cuda"])
     # Release loaded parameter copies instead of retaining them throughout training.
     return {key: state[key] for key in ("epochsCompleted", "optimizerSteps", "elapsedSeconds", "metrics")}
+
+
+def save_pilot_state(path, model, optimizer, scheduler, scaler, bindings, epochs_completed,
+                     optimizer_steps, elapsed_seconds, metrics):
+    """Backward-compatible pilot recovery entry point used by existing runs and tests."""
+    return save_recovery_state(path, model, optimizer, scheduler, scaler, bindings, epochs_completed,
+                               optimizer_steps, elapsed_seconds, metrics,
+                               gate="pilotOnly", kind="pilot-resume-state")
+
+
+def restore_pilot_state(path, model, optimizer, scheduler, scaler, bindings):
+    """Backward-compatible pilot recovery entry point used by existing runs and tests."""
+    return restore_recovery_state(path, model, optimizer, scheduler, scaler, bindings,
+                                  gate="pilotOnly", kind="pilot-resume-state")
 
 
 def save_checkpoint(model, tokenizer, cfg, output: Path, manifest: dict[str, Any]) -> None:
@@ -301,11 +315,6 @@ def verify_reload(model, cfg, checkpoint: Path, probe, pad_id, device, *, detach
 
 def train(args) -> None:
     resume_path = getattr(args, "resume_state", None)
-    if resume_path and not args.pilot:
-        raise ValueError("recovery state may only resume a pilotOnly experiment")
-    state_path = Path(args.output).with_name(Path(args.output).name + ".pilot-state.pt")
-    if args.pilot and state_path.exists() and not resume_path:
-        raise ValueError("pilot recovery state already exists; explicitly resume it or use a new output")
     base = Path(args.base)
     base_manifest_path = Path(args.base_manifest)
     base_manifest = verify_base_model(base, base_manifest_path)
@@ -314,8 +323,14 @@ def train(args) -> None:
     review_gates = set(compilation.get("reviewGates", []))
     if args.pilot and review_gates != {"pilotOnly"}:
         raise ValueError("pilot training requires exclusively pilotOnly reviewed source records")
-    if not args.pilot and review_gates != {"releaseCandidate"}:
-        raise ValueError("non-pilot training requires exclusively releaseCandidate reviewed source records")
+    if not args.pilot and review_gates not in ({"trainingOnly"}, {"releaseCandidate"}):
+        raise ValueError("non-pilot training requires exclusively trainingOnly or releaseCandidate reviewed source records")
+    recovery_gate = next(iter(review_gates))
+    recovery_kind = "pilot-resume-state" if args.pilot else "training-resume-state"
+    recovery_suffix = ".pilot-state.pt" if args.pilot else ".training-state.pt"
+    state_path = Path(args.output).with_name(Path(args.output).name + recovery_suffix)
+    if state_path.exists() and not resume_path:
+        raise ValueError("training recovery state already exists; explicitly resume it or use a new output")
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
     minimum = int(config.get("minimumSequences", 50))
     if len(train_items) < minimum or (not args.pilot and not development_items):
@@ -418,12 +433,15 @@ def train(args) -> None:
         "runtime": runtime_identity(device),
     }
     if resume_path:
-        restored = restore_pilot_state(resume_path, model, optimizer, scheduler, scaler, bindings)
+        restored = (restore_pilot_state(resume_path, model, optimizer, scheduler, scaler, bindings)
+                    if args.pilot else
+                    restore_recovery_state(resume_path, model, optimizer, scheduler, scaler, bindings,
+                                           gate=recovery_gate, kind=recovery_kind))
         epochs_completed, optimizer_steps = restored["epochsCompleted"], restored["optimizerSteps"]
         resumed_from_epoch, resumed_from_optimizer_steps = epochs_completed, optimizer_steps
         elapsed_before_resume, metrics = restored["elapsedSeconds"], restored["metrics"]
         early_stopped = metrics is not None and metrics["sequenceAccuracy"] >= pilot_target and epochs_completed < epochs
-        progress(f"Resumed pilot at epoch {epochs_completed} with {optimizer_steps} optimizer steps; fixed schedule unchanged.",
+        progress(f"Resumed training at epoch {epochs_completed} with {optimizer_steps} optimizer steps; fixed schedule unchanged.",
                  5 + 80 * epochs_completed / epochs)
     started = time.time()
     for epoch in range(epochs_completed, epochs):
@@ -476,9 +494,12 @@ def train(args) -> None:
                      5 + 80 * epochs_completed / epochs)
             if metrics["sequenceAccuracy"] >= pilot_target:
                 early_stopped = epochs_completed < epochs
+        recovery_values = (state_path, model, optimizer, scheduler, scaler, bindings, epochs_completed,
+                           optimizer_steps, elapsed_before_resume + time.time() - started, metrics)
         if args.pilot:
-            save_pilot_state(state_path, model, optimizer, scheduler, scaler, bindings, epochs_completed,
-                             optimizer_steps, elapsed_before_resume + time.time() - started, metrics)
+            save_pilot_state(*recovery_values)
+        else:
+            save_recovery_state(*recovery_values, gate=recovery_gate, kind=recovery_kind)
         if early_stopped:
             break
     if metrics is None:
@@ -507,9 +528,9 @@ def train(args) -> None:
         "device": device.type, "durationSeconds": round(elapsed_before_resume + time.time() - started, 1),
         "resumed": bool(resume_path), "resumedFromEpoch": resumed_from_epoch,
         "resumedFromOptimizerSteps": resumed_from_optimizer_steps,
-        "recoveryState": state_path.name if args.pilot else None,
+        "recoveryState": state_path.name,
         "calibration": {"status": "unchanged", "sha256": sha256_json(original_calibration)},
-        "sequenceMetrics": metrics, "promotionEligible": False,
+        "sequenceMetrics": metrics, "reviewGates": sorted(review_gates), "promotionEligible": False,
     }
     save_checkpoint(model, tokenizer, cfg, output, manifest)
     manifest["reloadVerification"] = verify_reload(model, cfg, output, development_items, tokenizer.pad_token_id, device, detach_encoder=scope == "head-only")
@@ -529,7 +550,7 @@ def main() -> None:
     command.add_argument("--run-id", required=True)
     command.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     command.add_argument("--pilot", action="store_true")
-    command.add_argument("--resume-state", help="Resume an exact pilot run from its epoch-boundary .pilot-state.pt file")
+    command.add_argument("--resume-state", help="Resume an exact run from its epoch-boundary recovery state")
     command.add_argument("--pilot-manifest", default=str(Path(__file__).with_name("tiny-overfit-pilot.json")))
     command.add_argument("--training-scope", choices=["head-only", "last-layer-head", "full"], default="head-only")
     status = subparsers.add_parser("runtime-status")

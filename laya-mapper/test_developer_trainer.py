@@ -115,6 +115,20 @@ class PilotRecoveryTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     trainer.restore_pilot_state(self.path, *self.parts, bindings())
 
+    def test_training_only_recovery_is_nonpromotable_and_gate_bound(self):
+        path = self.path.with_name("training-state.pt")
+        trainer.save_recovery_state(path, *self.parts, bindings(), 2, 4, 12.5, None,
+                                    gate="trainingOnly", kind="training-resume-state")
+        saved = torch.load(path, weights_only=True)
+        self.assertEqual((saved["kind"], saved["gate"]), ("training-resume-state", "trainingOnly"))
+        self.assertIs(saved["promotionEligible"], False)
+        restored = trainer.restore_recovery_state(path, *components(), bindings(),
+                                                  gate="trainingOnly", kind="training-resume-state")
+        self.assertEqual((restored["epochsCompleted"], restored["optimizerSteps"]), (2, 4))
+        with self.assertRaisesRegex(ValueError, "bindings"):
+            trainer.restore_recovery_state(path, *components(), bindings(),
+                                           gate="releaseCandidate", kind="training-resume-state")
+
     def test_failed_atomic_replace_preserves_previous_recovery_file(self):
         self.save()
         previous = self.path.read_bytes()

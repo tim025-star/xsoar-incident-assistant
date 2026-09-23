@@ -53,6 +53,11 @@ def json_type(value: Any) -> str:
     return "object"
 
 
+def matches_json_type(value: Any, expected: Any) -> bool:
+    actual = json_type(value)
+    return actual == expected or (expected == "number" and actual == "integer")
+
+
 def prefixed(pointer: str) -> str:
     if not isinstance(pointer, str) or not pointer.startswith("/"):
         raise ValueError("draft pointer must be rooted at alert")
@@ -70,11 +75,18 @@ def load_approvals(path: Path | None, manifest_hash: str, additional_hash: str, 
     gate = value.get("gate")
     reviewer = value.get("reviewer")
     approvals = value.get("reviews")
-    if (gate not in ("pilotOnly", "releaseCandidate") or not isinstance(reviewer, dict)
+    if (gate not in ("pilotOnly", "trainingOnly", "releaseCandidate") or not isinstance(reviewer, dict)
             or reviewer.get("kind") != "independent-model" or not isinstance(approvals, list)):
         raise ValueError("review artifact requires an independent-model reviewer and explicit gate")
-    if gate == "releaseCandidate" and not str(reviewer.get("model", "")).lower().startswith("gpt-6"):
-        raise ValueError("release-candidate review must use an independent GPT-6 model")
+    if gate in ("trainingOnly", "releaseCandidate") and not str(reviewer.get("model", "")).lower().startswith("gpt-6"):
+        raise ValueError("training and release-candidate review must use an independent GPT-6 model")
+    disclosure = value.get("reviewDisclosure", {})
+    blind = True
+    if gate == "trainingOnly":
+        if (not isinstance(disclosure, dict) or disclosure.get("blind") is not False
+                or disclosure.get("promotionEligible") is not False or disclosure.get("frozenTestAccessed") is not False):
+            raise ValueError("trainingOnly review requires explicit nonblind, non-promotion, no-frozen-test disclosure")
+        blind = False
     if not re_full_hash(reviewer.get("promptHash")):
         raise ValueError("reviewer prompt hash is invalid")
     by_id = {}
@@ -91,12 +103,21 @@ def load_approvals(path: Path | None, manifest_hash: str, additional_hash: str, 
                     or not isinstance(target_approval.get("sourceTarget"), str)
                     or not isinstance(target_approval.get("finding"), str) or not target_approval["finding"].strip()):
                 raise ValueError(f"target-specific approval is incomplete for {record_id}/{target}")
-        by_id[record_id] = {**approval, "gate": gate, "reviewer": reviewer}
+        by_id[record_id] = {**approval, "gate": gate, "reviewer": reviewer, "blind": blind}
     return by_id, hashlib.sha256(raw).hexdigest(), gate
 
 
 def re_full_hash(value: Any) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+
+
+def validate_review_scope(review_gate: str | None, approvals: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    if review_gate != "trainingOnly":
+        return
+    split_by_id = {row["recordId"]: row["split"] for row in rows}
+    frozen = sorted(record_id for record_id in approvals if split_by_id.get(record_id) == "frozen-test")
+    if frozen:
+        raise ValueError("trainingOnly review cannot approve frozen-test records: " + ", ".join(frozen[:10]))
 
 
 def verify_factory(root: Path) -> tuple[dict[str, Any], str, list[dict[str, Any]]]:
@@ -173,7 +194,7 @@ def derived_record(row: dict[str, Any], approval: dict[str, Any], manifest_hash:
             primary = prefixed(pointer)
             resolved = resolve_pointer(documents, primary)
             expected_type = override.get("originalType") or label.get("originalType")
-            if json_type(resolved) != expected_type:
+            if not matches_json_type(resolved, expected_type):
                 raise ValueError(f"draft pointer type mismatch for {source_target}")
             for alternate in accepted:
                 if typed_identity(resolve_pointer(documents, alternate)) != typed_identity(resolved):
@@ -228,7 +249,7 @@ def derived_record(row: dict[str, Any], approval: dict[str, Any], manifest_hash:
             "tierAMappingVersion": tier_mapping.get("version") if tier_mapping else None,
             "tierAMappingSha256": tier_hash if tier_mapping else None,
         },
-        "review": {"state": "approved", "blind": True, "gate": approval["gate"], "reviewer": approval["reviewer"]},
+        "review": {"state": "approved", "blind": approval.get("blind", True), "gate": approval["gate"], "reviewer": approval["reviewer"]},
     }
     result["provenance"]["rawHash"] = raw_hash(result)
     result["provenance"]["normalizedHash"] = normalized_hash(result)
@@ -325,6 +346,7 @@ def main() -> None:
     unknown = sorted(set(approvals) - {row["recordId"] for row in rows})
     if unknown:
         raise ValueError("approval file references unknown records: " + ", ".join(unknown[:10]))
+    validate_review_scope(review_gate, approvals, rows)
     if review_gate == "pilotOnly":
         pilot = json.loads(args.pilot_manifest.read_text(encoding="utf-8"))
         direct_decisions = [record["decisions"][target] for record in emitted for target in DIRECT_TARGETS]

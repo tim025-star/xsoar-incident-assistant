@@ -40,6 +40,13 @@ test("timestamp structural eligibility rejects invalid calendar dates", () => {
   assert.equal(rejectionReason("occurred", "2026-09-20T24:14:00Z"), "invalid_event_time");
 });
 
+test("timestamp structural eligibility accepts Unix seconds through nanoseconds", () => {
+  assert.equal(rejectionReason("occurred", 1790038800), "");
+  assert.equal(rejectionReason("occurred", 1790038800000), "");
+  assert.equal(rejectionReason("occurred", 1790038800000000), "");
+  assert.equal(rejectionReason("occurred", 1790038800000000000), "");
+});
+
 test("typed value groups assess every alias and compare distinct values without fixed semantic winners", async () => {
   const documents = [{ source: { account: "answer" }, destination: { account: "answer" }, aliases: Array(9).fill("answer"), numeric: 42, text: "42", spaced: " answer " }];
   const runner = mockRunner({ choose: (c) => c.find((f) => f.ancestry.includes("source"))?.id || c.find((f) => f.value === "answer")?.id || NONE, score: () => 0.8 });

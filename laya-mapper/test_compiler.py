@@ -66,6 +66,11 @@ class FakeRunner:
 
 
 class CompilerTests(unittest.TestCase):
+    def test_timestamp_structural_eligibility_accepts_unix_precision_variants(self):
+        for value in (1790038800, 1790038800000, 1790038800000000, 1790038800000000000):
+            with self.subTest(value=value):
+                self.assertTrue(compiler.structurally_eligible("occurred", value))
+
     def test_hash_bound_training_inputs_survive_windows_checkout(self):
         root = Path(__file__).parent
         additional_manifest = json.loads((root / "additional-synthetic-drafts.manifest.json").read_text(encoding="utf-8"))
@@ -81,6 +86,17 @@ class CompilerTests(unittest.TestCase):
             digest = ingest_factory.write_jsonl(path, [{"value": "one"}, {"value": "two"}])
             self.assertEqual(digest, ingest_factory.sha256_file(path))
             self.assertNotIn(b"\r\n", path.read_bytes())
+
+    def test_factory_number_label_accepts_json_integer_value(self):
+        self.assertTrue(ingest_factory.matches_json_type(1789878300, "number"))
+        self.assertTrue(ingest_factory.matches_json_type(1789878300, "integer"))
+        self.assertFalse(ingest_factory.matches_json_type("1789878300", "number"))
+
+    def test_training_only_review_cannot_admit_frozen_test_records(self):
+        rows = [{"recordId": "train", "split": "train"}, {"recordId": "sealed", "split": "frozen-test"}]
+        ingest_factory.validate_review_scope("trainingOnly", {"train": {}}, rows)
+        with self.assertRaisesRegex(ValueError, "cannot approve frozen-test"):
+            ingest_factory.validate_review_scope("trainingOnly", {"sealed": {}}, rows)
 
     def test_write_jsonl_hashes_exact_written_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -189,6 +205,24 @@ class CompilerTests(unittest.TestCase):
         seal(routable_ipv6)
         self.assertIn("non-documentation routable IP: 2606:4700:4700::1111", review.mechanical_findings(routable_ipv6))
 
+    def test_safety_scan_distinguishes_dotted_versions_from_network_values(self):
+        version = source()
+        version["documents"][0]["FixedFileVersion"] = "120.1.2.300"
+        version["documents"][0]["properties"] = [{"key": "FixedFileVersion", "value": "120.1.2.300"}]
+        version["provenance"]["rawHash"] = compiler.raw_hash(version)
+        version["provenance"]["normalizedHash"] = compiler.normalized_hash(version)
+        seal(version)
+        self.assertEqual(review.mechanical_findings(version), [])
+
+        address = source()
+        address["documents"][0]["observedAddress"] = "8.8.8.8"
+        address["documents"][0]["8.8.4.4"] = "address-like object keys remain covered"
+        address["provenance"]["rawHash"] = compiler.raw_hash(address)
+        address["provenance"]["normalizedHash"] = compiler.normalized_hash(address)
+        seal(address)
+        self.assertIn("non-documentation routable IP: 8.8.8.8", review.mechanical_findings(address))
+        self.assertIn("non-documentation routable IP: 8.8.4.4", review.mechanical_findings(address))
+
     def test_review_and_lineage_are_bound_by_certification_hash(self):
         changed_gate = source()
         changed_gate["review"]["gate"] = "releaseCandidate"
@@ -199,6 +233,22 @@ class CompilerTests(unittest.TestCase):
         seal(mismatched_reviewer)
         with self.assertRaisesRegex(ValueError, "reviewer identity"):
             compiler.validate_source_record(mismatched_reviewer)
+
+    def test_training_only_review_may_disclose_nonblind_review_without_weakening_release_gate(self):
+        training = source()
+        training["review"].update({"gate": "trainingOnly", "blind": False})
+        training["provenance"]["rawHash"] = compiler.raw_hash(training)
+        training["provenance"]["normalizedHash"] = compiler.normalized_hash(training)
+        seal(training)
+        self.assertEqual(compiler.validate_source_record(training)["review"]["gate"], "trainingOnly")
+
+        release = source()
+        release["review"].update({"gate": "releaseCandidate", "blind": False})
+        release["provenance"]["rawHash"] = compiler.raw_hash(release)
+        release["provenance"]["normalizedHash"] = compiler.normalized_hash(release)
+        seal(release)
+        with self.assertRaisesRegex(ValueError, "blind independent review"):
+            compiler.validate_source_record(release)
 
     def test_reviewed_pointer_override_is_explicit_and_hash_bound(self):
         absent = {"primaryPointer": None, "originalType": None, "expectedStatus": "no-match", "rationale": "Absent."}

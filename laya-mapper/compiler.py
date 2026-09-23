@@ -142,7 +142,16 @@ def structurally_eligible(target: str, value: Any) -> bool:
             return False
     if value_type == "timestamp":
         if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
-            seconds = float(value) / 1000 if float(value) >= 1e12 else float(value)
+            numeric = float(value)
+            magnitude = abs(numeric)
+            if magnitude >= 1e17:
+                seconds = numeric / 1e9
+            elif magnitude >= 1e14:
+                seconds = numeric / 1e6
+            elif magnitude >= 1e11:
+                seconds = numeric / 1000
+            else:
+                seconds = numeric
             return 946684800 <= seconds < 4102444800
         if not isinstance(value, str) or not ISO_TIMESTAMP.fullmatch(value):
             return False
@@ -204,14 +213,18 @@ def validate_source_record(record: Any, *, require_approved: bool = True) -> dic
         raise ValueError("normalizedHash does not match normalized source content")
     review = record.get("review")
     reviewer = review.get("reviewer") if isinstance(review, dict) else None
-    if require_approved and (not isinstance(review, dict) or review.get("state") != "approved" or review.get("blind") is not True
-                             or review.get("gate") not in ("pilotOnly", "releaseCandidate")
+    review_gate = review.get("gate") if isinstance(review, dict) else None
+    if require_approved and (not isinstance(review, dict) or review.get("state") != "approved"
+                             or not isinstance(review.get("blind"), bool)
+                             or review_gate not in ("pilotOnly", "trainingOnly", "releaseCandidate")
                              or not isinstance(reviewer, dict) or reviewer.get("kind") != "independent-model"
                              or not isinstance(reviewer.get("model"), str) or not reviewer["model"]
                              or not re.fullmatch(r"[a-f0-9]{64}", str(reviewer.get("promptHash", "")))):
         raise ValueError("only explicitly independent-model-reviewed records may be compiled")
-    if require_approved and review.get("gate") == "releaseCandidate" and not reviewer["model"].lower().startswith("gpt-6"):
-        raise ValueError("release-candidate records require independent GPT-6 semantic review")
+    if require_approved and review_gate != "trainingOnly" and review.get("blind") is not True:
+        raise ValueError("pilot and release-candidate records require blind independent review")
+    if require_approved and review_gate in ("trainingOnly", "releaseCandidate") and not reviewer["model"].lower().startswith("gpt-6"):
+        raise ValueError("training and release-candidate records require independent GPT-6 semantic review")
     if require_approved and (reviewer["model"] != provenance.get("blindReviewerModel")
                              or reviewer["promptHash"] != provenance.get("blindReviewPromptHash")):
         raise ValueError("reviewer identity does not match immutable provenance")
