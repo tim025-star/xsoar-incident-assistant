@@ -8,6 +8,7 @@ import { resolveAppConfig } from "../src/config.js";
 import { resolveSettings } from "../src/domain.js";
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "../src/page-adapter.js";
 import { runIncidentDraft } from "../src/workflow.js";
+import { LAYA_MODEL } from "../src/laya-targets.js";
 
 let uiConfig = resolveAppConfig({
   configVersion: 7,
@@ -30,7 +31,7 @@ let registeredConsoleUrl = "";
 const pulledModels = [];
 const requestedIncidentIds = [];
 const layaExamples = [];
-let layaInstalled = false;
+let layaInstalled = true;
 const firstAiChunk = `{"eventSummary":"${Array.from({ length: 60 }, (_, index) => `field-${index + 1}`).join("\\n")}`;
 const secondAiChunk = '","observedFacts":[]}';
 const generatedDraft = Array.from({ length: 60 }, (_, index) => `Evidence field ${index + 1}: observed value`).join("\n");
@@ -94,7 +95,7 @@ const app = createAssistantServer({
       }),
       mapIncident: async ({ targets, onProgress }) => {
         onProgress?.({ detail: "Final assessment sourceIp: forward 7/7 fields." });
-        await new Promise((resolve) => setTimeout(resolve, 700));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         return {
           fields: targets.includes("sourceIp") ? { sourceIp: "203.0.113.8" } : {},
           paths: targets.includes("sourceIp") ? { sourceIp: "/documents/0/alertEnvelope/network/peer" } : {},
@@ -175,8 +176,8 @@ try {
   assert.equal(await page.locator("#localAiEnabled").isChecked(), false);
   assert.equal(await page.locator("#layaMapperEnabled").count(), 0);
   assert.equal(await page.locator("#layaWorkerMode").inputValue(), "auto");
-  await page.locator("#layaModelIdentity").getByText("base-english", { exact: true }).waitFor();
-  await page.locator("#installLayaMapper").click();
+  await page.locator("#layaModelIdentity").getByText(LAYA_MODEL.id, { exact: true }).waitFor();
+  assert.equal(await page.locator("#installLayaMapper").count(), 0);
   await page.getByText("Laya-mapper is ready.").waitFor();
   await page.locator("#layaWorkerMode").selectOption("manual");
   await page.getByText("Laya-mapper config saved.").waitFor();

@@ -42,9 +42,9 @@ test("English inference manifest requires the pinned identity and no trainer ass
     extract: async (_, destination) => { destinations.push(destination); },
     verifyInstallation: async ({ rootDirectory: verifiedRoot }) => { assert.equal(verifiedRoot, rootDirectory); }
   });
-  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: "base-english" });
+  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: LAYA_MODEL.id });
   assert.deepEqual(destinations, [path.join(rootDirectory, "runtime-v2")]);
-  await access(path.join(rootDirectory, "models/base-english/model.safetensors"));
+  await access(path.join(rootDirectory, "models", LAYA_MODEL.id, "model.safetensors"));
   await assert.rejects(installer.installTrainingTools({ backend: "cpu" }), /unavailable/);
 });
 

@@ -2,7 +2,7 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid
 import { render } from "solid-js/web";
 
 import { rpc, sessionToken } from "./rpc";
-import { LAYA_TARGET_CATALOGUE } from "../../src/laya-targets.js";
+import { LAYA_MODEL, LAYA_TARGET_CATALOGUE } from "../../src/laya-targets.js";
 import "./styles.css";
 
 type AppConfig = Awaited<ReturnType<typeof rpc.config.get>>;
@@ -14,6 +14,8 @@ type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplat
 type NumberSetting = "maxHistoricalIncidents" | "pageReadyTimeoutMs";
 type TemplateSetting = keyof AppConfig["xsoar"]["template"];
 type FieldLabelSetting = keyof AppConfig["xsoar"]["fieldLabels"];
+type FeedbackDisposition = "unreviewed" | "correct" | "corrected-pointer" | "accepted-alias" | "should-be-none" | "ambiguous";
+type TargetFeedback = { disposition: FeedbackDisposition; pointer: string };
 
 const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting & keyof typeof LAYA_TARGET_CATALOGUE; name: string; use: string }> = [
   { key: "customerName", name: "Customer name", use: "customer.name → greeting and historic match" },
@@ -72,6 +74,8 @@ function App() {
   const [mapperTestJson, setMapperTestJson] = createSignal(DEFAULT_MAPPER_TEST_JSON);
   const [mapperTestTargets, setMapperTestTargets] = createSignal<FieldLabelSetting[]>(DEFAULT_MAPPER_TEST_TARGETS);
   const [mapperTestResult, setMapperTestResult] = createSignal<LayaDiagnostic>();
+  const [mapperFeedbackNote, setMapperFeedbackNote] = createSignal("");
+  const [mapperTargetFeedback, setMapperTargetFeedback] = createSignal<Record<string, TargetFeedback>>({});
   const [mapperTestRunning, setMapperTestRunning] = createSignal(false);
   const [mapperTestElapsedSeconds, setMapperTestElapsedSeconds] = createSignal(0);
   const [pullingModel, setPullingModel] = createSignal(false);
@@ -231,6 +235,8 @@ function App() {
     const documents = Array.isArray(parsed) ? parsed : [parsed];
     const startedAt = Date.now();
     setMapperTestResult(undefined);
+    setMapperFeedbackNote("");
+    setMapperTargetFeedback({});
     setMapperTestElapsedSeconds(0);
     setMapperTestRunning(true);
     window.clearInterval(mapperTestTimer);
@@ -246,6 +252,27 @@ function App() {
   const cancelMapperTest = async () => {
     try { await rpc.layaMapper.cancelDiagnostic(); }
     catch (error) { setMessage(errorMessage(error)); }
+  };
+  const copyMapperDiagnostics = async () => {
+    const result = mapperTestResult();
+    if (!result) return setMessage("Run the local mapper test before copying diagnostics.");
+    const feedback = {
+      schemaVersion: 1,
+      kind: "experimental-laya-pilot-feedback",
+      createdAt: new Date().toISOString(),
+      sourceDocumentIncluded: false,
+      containsSourceValues: true,
+      inputSha256: result.inputSha256,
+      note: mapperFeedbackNote().trim(),
+      reviews: Object.fromEntries(Object.entries(mapperTargetFeedback()).filter(([, review]) => review.disposition !== "unreviewed")),
+      result
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(feedback, null, 2));
+      setMessage("Experimental mapper diagnostics copied. Review them before sharing.");
+    } catch (error) {
+      setMessage(`Could not copy the mapper diagnostics: ${errorMessage(error)}`);
+    }
   };
 
   const generateDraft = () => runAction(async () => {
@@ -434,7 +461,10 @@ function App() {
           <h2 class="m-0 text-xl font-bold">Laya-mapper</h2>
           <p class="helper mb-0 mt-2">An experimental, coverage-first baseline for mapping local JSON fields. Normal incident processing remains deterministic.</p>
         </div>
-        <p id="layaModelIdentity" class="helper">English base checkpoint · <code>base-english</code> · revision <code>1c5edc17a7acd8701df6fc341c0d179f1c62c982</code>. CPU only, unchanged weights. Diagnostics only; never applied to incidents.</p>
+        <div class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm" role="alert">
+          <strong>EXPERIMENTAL — human review required — not production mapping.</strong> This pilot has not passed release accuracy gates and is never applied to incidents.
+        </div>
+        <p id="layaModelIdentity" class="helper">Experimental checkpoint · <code>{LAYA_MODEL.id}</code> · weights <code>{LAYA_MODEL.revision.slice(0, 12)}…</code> · snapshot epoch {LAYA_MODEL.snapshotEpoch}. Its {(LAYA_MODEL.trainingSequenceAccuracy * 100).toFixed(2)}% teacher-forced reviewed training-sequence metric is not real-alert accuracy. CPU-only diagnostics.</p>
         <div class="mt-4 grid gap-4 sm:grid-cols-2">
           <label class="field">Worker mode
             <select id="layaWorkerMode" class="control" disabled={busy()} value={settings().layaMapper.workerMode} onChange={(event) => { updateLayaMapper("workerMode", event.currentTarget.value); void runAction(persistLayaSettings); }}>
@@ -448,16 +478,15 @@ function App() {
           </label></Show>
         </div>
         <div class="mt-3 flex flex-wrap gap-2.5">
-          <button id="installLayaMapper" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(async () => { await rpc.layaMapper.install(); await refreshLaya(); })}>Install Laya-mapper</button>
           <button id="refreshLayaMapper" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(refreshLaya)}>Check Laya-mapper</button>
         </div>
         <p id="layaMapperStatus" class="helper mb-0 mt-4" aria-live="polite">{layaStatus()?.detail || "Check Laya-mapper status."}</p>
 
         <details class="mt-5 border-t border-line pt-4" open>
           <summary class="cursor-pointer font-bold">Test Laya-mapper without XSOAR</summary>
-          <p class="helper">Paste fictional or approved alert JSON. This runs the fixed English base model locally with exact typed-value grouping. Repeated values retain every source pointer and alias assessment in provenance; one assessed representative continues into the distinct-value comparison. Every eligible field reaches final assessment. Pasted alerts and results are not saved automatically. Model scores are not calibrated probabilities of correctness.</p>
+          <p class="helper">Paste fictional or approved alert JSON. This runs the bundled experimental checkpoint locally with exact typed-value grouping. Repeated values retain every source pointer and alias assessment in provenance; one assessed representative continues into the distinct-value comparison. Every eligible field reaches final assessment. Pasted alerts and results are not saved automatically. Model scores are not calibrated probabilities of correctness.</p>
           <label class="field">Test alert JSON
-            <textarea id="layaTestJson" class="control min-h-64 font-mono text-xs" value={mapperTestJson()} onInput={(event) => { setMapperTestJson(event.currentTarget.value); setMapperTestResult(undefined); }} />
+            <textarea id="layaTestJson" class="control min-h-64 font-mono text-xs" value={mapperTestJson()} onInput={(event) => { setMapperTestJson(event.currentTarget.value); setMapperTestResult(undefined); setMapperFeedbackNote(""); setMapperTargetFeedback({}); }} />
           </label>
           <fieldset class="mt-4" disabled={busy()}>
             <legend class="field mb-2">Canonical fields to map</legend>
@@ -473,7 +502,7 @@ function App() {
           <div class="mt-4 flex flex-wrap gap-2.5">
             <button id="runLayaTest" class="button" type="button" disabled={busy() || !mapperTestJson().trim() || !mapperTestTargets().length || !layaStatus()?.available} onClick={() => runAction(runMapperTest)}>Run local mapper test</button>
             <Show when={mapperTestRunning()}><button id="cancelLayaTest" class="button button-secondary" type="button" onClick={cancelMapperTest}>Cancel test</button></Show>
-            <button class="button button-secondary" type="button" disabled={busy()} onClick={() => { setMapperTestJson(DEFAULT_MAPPER_TEST_JSON); setMapperTestTargets(DEFAULT_MAPPER_TEST_TARGETS); setMapperTestResult(undefined); }}>Reset fictional example</button>
+            <button class="button button-secondary" type="button" disabled={busy()} onClick={() => { setMapperTestJson(DEFAULT_MAPPER_TEST_JSON); setMapperTestTargets(DEFAULT_MAPPER_TEST_TARGETS); setMapperTestResult(undefined); setMapperFeedbackNote(""); setMapperTargetFeedback({}); }}>Reset fictional example</button>
           </div>
           <Show when={mapperTestRunning()}>
             <div id="layaTestProgress" class="mt-4 rounded-xl border border-brand/30 bg-blue-50 p-4" role="status" aria-live="polite">
@@ -488,19 +517,27 @@ function App() {
               <p class="helper">Workers: {result().runtime?.effectiveWorkers ?? 0} · Fields: {result().leaves} · Source complete: {String(result().sourceComplete)} · Model processing complete: {String(result().processingComplete)} · {result().timings.totalMs} ms</p>
               <div class="overflow-auto rounded-xl border border-line">
                 <table class="w-full text-left text-sm">
-                  <thead class="bg-slate-50"><tr><th class="p-3">Canonical field</th><th class="p-3">Status</th><th class="p-3">Value / best guess</th><th class="p-3">Exact pointer and alternatives</th></tr></thead>
+                  <thead class="bg-slate-50"><tr><th class="p-3">Canonical field</th><th class="p-3">Status</th><th class="p-3">Value / best guess</th><th class="p-3">Exact pointer and alternatives</th><th class="p-3">Your review</th></tr></thead>
                   <tbody><For each={Object.entries(result().statuses)}>{([field, status]) => <tr class="border-t border-line">
                     <td class="p-3 font-bold">{field}</td><td class="p-3">{String(status)}</td><td class="p-3"><span>{String(result().fields[field] ?? "—")}</span><div class="mt-1 text-xs text-muted">Value agreement: {result().provenance[field].agreement?.value || "not recorded"}</div></td>
                     <td class="p-3 font-mono text-xs">{result().paths[field] || "—"}<Show when={status === "tentative"}><div class="mt-2 text-amber-800">Alternatives: {[...new Set([...(result().provenance[field].nominees || []), ...(result().provenance[field].pointerNominees || [])])].map((id: string) => result().provenance[field].candidates.find((candidate: { id: string }) => candidate.id === id)?.pointer || "none").join(" / ")}</div></Show></td>
+                    <td class="p-3"><select class="control min-w-40 text-xs" aria-label={`${field} feedback disposition`} value={mapperTargetFeedback()[field]?.disposition || "unreviewed"} onChange={(event) => setMapperTargetFeedback((current) => ({ ...current, [field]: { disposition: event.currentTarget.value as FeedbackDisposition, pointer: current[field]?.pointer || "" } }))}>
+                      <option value="unreviewed">Not reviewed</option><option value="correct">Correct</option><option value="corrected-pointer">Corrected pointer</option><option value="accepted-alias">Accepted alias</option><option value="should-be-none">Should be no match</option><option value="ambiguous">Ambiguous</option>
+                    </select><input class="control mt-2 min-w-48 font-mono text-xs" aria-label={`${field} corrected pointer`} placeholder="Correct / accepted pointer" value={mapperTargetFeedback()[field]?.pointer || ""} onInput={(event) => setMapperTargetFeedback((current) => ({ ...current, [field]: { disposition: current[field]?.disposition || "unreviewed", pointer: event.currentTarget.value } }))} /></td>
                   </tr>}</For></tbody>
                 </table>
               </div>
               <details><summary class="cursor-pointer text-sm font-bold">Full model diagnostics and provenance</summary><pre class="control mt-2 max-h-96 overflow-auto text-xs">{JSON.stringify(result(), null, 2)}</pre></details>
+              <label class="field">Feedback notes <span class="font-normal text-muted">(optional)</span>
+                <textarea id="layaFeedbackNote" class="control min-h-24" placeholder="For example: sourceIp should be /records/source.ip; customerName should be none; occurred is ambiguous." value={mapperFeedbackNote()} onInput={(event) => setMapperFeedbackNote(event.currentTarget.value)} />
+              </label>
+              <button id="copyLayaDiagnostics" class="button button-secondary" type="button" onClick={copyMapperDiagnostics}>Copy full diagnostics for feedback</button>
+              <p class="helper">The original alert JSON is not included, but full diagnostics contain source values and field context and may enter clipboard history. Review the copied text before sharing it.</p>
             </div>
           )}</Show>
         </details>
 
-        <p class="helper mt-4">Training and custom checkpoints are deferred. Existing datasets and downloaded checkpoints are preserved.</p>
+        <p class="helper mt-4">Training, installation, persistence, and checkpoint activation are disabled in this portable pilot.</p>
       </section>
 
       <section class="panel">

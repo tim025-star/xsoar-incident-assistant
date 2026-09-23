@@ -1,6 +1,7 @@
 """Pinned, offline English Laya inference. JSON-lines protocol 2; no training."""
 import contextlib
 import ctypes
+import hashlib
 import json
 import os
 import sys
@@ -16,11 +17,14 @@ import torch
 import laya
 from laya.common import QTYPES, build_sequence, collate_items, render_options, serialize_state, temp_bucket
 
-MODEL = {"id": "base-english", "repository": "convaiinnovations/laya",
-         "revision": "1c5edc17a7acd8701df6fc341c0d179f1c62c982",
-         "sdkVersion": "0.3.5", "protocolVersion": 2}
+MODEL = {"id": "english-head-pilot-e15-76a7777d4e02", "repository": "xsoar-incident-assistant/experimental-pilot",
+         "revision": "a21283ae2064b4d7fdaa091655c1ac9d829ce7b1f1118dfda62f93dccdb021d2", "baseRepository": "convaiinnovations/laya",
+         "baseRevision": "1c5edc17a7acd8701df6fc341c0d179f1c62c982",
+         "sdkVersion": "0.3.5", "protocolVersion": 2, "experimental": True,
+         "diagnosticsOnly": True, "snapshotEpoch": 15, "metricsEpoch": 15,
+         "trainingSequenceAccuracy": 0.9272908366533864, "promotionEligible": False}
 ROOT = Path(os.environ.get("LAYA_MAPPER_ROOT", Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "XSOAR Incident Assistant" / "laya-mapper"))
-MODEL_PATH = Path(os.environ.get("LAYA_MODEL_PATH", ROOT / "models" / "base-english"))
+MODEL_PATH = Path(os.environ.get("LAYA_MODEL_PATH", ROOT / "models" / MODEL["id"]))
 NONE = "__none__"
 MAX_LINE = 4 * 1024 * 1024
 PROMPT_VERSION = "english-fields-v3"
@@ -50,11 +54,50 @@ def memory_usage():
 class Runtime:
     def __init__(self):
         self.agent = None
+        self.verified = False
+
+    def verify_model(self):
+        if self.verified:
+            return
+        manifest_path = MODEL_PATH / "manifest.json"
+        if not MODEL_PATH.is_dir() or not manifest_path.is_file() or manifest_path.stat().st_size > 1024 * 1024:
+            raise ValueError("The bundled experimental pilot checkpoint is missing.")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if (manifest.get("id") != MODEL["id"] or manifest.get("revision") != MODEL["revision"]
+                or manifest.get("experimental") is not True or manifest.get("diagnosticsOnly") is not True
+                or manifest.get("gate") != "pilotOnly" or manifest.get("snapshot") is not True
+                or manifest.get("trainingComplete") is not False
+                or manifest.get("promotionEligible") is not False
+                or manifest.get("snapshotEpoch") != MODEL["snapshotEpoch"]
+                or manifest.get("metricsEpoch") != MODEL["metricsEpoch"]
+                or manifest.get("base", {}).get("revision") != MODEL["baseRevision"]
+                or manifest.get("sequenceMetrics", {}).get("sequenceAccuracy") != MODEL["trainingSequenceAccuracy"]):
+            raise ValueError("The bundled experimental pilot checkpoint failed its integrity check.")
+        files = manifest.get("inferenceFiles")
+        if not isinstance(files, dict) or "model.safetensors" not in files:
+            raise ValueError("The bundled experimental pilot checkpoint failed its integrity check.")
+        for relative, expected in files.items():
+            candidate = (MODEL_PATH / relative).resolve()
+            try:
+                candidate.relative_to(MODEL_PATH.resolve())
+            except ValueError as error:
+                raise ValueError("The bundled experimental pilot checkpoint failed its integrity check.") from error
+            if (not candidate.is_file() or candidate.stat().st_size != expected.get("size")
+                    or not isinstance(expected.get("sha256"), str)):
+                raise ValueError("The bundled experimental pilot checkpoint failed its integrity check.")
+            digest = hashlib.sha256()
+            with candidate.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(4 * 1024 * 1024), b""):
+                    digest.update(chunk)
+            if digest.hexdigest() != expected["sha256"]:
+                raise ValueError("The bundled experimental pilot checkpoint failed its integrity check.")
+        if files["model.safetensors"]["sha256"] != MODEL["revision"]:
+            raise ValueError("The bundled experimental pilot checkpoint failed its integrity check.")
+        self.verified = True
 
     def load(self):
         if self.agent is None:
-            if not MODEL_PATH.is_dir():
-                raise ValueError("Install the pinned base-English checkpoint first.")
+            self.verify_model()
             # Laya may print library diagnostics; stdout is reserved for the protocol.
             with contextlib.redirect_stdout(sys.stderr):
                 self.agent = laya.load(str(MODEL_PATH), device="cpu")
@@ -63,12 +106,21 @@ class Runtime:
         return self.agent
 
     def status(self):
-        return {"available": MODEL_PATH.is_dir(), "protocolVersion": 2, "sdkVersion": laya.__version__,
+        available = MODEL_PATH.is_dir()
+        detail = "The bundled experimental pilot checkpoint is missing."
+        if available:
+            try:
+                self.verify_model()
+                detail = "Experimental Laya pilot is ready for local diagnostics; human review is required."
+            except (OSError, ValueError, json.JSONDecodeError):
+                available = False
+                detail = "The bundled experimental pilot checkpoint failed its integrity check."
+        return {"available": available, "protocolVersion": 2, "sdkVersion": laya.__version__,
                 "model": MODEL, "device": "cpu", "ready": self.agent is not None,
                 "tokenLimits": {"maxLength": 512, "headMaxLength": 192},
                 "promptVersion": PROMPT_VERSION, "threads": torch.get_num_threads(),
                 "capabilities": ["value-groups-v1"],
-                "detail": "English Laya baseline is ready for local diagnostics." if MODEL_PATH.is_dir() else "Install the base-English checkpoint.",
+                "detail": detail,
                 "temperatures": self.agent.temperature if self.agent else None,
                 "temperaturesByOptions": self.agent.temperature_by_options if self.agent else None,
                 **memory_usage()}
@@ -314,7 +366,8 @@ def serve():
             message = str(error) if isinstance(error, ValueError) and str(error) in {
                 "Two complete candidate records cannot fit the native English context.",
                 "Unexpected SDK truncation or sequence formatting.",
-                "Install the pinned base-English checkpoint first.",
+                "The bundled experimental pilot checkpoint is missing.",
+                "The bundled experimental pilot checkpoint failed its integrity check.",
                 "Unexpected English checkpoint token limits."
             } else "Laya could not process this decision; model coverage is incomplete."
             response = {"id": request_id, "error": message}

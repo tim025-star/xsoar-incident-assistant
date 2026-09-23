@@ -35,7 +35,7 @@ export function createLayaSidecarRunner({ executable = executablePath(), argumen
     if (starting) return starting;
     starting = (async () => {
       const epoch = generation;
-      await access(executable).catch(() => { throw new Error("Install the base-English Laya runtime (protocol 2) first."); });
+      await access(executable).catch(() => { throw new Error("The bundled experimental Laya runtime is missing."); });
       if (epoch !== generation) throw new Error("Laya-mapper operation was cancelled.");
       const process_ = spawnImplementation(executable, arguments_, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env, HF_HUB_OFFLINE: "1", TRANSFORMERS_OFFLINE: "1", HF_DATASETS_OFFLINE: "1", LAYA_CPU_THREADS: String(threads), OMP_NUM_THREADS: String(threads), MKL_NUM_THREADS: String(threads), TOKENIZERS_PARALLELISM: "false" } });
       child = process_;
@@ -80,7 +80,7 @@ export function createLayaSidecarRunner({ executable = executablePath(), argumen
   return { close, evaluate: (input) => request("evaluate", input), async status() {
     const result = await request("status");
     if (result.protocolVersion !== 2 || result.model?.id !== LAYA_MODEL.id || result.model?.revision !== LAYA_MODEL.revision
-        || result.sdkVersion !== LAYA_MODEL.sdkVersion || result.promptVersion !== LAYA_PROMPT_VERSION) throw new Error("Laya runtime/checkpoint mismatch; install the pinned base-English protocol-2 runtime.");
+        || result.sdkVersion !== LAYA_MODEL.sdkVersion || result.promptVersion !== LAYA_PROMPT_VERSION) throw new Error("Experimental protocol-2 Laya runtime/checkpoint identity mismatch; extract a fresh copy of this pilot bundle.");
     return result;
   } };
 }
