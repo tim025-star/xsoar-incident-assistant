@@ -214,7 +214,54 @@ class SequenceMetricsTests(unittest.TestCase):
             with self.subTest(kind=kind), patch.object(trainer, "build_model"), patch.object(trainer, "load_file"), \
                     patch.object(trainer, "predict", side_effect=[before, after]):
                 with self.assertRaises(ValueError):
-                    trainer.verify_reload(object(), {}, Path("unused"), probe, 0, "cpu")
+                    trainer.verify_reload(Mock(), {}, Path("unused"), probe, 0, "cpu")
+
+    def test_checkpoint_preserves_trained_precision_and_compacts_only_frozen_parameters(self):
+        class TinyModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.encoder = torch.nn.Linear(2, 2)
+                self.encoder.config = Mock()
+                self.head = torch.nn.Linear(2, 1)
+                self.register_buffer("running", torch.tensor([1.25], dtype=torch.float32))
+                for parameter in self.encoder.parameters():
+                    parameter.requires_grad = False
+
+        with tempfile.TemporaryDirectory() as directory:
+            model = TinyModel()
+            tokenizer = Mock()
+            captured = {}
+
+            def capture(weights, _path):
+                captured.update(weights)
+
+            with patch.object(trainer, "save_file", side_effect=capture):
+                trainer.save_checkpoint(model, tokenizer, {}, Path(directory) / "checkpoint", {})
+
+            self.assertEqual(captured["encoder.weight"].dtype, torch.float16)
+            self.assertEqual(captured["head.weight"].dtype, torch.float32)
+            self.assertEqual(captured["running"].dtype, torch.float32)
+
+    def test_reload_releases_original_cuda_model_before_building_copy(self):
+        probe = [{"markers": [1, 2]}]
+        predictions = [{"choice": 0, "logits": [1.0, 0.0]}]
+        original = Mock()
+        reloaded = Mock()
+
+        def build(*_args, **_kwargs):
+            original.to.assert_called_once_with("cpu")
+            return reloaded
+
+        with patch.object(trainer, "predict", side_effect=[predictions, predictions]) as predict, \
+                patch.object(trainer, "build_model", side_effect=build), \
+                patch.object(trainer, "load_file", return_value={}), \
+                patch.object(trainer.torch.cuda, "empty_cache") as empty_cache:
+            result = trainer.verify_reload(original, {}, Path("unused"), probe, 0, torch.device("cuda"))
+
+        empty_cache.assert_called_once_with()
+        reloaded.to.assert_called_once_with(torch.device("cuda"))
+        self.assertEqual([call.kwargs["batch_size"] for call in predict.call_args_list], [8, 8])
+        self.assertEqual(result["maximumLogitDelta"], 0.0)
 
     def test_subgroups_expose_positive_none_target_and_family_errors(self):
         items = [
