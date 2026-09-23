@@ -6,10 +6,10 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { caseTargetSetSha256, fileSha256, implementationSha256, sha256 } from "../scripts/laya-evaluation-identity.mjs";
+import { caseTargetSetSha256, fileSha256, implementationSha256, sha256 } from "../../scripts/laya-evaluation-identity.mjs";
 
 const execute = promisify(execFile);
-const root = path.resolve(import.meta.dirname, "..");
+const root = path.resolve(import.meta.dirname, "..", "..");
 
 test("promotion verification rejects stale or mislabeled case-target reports", async (context) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "laya-promotion-"));
@@ -37,7 +37,7 @@ test("promotion verification rejects stale or mislabeled case-target reports", a
   const frozen = {
     schemaVersion: 2, metricScope: "full-production-mapper", split: "frozen-test", source, sourceSha256: sha256(await readFile(source)), records: 1, families: 1,
     productionTargets: 23, expectedRuns: 2, runs: 2, caseTargetSetSha256: caseTargetSetSha256([{ sampleId: "sample", targets }]),
-    implementationSha256: await implementationSha256(root, "scripts/evaluate-laya-reviewed-sources.mjs"), checkpoint,
+    implementationSha256: await implementationSha256(root, "trainer/scripts/evaluate-laya-reviewed-sources.mjs"), checkpoint,
     runtimeArtifactSha256: artifactHash, runtime: { ...runtime, workerMode: "auto" }, cases: frozenCases,
     metrics: { accepted: 1, falseAbsentMappings: 0, incompleteRuns: 0, coverageFailures: 0 }, savedReloadPredictionEquality: true, modelReloadPasses: 2
   };
@@ -51,7 +51,7 @@ test("promotion verification rejects stale or mislabeled case-target reports", a
     files[name] = path.join(directory, `${name}.json`);
     await writeFile(files[name], JSON.stringify(value));
   }
-  const args = ["scripts/verify-laya-promotion.mjs",
+  const args = ["trainer/scripts/verify-laya-promotion.mjs",
     "--frozen-base", files.frozenBase, "--frozen-candidate", files.frozenCandidate,
     "--fixed-base", files.fixedBase, "--fixed-candidate", files.fixedCandidate, "--robustness-candidate", files.robustness,
     "--frozen-source", source, "--fixed-corpus", corpus, "--robustness-corpus", corpus,

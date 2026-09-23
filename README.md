@@ -42,7 +42,7 @@ Cloud and remote model aliases are blocked. Before Ollama receives incident evid
 
 ### Experimental English Laya baseline
 
-Laya is diagnostics-only in this phase. Normal incident processing uses the existing deterministic mapper; Qwen enrichment is unchanged. Training and custom-checkpoint controls are hidden, and checkpoint activation is disabled. Existing datasets, multilingual downloads, and custom checkpoints are not deleted.
+Laya is diagnostics-only in this phase. Normal incident processing uses the existing deterministic mapper; Qwen enrichment is unchanged. Training code, datasets, and checkpoint-management controls are not part of the core application or installer. Upgrading does not delete existing datasets, multilingual downloads, or custom checkpoints already stored on disk.
 
 On **Configuration → Test Laya-mapper without XSOAR**, paste approved or fictional JSON, choose targets and automatic/manual CPU workers, and run the mapper. No tenant is needed. The panel shows every requested target, exact pointers, selected/tentative/no-supported-match/incomplete statuses, coverage, model scores, and expandable provenance. Pasted input and results are not saved automatically. Cancellation terminates active workers.
 
@@ -83,7 +83,7 @@ XSOAR routes vary by deployment. Before operational use, confirm the configured 
 
 The application never asks for or stores a password or API token, and it does not export Playwright `storageState` or copy Chrome profile files. Authentication remains in the normal Chrome profile. While connected, Playwright can inspect and control tabs exposed by Chrome's approved debugging session, so connect only this trusted local application and disconnect when finished.
 
-Configuration is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. It may include a tenant hostname, analyst identity, Local AI setting, selected model/checkpoint names, output wording, and field-label mappings, but it must not contain credentials or incident content. Explicitly saved Laya training examples and checkpoints use the separate `laya-mapper` directory described above. Processed data stays in memory and reaches the clipboard only after the analyst selects **Copy processed data**. Only bounded evidence from the selected incident goes to loopback Ollama or the local Laya process. Matching historic resolutions are appended locally after processing.
+Configuration is stored under `%LOCALAPPDATA%\XSOAR Incident Assistant`. It may include a tenant hostname, analyst identity, Local AI setting, selected model/checkpoint names, output wording, and field-label mappings, but it must not contain credentials or incident content. Processed data stays in memory and reaches the clipboard only after the analyst selects **Copy processed data**. Only bounded evidence from the selected incident goes to loopback Ollama or the local Laya process. Matching historic resolutions are appended locally after processing.
 
 An organisation must review and approve the tool against its own browser, identity, information-handling, and software policies. See [SECURITY.md](SECURITY.md).
 
@@ -98,13 +98,13 @@ An organisation must review and approve the tool against its own browser, identi
 - `src/local-ai-installer.js`: pinned GitHub downloads, checksums, resumable model assembly, and local Ollama import.
 - `src/laya-mapper.js`, `src/laya-targets.js`: stable field records, shared target meanings, exhaustive scoring, complete bucket comparisons, and exact-pointer resolution.
 - `src/laya-worker.js`, `laya-mapper/runner.py`: protocol-2 workers, cancellation, token-safe independent batching, and pinned English CPU inference.
-- `src/laya-dataset.js`, `src/laya-training.js`: preserved legacy training data/checkpoint modules; their controls and checkpoint activation are disabled during the base-English baseline.
 - `src/laya-mapper-installer.js`: verified on-demand installation of the inference-only runtime and pinned English checkpoint.
+- `trainer/`: optional reviewed-data, compilation, training, evaluation, and promotion tooling with its own Windows installer. The trainer may import the production mapper contract; the core never imports trainer code.
 - `src/rpc.js`: typed oRPC operations and local application state.
 - `src/server.js`: Hono loopback server, request security checks, and static delivery.
 - `web/`: Solid and Tailwind configuration/status interface, built by Vite into ignored `dist/` output.
 
-New extraction rules belong in the page adapter, draft formats in the domain module, and browser behaviour behind the browser adapter. The local application intentionally remains a single package.
+New extraction rules belong in the page adapter, draft formats in the domain module, and browser behaviour behind the browser adapter. The end-user application and optional trainer are separate packages with separate installation identities.
 
 ## Development
 
@@ -115,6 +115,10 @@ npm run check
 npm test
 npm run verify:browser
 npm audit --audit-level=high
+
+# Optional trainer module
+npm run check:trainer
+npm run test:trainer
 ```
 
 ### Creating a Windows release
@@ -124,6 +128,10 @@ The end-user installer is built only from a version tag. It stages the built app
 1. Run the manual **Laya-mapper Windows assets** workflow to build and smoke-test the application-local CPU inference archive and the pinned English checkpoint. Review the generated inference-only schema-v3 manifest and dependency inventories, then set repository variables `LAYA_MAPPER_MANIFEST_URL` and `LAYA_MAPPER_MANIFEST_SHA256`. For a local package, set `LAYA_MAPPER_MANIFEST_PATH` to that reviewed file. To prepare a disconnected deployment, download every manifest asset into the same directory as the resulting Setup executable; no network access is then required by the Laya installation task.
 2. Update `package.json` with the release version and push a matching `v<version>` tag.
 3. The **Windows release** workflow verifies the project and runtime checksum, builds the unsigned installer, writes its SHA-256 sidecar, and publishes both files to the GitHub Release.
+
+### Creating the optional trainer installer
+
+The manual **Laya developer-only training runtimes** workflow builds and tests the trainer independently. It emits a CPU or CUDA runtime archive plus a separate `XSOAR-Laya-Trainer-Setup-<version>-<backend>-x64.exe`. The trainer uses its own AppId and installs under `%LOCALAPPDATA%\Programs\XSOAR Laya Trainer`; it is never bundled into, installed by, or required by the XSOAR Incident Assistant. See [trainer/README.md](trainer/README.md).
 
 Tests and examples must use fictional data and reserved domains such as `example.test`. Never commit browser profiles, production HTML, screenshots, incident exports, tenant names, credentials, or session data.
 

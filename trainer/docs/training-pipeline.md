@@ -6,7 +6,7 @@ This pipeline is separate from the customer application. The shipped Windows run
 
 - Production mapper and renderer baseline: commit `82dd954`, prompt contract `english-fields-v3`.
 - Integration base: commit `8592002`, plus reviewed worker/install hardening commits `0397f84`, `5f826ef`, and `7ad5bd6`.
-- Base checkpoint: `convaiinnovations/laya` revision `1c5edc17a7acd8701df6fc341c0d179f1c62c982`, pinned file-by-file in `laya-mapper/base-model-manifest.json`.
+- Base checkpoint: `convaiinnovations/laya` revision `1c5edc17a7acd8701df6fc341c0d179f1c62c982`, pinned file-by-file in `trainer/python/base-model-manifest.json`.
 - Synthetic factory input: the immutable `laya-synthetic-data-factory/outputs` directory supplied to `ingest_factory.py --factory`.
 
 The factory is immutable draft input. Never edit its rows or train directly from them. `ingest_factory.py` verifies the final manifest, contract and five source hashes, preserves `templateFamilyId` splits, and emits only rows named in a manifest-bound independent-model review artifact. Factory rows marked `humanReviewRequired` remain quarantined from release-candidate data. A `trainingOnly` review may admit them only with an explicit nonblind, non-promotable disclosure and may never approve frozen-test rows. No model review is represented as human approval.
@@ -50,18 +50,18 @@ $Review = '<pilot-review.json>'
 $Base = '<verified-base-english-directory>'
 $Pilot = 'artifacts/laya-training/corrected-pilot'
 
-python laya-mapper/ingest_factory.py --factory $Factory --approvals $Review --output "$Pilot/ingest"
-python laya-mapper/review.py "$Pilot/ingest/approved-source.jsonl"
-node scripts/compile-laya-orchestration.mjs "$Pilot/ingest/approved-source.jsonl" $Base "$Pilot/orchestration-trace.jsonl"
-python laya-mapper/compiler.py compile --source "$Pilot/ingest/approved-source.jsonl" --trace "$Pilot/orchestration-trace.jsonl" --base $Base --base-manifest laya-mapper/base-model-manifest.json --output "$Pilot/compiled"
-python laya-mapper/developer_trainer.py train --compiled "$Pilot/compiled" --config laya-mapper/developer-training-config.json --base $Base --base-manifest laya-mapper/base-model-manifest.json --output "$Pilot/checkpoint" --run-id corrected-pilot-v1 --device cpu --pilot --pilot-manifest laya-mapper/tiny-overfit-pilot.json --training-scope head-only
+python trainer/python/ingest_factory.py --factory $Factory --approvals $Review --output "$Pilot/ingest"
+python trainer/python/review.py "$Pilot/ingest/approved-source.jsonl"
+node trainer/scripts/compile-laya-orchestration.mjs "$Pilot/ingest/approved-source.jsonl" $Base "$Pilot/orchestration-trace.jsonl"
+python trainer/python/compiler.py compile --source "$Pilot/ingest/approved-source.jsonl" --trace "$Pilot/orchestration-trace.jsonl" --base $Base --base-manifest trainer/python/base-model-manifest.json --output "$Pilot/compiled"
+python trainer/python/developer_trainer.py train --compiled "$Pilot/compiled" --config trainer/python/developer-training-config.json --base $Base --base-manifest trainer/python/base-model-manifest.json --output "$Pilot/checkpoint" --run-id corrected-pilot-v1 --device cpu --pilot --pilot-manifest trainer/python/tiny-overfit-pilot.json --training-scope head-only
 ```
 
 The trainer's final manifest must report `promotionEligible: false`, unchanged calibration, the exact optimizer-step count, and successful saved/reloaded choice and logit equality. Do not use the pilot checkpoint for release evaluation or promotion.
 
 ## Expanded training-only corpus
 
-`scripts/build-laya-training-review.mjs` verifies every immutable source hash, exact pointer and typed alternative before producing `expanded-training-review.json`. Its reviewed scope is all 632 train and 152 development records across 132 fixed-split families. The 120 frozen-test records are omitted and remain quarantined. The review records 17 source-IP-from-client-role corrections and one client-IP-from-source-role correction as training labels; these are not runtime pointer rules. The resulting corpus remains experimental and non-promotable even when development metrics improve.
+`trainer/scripts/build-laya-training-review.mjs` verifies every immutable source hash, exact pointer and typed alternative before producing `expanded-training-review.json`. Its reviewed scope is all 632 train and 152 development records across 132 fixed-split families. The 120 frozen-test records are omitted and remain quarantined. The review records 17 source-IP-from-client-role corrections and one client-IP-from-source-role correction as training labels; these are not runtime pointer rules. The resulting corpus remains experimental and non-promotable even when development metrics improve.
 
 The expanded corpus is a new training run, not epoch 21 of the tiny pilot. A changed source/trace/compiled hash invalidates the old optimizer schedule and recovery state. Start from the pinned English base checkpoint and compare the complete production mapper with the base after model selection on development data. Frozen-test evaluation remains a later, one-way promotion gate.
 

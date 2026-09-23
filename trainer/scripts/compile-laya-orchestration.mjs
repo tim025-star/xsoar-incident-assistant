@@ -3,12 +3,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createLayaMapper, flattenAlertDocuments, rejectionReason, resolveAlertPointer } from "../src/laya-mapper.js";
-import { LAYA_MAPPER_TARGETS } from "../src/laya-targets.js";
+import { createLayaMapper, flattenAlertDocuments, rejectionReason, resolveAlertPointer } from "../../src/laya-mapper.js";
+import { LAYA_MAPPER_TARGETS } from "../../src/laya-targets.js";
 import { createPrepareBridge } from "./laya-prepare-bridge.mjs";
 
 const NONE = "__none__";
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const [sourcePath, basePath, outputPath] = process.argv.slice(2).map((value) => value && path.resolve(value));
 if (!sourcePath || !basePath || !outputPath) {
   throw new Error("Usage: compile-laya-orchestration <approved-source.jsonl> <base-model-directory> <trace.jsonl>");
@@ -123,7 +123,7 @@ async function traceRecord(record, bridge) {
 }
 
 const records = (await readFile(sourcePath, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => approvedRecord(JSON.parse(line)));
-const bridge = createPrepareBridge({ compilerPath: path.join(root, "laya-mapper", "compiler.py"), basePath });
+const bridge = createPrepareBridge({ compilerPath: path.join(root, "trainer", "python", "compiler.py"), basePath });
 try {
   const traces = [];
   for (const record of records) traces.push(...await traceRecord(record, bridge));

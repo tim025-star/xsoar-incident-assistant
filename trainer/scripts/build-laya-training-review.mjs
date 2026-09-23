@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const [factoryArgument, outputArgument] = process.argv.slice(2);
 if (!factoryArgument || !outputArgument) {
   throw new Error("Usage: build-laya-training-review <factory-output-directory> <output-review.json>");
@@ -11,7 +11,7 @@ if (!factoryArgument || !outputArgument) {
 
 const factory = path.resolve(factoryArgument);
 const output = path.resolve(outputArgument);
-const mapper = path.join(root, "laya-mapper");
+const mapper = path.join(root, "trainer", "python");
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const canonical = (value) => Array.isArray(value)
   ? `[${value.map(canonical).join(",")}]`

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, rename, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -45,16 +45,12 @@ function validateArchive(asset, expectedEntry) {
 }
 
 export function parseLayaInstallManifest(value) {
-  if (!value || ![2, 3].includes(value.schemaVersion) || value.layaVersion !== "0.3.5") {
+  if (!value || value.schemaVersion !== 3 || value.protocolVersion !== 2 || value.layaVersion !== "0.3.5") {
     throw new Error("The Laya-mapper installation manifest is invalid.");
   }
   const runtime = validateArchive(value.runtime, "laya-mapper.exe");
-  const baseline = value.schemaVersion === 3;
-  if (baseline && (value.protocolVersion !== 2 || value.model?.id !== LAYA_MODEL.id || value.model?.repository !== LAYA_MODEL.repository || value.model?.revision !== LAYA_MODEL.revision)) throw new Error("The English Laya model identity is invalid.");
-  const trainers = baseline ? {} : {
-    cpu: validateArchive(value.trainers?.cpu, "laya-trainer.exe"),
-    cuda: validateArchive(value.trainers?.cuda, "laya-trainer.exe")
-  };
+  if (value.model?.id !== LAYA_MODEL.id || value.model?.repository !== LAYA_MODEL.repository || value.model?.revision !== LAYA_MODEL.revision) throw new Error("The English Laya model identity is invalid.");
+  if (value.trainers !== undefined) throw new Error("The inference manifest must not contain trainer assets.");
   if (!Array.isArray(value.modelFiles) || !value.modelFiles.length) throw new Error("The Laya-mapper model manifest is empty.");
   const modelFiles = value.modelFiles.map((item) => {
     validateAsset(item);
@@ -64,7 +60,7 @@ export function parseLayaInstallManifest(value) {
     return item;
   });
   if (new Set(modelFiles.map((item) => item.path.toLowerCase())).size !== modelFiles.length) throw new Error("Duplicate model file path.");
-  return { schemaVersion: value.schemaVersion, protocolVersion: baseline ? 2 : 1, model: baseline ? LAYA_MODEL : { id: "base-multilingual" }, layaVersion: value.layaVersion, runtime, trainers, modelFiles };
+  return { schemaVersion: 3, protocolVersion: 2, model: LAYA_MODEL, layaVersion: value.layaVersion, runtime, modelFiles };
 }
 
 export async function loadLayaInstallManifest(filePath) {
@@ -174,31 +170,6 @@ export async function extractLayaArchive(archivePath, destination, expectedEntry
   }
 }
 
-export function detectNvidiaTrainingBackend({ spawnImplementation = spawn, timeoutMs = 10000 } = {}) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-    };
-    const child = spawnImplementation("nvidia-smi.exe", ["--query-gpu=name", "--format=csv,noheader"], {
-      windowsHide: true,
-      stdio: ["ignore", "ignore", "ignore"]
-    });
-    const timer = setTimeout(() => { child.kill(); finish("cpu"); }, timeoutMs);
-    child.once("error", () => finish("cpu"));
-    child.once("exit", (code) => finish(code === 0 ? "cuda" : "cpu"));
-  });
-}
-
-async function atomicJson(filePath, value) {
-  const temporary = `${filePath}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  await rename(temporary, filePath);
-}
-
 export function createLayaMapperInstaller({
   manifest,
   rootDirectory = defaultRootDirectory(),
@@ -206,7 +177,6 @@ export function createLayaMapperInstaller({
   download = downloadVerifiedAsset,
   extract = extractLayaArchive,
   verifyInstallation = verifyLayaMapperInstallation,
-  detectTrainingBackend = detectNvidiaTrainingBackend,
   offlineDirectories = []
 } = {}) {
   manifest = parseLayaInstallManifest(manifest);
@@ -242,33 +212,12 @@ export function createLayaMapperInstaller({
     const cached = await obtainAsset(asset, options);
     await extract(cached, destination, asset.entry);
   };
-  const preserveOfflineTrainingAssets = async ({ signal, onProgress }) => {
-    const offlineCache = path.join(rootDirectory, "offline-assets");
-    for (const asset of Object.values(manifest.trainers)) {
-      for (const directory of candidateDirectories) {
-        const candidate = path.join(directory, asset.name);
-        if (path.resolve(candidate) === path.resolve(path.join(offlineCache, asset.name))) break;
-        if (!await verifyAssetFile(candidate, asset, signal)) continue;
-        await mkdir(offlineCache, { recursive: true });
-        const temporary = path.join(offlineCache, `${asset.name}.${process.pid}.tmp`);
-        await copyFile(candidate, temporary);
-        await rm(path.join(offlineCache, asset.name), { force: true });
-        await rename(temporary, path.join(offlineCache, asset.name));
-        onProgress({
-          status: `Saved verified offline ${asset.name} for later fine-tuning.`,
-          completed: asset.size,
-          total: asset.size
-        });
-        break;
-      }
-    }
-  };
   return {
     async installInference({ onProgress = () => {}, signal } = {}) {
       const total = manifest.runtime.size + manifest.modelFiles.reduce((sum, item) => sum + item.size, 0);
       let completed = 0;
       const progress = (status, assetCompleted) => onProgress({ status, completed: completed + assetCompleted, total });
-      await installArchive(manifest.runtime, path.join(rootDirectory, manifest.protocolVersion === 2 ? "runtime-v2" : "runtime"), {
+      await installArchive(manifest.runtime, path.join(rootDirectory, "runtime-v2"), {
         signal,
         onProgress: ({ completed: value }) => progress(`Installing Laya-mapper ${manifest.runtime.name}.`, value)
       });
@@ -282,28 +231,9 @@ export function createLayaMapperInstaller({
       }
       onProgress({ status: "Verifying the installed Laya runtime and checkpoint.", completed: total, total });
       await verifyInstallation({ rootDirectory });
-      await preserveOfflineTrainingAssets({ signal, onProgress });
       await rm(cacheDirectory, { recursive: true, force: true });
       onProgress({ status: "Laya-mapper is installed.", completed: total, total });
       return { installed: true, checkpointId: manifest.model.id };
-    },
-    async installTrainingTools({ backend = "auto", onProgress = () => {}, signal } = {}) {
-      const selectedBackend = backend === "auto" ? await detectTrainingBackend() : backend;
-      if (!Object.hasOwn(manifest.trainers, selectedBackend)) throw new Error("The selected Laya training backend is unavailable.");
-      const asset = manifest.trainers[selectedBackend];
-      await installArchive(asset, path.join(rootDirectory, "training-runtime"), {
-        signal,
-        onProgress: ({ completed, total }) => onProgress({
-          status: `Installing Laya ${selectedBackend.toUpperCase()} fine-tuning tools.`, completed, total
-        })
-      });
-      await rm(cacheDirectory, { recursive: true, force: true });
-      await atomicJson(path.join(rootDirectory, "training-runtime", "install.json"), {
-        schemaVersion: 1,
-        backend: selectedBackend,
-        installedAt: new Date().toISOString()
-      });
-      return { installed: true, backend: selectedBackend };
     }
   };
 }

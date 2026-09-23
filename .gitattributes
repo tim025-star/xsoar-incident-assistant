@@ -1,2 +1,6 @@
 laya-mapper/*.json text eol=lf
 laya-mapper/*.jsonl text eol=lf
+trainer/python/*.json text eol=lf
+trainer/python/*.jsonl text eol=lf
+trainer/python/*.py text eol=lf
+trainer/scripts/*.mjs text eol=lf
