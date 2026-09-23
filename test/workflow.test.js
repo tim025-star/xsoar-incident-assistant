@@ -12,6 +12,7 @@ function createAdapter({
   historicFailuresBeforeSuccess = {},
   searchError,
   searchTicketIds = ["4200", "4199", "4198", "4197"],
+  searchTicketUrls = {},
   onExtract = () => {},
   onSearch = () => {}
 } = {}) {
@@ -79,7 +80,7 @@ function createAdapter({
     async extractSearchResults(id, options) {
       onSearch(options);
       if (searchError) throw searchError;
-      return { ticketIds: searchTicketIds.slice(0, options.maxResults), truncated: searchTicketIds.length > options.maxResults };
+      return { ticketIds: searchTicketIds.slice(0, options.maxResults), ticketUrls: searchTicketUrls, truncated: searchTicketIds.length > options.maxResults };
     },
     async closeTab(id) { events.push(`close:${id}`); closed.push(id); tabs.delete(id); },
     async focusTab(id) { events.push(`focus:${id}`); this.focused.push(id); }
@@ -147,6 +148,17 @@ test("workflow visibly opens and completes each historic incident tab before sta
     "close:4",
     "focus:1"
   ]);
+});
+
+test("workflow opens the incident link supplied by a filtered XSOAR result row", async () => {
+  const adapter = createAdapter({
+    searchTicketIds: ["4200", "4199"],
+    searchTicketUrls: { 4199: "https://xsoar.example.test/incident/4199" }
+  });
+  const result = await runIncidentDraft({ adapter, settings });
+
+  assert.equal(adapter.opened[1], "https://xsoar.example.test/incident/4199");
+  assert.match(result.draft, /#4199: Resolved incident 4199/);
 });
 
 test("workflow retries an incomplete historic incident once in the foreground", async () => {

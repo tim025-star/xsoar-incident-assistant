@@ -210,10 +210,22 @@ export function assertTrustedUrl(value, settings, operation = "Navigation") {
 
 export function assertIncidentUrl(value, settings, operation = "Incident navigation") {
   const url = assertTrustedUrl(value, settings, operation);
-  if (!new RegExp(settings.incidentUrlPattern).test(`${url.pathname}${url.search}${url.hash}`)) {
+  const configured = new RegExp(settings.incidentUrlPattern).test(`${url.pathname}${url.search}${url.hash}`);
+  const resultRoute = !url.search && !url.hash && (
+    /^\/incident\/\d+\/?$/i.test(url.pathname)
+    || /^\/incident\d+\/\d+\/overview\/?$/i.test(url.pathname)
+  );
+  if (!configured && !resultRoute) {
     throw new Error(`${operation} did not open a configured XSOAR incident path.`);
   }
   return url;
+}
+
+export function incidentTicketIdFromUrl(value, settings, operation = "Incident navigation") {
+  const url = assertIncidentUrl(value, settings, operation);
+  return url.pathname.match(/^\/incident\d+\/(\d+)\/overview\/?$/i)?.[1]
+    || url.pathname.match(/\/(\d+)\/?$/)?.[1]
+    || "";
 }
 
 export function assertIncidentRouteCompatibility(settings) {
