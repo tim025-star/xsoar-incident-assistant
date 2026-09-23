@@ -116,6 +116,26 @@ test("incident extraction reconstructs only the named XSOAR event tables", async
   }
 });
 
+test("incident extraction reads the ticket from a direct XSOAR result route", async () => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  const page = incidentPage();
+  const querySelector = page.querySelector.bind(page);
+  page.querySelector = (selector) => selector === ".header-inv-id" ? null : querySelector(selector);
+  globalThis.location = new URL("https://xsoar.example.test/incident/4199");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = page;
+
+  try {
+    const result = await extractIncidentFromPage(incidentSettings());
+    assert.equal(result.ticketId, "4199");
+    assert.equal(result.ruleName, "Synthetic Rule");
+  } finally {
+    globalThis.document = original.document;
+    globalThis.location = original.location;
+    globalThis.window = original.window;
+  }
+});
+
 test("incident extraction rejects a settled page that never exposes a required resolution field", async () => {
   const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
   globalThis.location = new URL("https://xsoar.example.test/Custom/GenericLayout/4199");
@@ -378,6 +398,40 @@ test("historic search preserves collected rows across pagination loading", async
       timeoutMs: 2500
     });
     assert.deepEqual(result.ticketIds, ["4199", "4198"]);
+  } finally {
+    globalThis.document = original.document;
+    globalThis.location = original.location;
+    globalThis.window = original.window;
+  }
+});
+
+test("historic search returns the direct link from a fixed data table result row", async () => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  const link = { ...visible, getAttribute: () => "/incident/4199", closest: () => ({}) };
+  const root = {
+    ...visible,
+    scrollTop: 0,
+    clientHeight: 500,
+    querySelector: () => null,
+    querySelectorAll: (selector) => selector === "a[href]" ? [link] : []
+  };
+  globalThis.location = new URL("https://xsoar.example.test/incidents");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = {
+    body: root,
+    querySelector: (selector) => selector.includes(".fixedDataTableLayout_main") ? root : null,
+    querySelectorAll: () => []
+  };
+
+  try {
+    const result = await extractSearchResultsFromPage({
+      expectedOrigin: "https://xsoar.example.test",
+      expectedPath: "/incidents",
+      maxResults: 5,
+      timeoutMs: 1000
+    });
+    assert.deepEqual(result.ticketIds, ["4199"]);
+    assert.deepEqual(result.ticketUrls, { 4199: "https://xsoar.example.test/incident/4199" });
   } finally {
     globalThis.document = original.document;
     globalThis.location = original.location;

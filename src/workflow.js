@@ -6,6 +6,7 @@ import {
   buildIncidentSearchUrl,
   buildSearchQuery,
   cleanText,
+  incidentTicketIdFromUrl,
   mergeIncidentDetails,
   resolveSettings
 } from "./domain.js";
@@ -56,7 +57,7 @@ async function applyLayaMapping(incident, mapIncident, targets = LAYA_MAPPER_TAR
 }
 
 function ticketIdFromIncidentUrl(value, settings, description) {
-  return assertIncidentUrl(value, settings, description).pathname.match(/\/(\d+)\/?$/)?.[1] || "";
+  return incidentTicketIdFromUrl(value, settings, description);
 }
 
 async function extractIncidentViews({
@@ -137,12 +138,18 @@ async function readHistoricCandidate({
   originalTab,
   temporaryTabs,
   ticketId,
+  ticketUrl,
   mapIncident,
   onProgress = async () => {}
 }) {
   let tab;
   try {
-    const requestedUrl = buildHistoricalIncidentUrl(originalTab.url, ticketId, settings);
+    const requestedUrl = ticketUrl
+      ? assertIncidentUrl(ticketUrl, settings, "Historic result navigation").toString()
+      : buildHistoricalIncidentUrl(originalTab.url, ticketId, settings);
+    if (ticketIdFromIncidentUrl(requestedUrl, settings, "Historic result navigation") !== String(ticketId)) {
+      throw new Error("XSOAR result link did not match the historic incident ID.");
+    }
     tab = await adapter.openTab(requestedUrl, { focusBeforeNavigation: true });
     temporaryTabs.add(tab);
     let lastError;
@@ -155,7 +162,7 @@ async function readHistoricCandidate({
         }
         await adapter.focusTab(tab.id);
         const finalUrl = assertIncidentUrl(await adapter.getTabUrl(tab.id), settings, "Historic incident navigation");
-        const finalTicketId = finalUrl.pathname.match(/\/(\d+)\/?$/)?.[1];
+        const finalTicketId = ticketIdFromIncidentUrl(finalUrl, settings, "Historic incident navigation");
         if (finalTicketId !== String(ticketId)) throw new Error("XSOAR opened a different historic incident than requested.");
         let detail = await extractIncidentViews({
           adapter,
@@ -222,7 +229,8 @@ async function collectHistoric({ adapter, settings, incident, originalTab, tempo
       if (items.length >= settings.maxHistoricalIncidents) break;
       await onProgress(`Reviewing historic incident #${ticketId} (${index + 1} of ${ticketIds.length}).`);
       const candidate = await readHistoricCandidate({
-        adapter, settings, incident, originalTab, temporaryTabs, ticketId, mapIncident, onProgress
+        adapter, settings, incident, originalTab, temporaryTabs, ticketId,
+        ticketUrl: result.ticketUrls?.[ticketId], mapIncident, onProgress
       });
       if (candidate?.error) {
         const warning = `Historic incident #${candidate.ticketId} could not be read: ${candidate.error}`;
@@ -288,7 +296,7 @@ export async function runIncidentDraft({
       openedRequestedIncident = true;
       const finalUrl = await adapter.getTabUrl(originalTab.id);
       const finalIncidentUrl = assertIncidentUrl(finalUrl, settings, "Requested incident navigation");
-      const finalTicketId = finalIncidentUrl.pathname.match(/\/(\d+)\/?$/)?.[1];
+      const finalTicketId = ticketIdFromIncidentUrl(finalIncidentUrl, settings, "Requested incident navigation");
       if (finalTicketId !== requestedIncidentId) {
         throw new Error("XSOAR opened a different incident than the requested Incident ID.");
       }

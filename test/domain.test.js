@@ -53,6 +53,9 @@ test("incident navigation remains in the configured tenant and path", () => {
   const current = "https://xsoar.example.test/Custom/GenericLayout/4200";
 
   assert.equal(assertIncidentUrl(current, resolved).pathname, "/Custom/GenericLayout/4200");
+  assert.equal(assertIncidentUrl("https://xsoar.example.test/incident/4199", resolved).pathname, "/incident/4199");
+  assert.throws(() => assertIncidentUrl("https://other.example.test/incident/4199", resolved), /origin/);
+  assert.throws(() => assertIncidentUrl("https://xsoar.example.test/incident/4199/edit", resolved), /incident path/);
   assert.equal(
     buildIncidentUrlFromId("4199", resolved),
     "https://xsoar.example.test/Custom/GenericLayout/4199"

@@ -1,7 +1,13 @@
 export async function extractIncidentFromPage(settings) {
   const currentUrl = new URL(location.href);
+  const configuredRoute = new RegExp(settings.incidentUrlPattern)
+    .test(`${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
+  const resultRoute = !currentUrl.search && !currentUrl.hash && (
+    /^\/incident\/\d+\/?$/i.test(currentUrl.pathname)
+    || /^\/incident\d+\/\d+\/overview\/?$/i.test(currentUrl.pathname)
+  );
   if (currentUrl.protocol !== "https:" || currentUrl.origin !== settings.allowedOrigin
-    || !new RegExp(settings.incidentUrlPattern).test(`${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`)) {
+    || (!configuredRoute && !resultRoute)) {
     throw new Error("Incident extraction refused an untrusted page URL.");
   }
   const normalize = (value) => String(value || "")
@@ -259,7 +265,8 @@ export async function extractIncidentFromPage(settings) {
     );
 
     const headerTicket = normalize(document.querySelector(".header-inv-id")?.textContent);
-    const urlTicket = location.href.match(/\/(\d+)\/?(?:[?#].*)?$/)?.[1] || "";
+    const urlTicket = currentUrl.pathname.match(/^\/incident\d+\/(\d+)\/overview\/?$/i)?.[1]
+      || currentUrl.pathname.match(/\/(\d+)\/?$/)?.[1] || "";
     let incidentName = normalize(
       document.querySelector(".header-inv-title")?.getAttribute("title")
       || document.querySelector(".header-inv-title")?.textContent
@@ -368,6 +375,7 @@ export async function extractSearchResultsFromPage(options) {
     throw new Error("Historic search extraction received an invalid incident URL pattern.");
   }
   const ticketIds = new Set();
+  const ticketUrls = {};
   let initialLoadFinished = false;
   let initialBusyObserved = false;
   const initialSettleDeadline = Date.now() + 500;
@@ -380,6 +388,7 @@ export async function extractSearchResultsFromPage(options) {
     if (!initialLoadFinished) {
       if (busy) {
         ticketIds.clear();
+        for (const ticketId of Object.keys(ticketUrls)) delete ticketUrls[ticketId];
         initialBusyObserved = true;
       } else if (initialBusyObserved || Date.now() >= initialSettleDeadline) {
         initialLoadFinished = true;
@@ -400,7 +409,12 @@ export async function extractSearchResultsFromPage(options) {
           || url.pathname.match(incidentOverviewPattern)?.[1]
           || configuredTicketId
           || visibleTicketId;
-        if (ticketId && url.origin === location.origin) ticketIds.add(ticketId);
+        if (ticketId && url.origin === location.origin) {
+          ticketIds.add(ticketId);
+          if (!url.search && !url.hash && (url.pathname.match(ticketPattern)
+            || url.pathname.match(incidentOverviewPattern)
+            || configuredTicketId)) ticketUrls[ticketId] ||= url.toString();
+        }
       }
     }
     const paging = normalize(document.querySelector(".table-paging-message")?.textContent);
@@ -439,11 +453,16 @@ export async function extractSearchResultsFromPage(options) {
     throw new Error("XSOAR historic search results did not become ready before the timeout.");
   }
   const maxResults = Math.max(1, Number(options.maxResults) || 5);
-  const allTicketIds = [...ticketIds].sort((left, right) => Number(right) - Number(left));
-  const sortedTicketIds = allTicketIds.slice(0, maxResults);
+  // Set insertion order reflects the order XSOAR rendered rows while scrolling.
+  // Incident IDs are identifiers, not a reliable proxy for the table's Created sort.
+  const allTicketIds = [...ticketIds];
+  const selectedTicketIds = allTicketIds.slice(0, maxResults);
   assertCurrentPage();
   return {
-    ticketIds: sortedTicketIds,
+    ticketIds: selectedTicketIds,
+    ticketUrls: Object.fromEntries(selectedTicketIds
+      .filter((ticketId) => ticketUrls[ticketId])
+      .map((ticketId) => [ticketId, ticketUrls[ticketId]])),
     truncated: allTicketIds.length > maxResults
       || Boolean(state.pagingTotal && state.pagingEnd < state.pagingTotal)
       || state.pagingUnknown
