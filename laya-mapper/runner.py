@@ -17,12 +17,12 @@ import torch
 import laya
 from laya.common import QTYPES, build_sequence, collate_items, render_options, serialize_state, temp_bucket
 
-MODEL = {"id": "english-head-pilot-e15-76a7777d4e02", "repository": "xsoar-incident-assistant/experimental-pilot",
-         "revision": "a21283ae2064b4d7fdaa091655c1ac9d829ce7b1f1118dfda62f93dccdb021d2", "baseRepository": "convaiinnovations/laya",
+MODEL = {"id": "english-head-pilot-e20-1a20d38f45a1", "repository": "xsoar-incident-assistant/experimental-pilot",
+         "revision": "bf84ecdc7d96aeb492413ba2575bd283bb7b2c53478a40456469a96e1c062d75", "baseRepository": "convaiinnovations/laya",
          "baseRevision": "1c5edc17a7acd8701df6fc341c0d179f1c62c982",
          "sdkVersion": "0.3.5", "protocolVersion": 2, "experimental": True,
-         "diagnosticsOnly": True, "snapshotEpoch": 15, "metricsEpoch": 15,
-         "trainingSequenceAccuracy": 0.9272908366533864, "promotionEligible": False}
+         "diagnosticsOnly": True, "snapshotEpoch": 20, "metricsEpoch": 20,
+         "trainingSequenceAccuracy": 0.951195219123506, "promotionEligible": False}
 ROOT = Path(os.environ.get("LAYA_MAPPER_ROOT", Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "XSOAR Incident Assistant" / "laya-mapper"))
 MODEL_PATH = Path(os.environ.get("LAYA_MODEL_PATH", ROOT / "models" / MODEL["id"]))
 NONE = "__none__"

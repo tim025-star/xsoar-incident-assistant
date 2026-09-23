@@ -36,18 +36,18 @@ export const LAYA_TARGET_CATALOGUE = Object.freeze({
 export const LAYA_MAPPER_TARGETS = Object.freeze(Object.keys(LAYA_TARGET_CATALOGUE));
 export const HISTORIC_LAYA_TARGETS = Object.freeze(["customerName", "ruleName", "caseType", "incidentOutcome", "closeNotes", "historicalRecommendations"]);
 export const LAYA_MODEL = Object.freeze({
-  id: "english-head-pilot-e15-76a7777d4e02",
+  id: "english-head-pilot-e20-1a20d38f45a1",
   repository: "xsoar-incident-assistant/experimental-pilot",
-  revision: "a21283ae2064b4d7fdaa091655c1ac9d829ce7b1f1118dfda62f93dccdb021d2",
+  revision: "bf84ecdc7d96aeb492413ba2575bd283bb7b2c53478a40456469a96e1c062d75",
   baseRepository: "convaiinnovations/laya",
   baseRevision: "1c5edc17a7acd8701df6fc341c0d179f1c62c982",
   sdkVersion: "0.3.5",
   protocolVersion: 2,
   experimental: true,
   diagnosticsOnly: true,
-  snapshotEpoch: 15,
-  metricsEpoch: 15,
-  trainingSequenceAccuracy: 0.9272908366533864,
+  snapshotEpoch: 20,
+  metricsEpoch: 20,
+  trainingSequenceAccuracy: 0.951195219123506,
   promotionEligible: false
 });
 export const LAYA_PROMPT_VERSION = "english-fields-v3";
