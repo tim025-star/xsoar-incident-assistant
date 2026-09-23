@@ -149,6 +149,30 @@ try {
   assert.equal(await page.locator("#allowedOrigin").count(), 0, "configuration controls must not appear on the home page");
   await page.getByRole("link", { name: "Configuration", exact: true }).click();
   await page.getByRole("heading", { name: "JSON log mapping" }).waitFor();
+  await page.getByRole("link", { name: "Tools", exact: true }).click();
+  await page.getByRole("heading", { name: "JSON sanitizer" }).waitFor();
+  assert.equal(await page.locator("#allowedOrigin").count(), 0, "configuration controls must not appear on the tools page");
+  await page.locator("#sanitizerInput").fill(JSON.stringify({
+    user: { email: "private@example.test", "display.name": "Private Person" },
+    events: [{ actor: { email: "first@example.test" } }, { actor: { email: "second@example.test" } }],
+    emptyObject: {}, emptyArray: [], missing: null
+  }));
+  await page.locator("#sanitizeJson").click();
+  const sanitized = JSON.parse(await page.locator("#sanitizerOutput").inputValue());
+  assert.deepEqual(sanitized, {
+    "user.email": "[REDACTED]",
+    "user.display\\.name": "[REDACTED]",
+    "events.actor.email": "[REDACTED]",
+    emptyObject: "[REDACTED]",
+    emptyArray: "[REDACTED]",
+    missing: "[REDACTED]"
+  });
+  assert.equal(JSON.stringify(sanitized).includes("private@example.test"), false);
+  await page.locator("#sanitizerMode").selectOption("empty");
+  await page.locator("#sanitizeJson").click();
+  assert.ok(Object.values(JSON.parse(await page.locator("#sanitizerOutput").inputValue())).every((value) => value === ""));
+  await page.getByRole("link", { name: "Configuration", exact: true }).click();
+  await page.getByRole("heading", { name: "JSON log mapping" }).waitFor();
   await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
   await page.locator("#fieldLabel-occurred").fill("Occurred, Event Time");
   await page.locator("#saveMappings").click();

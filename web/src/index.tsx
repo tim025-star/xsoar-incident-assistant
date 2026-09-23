@@ -2,6 +2,7 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid
 import { render } from "solid-js/web";
 
 import { rpc, sessionToken } from "./rpc";
+import { sanitizeJson, type SanitizerValueMode } from "./json-sanitizer";
 import { LAYA_TARGET_CATALOGUE } from "../../src/laya-targets.js";
 import "./styles.css";
 
@@ -65,6 +66,7 @@ function App() {
   let previousResponse = "";
   let followLiveOutput = true;
   const configurationPage = location.pathname === "/configuration";
+  const toolsPage = location.pathname === "/tools";
   const [config, setConfig] = createSignal<AppConfig>();
   const [status, setStatus] = createSignal<Status>();
   const [localAiStatus, setLocalAiStatus] = createSignal<LocalAiStatus>();
@@ -74,6 +76,10 @@ function App() {
   const [mapperTestResult, setMapperTestResult] = createSignal<LayaDiagnostic>();
   const [mapperTestRunning, setMapperTestRunning] = createSignal(false);
   const [mapperTestElapsedSeconds, setMapperTestElapsedSeconds] = createSignal(0);
+  const [sanitizerInput, setSanitizerInput] = createSignal("");
+  const [sanitizerMode, setSanitizerMode] = createSignal<SanitizerValueMode>("placeholder");
+  const [sanitizerOutput, setSanitizerOutput] = createSignal("");
+  const [sanitizerMessage, setSanitizerMessage] = createSignal("");
   const [pullingModel, setPullingModel] = createSignal(false);
   const [incidentId, setIncidentId] = createSignal("");
   const [message, setMessage] = createSignal(sessionToken
@@ -250,6 +256,25 @@ function App() {
     catch (error) { setMessage(errorMessage(error)); }
   };
 
+  const sanitizeInputJson = () => {
+    try {
+      const parsed: unknown = JSON.parse(sanitizerInput());
+      setSanitizerOutput(JSON.stringify(sanitizeJson(parsed, sanitizerMode()), null, 2));
+      setSanitizerMessage("Sanitized in this browser. Input is not sent to the assistant or saved.");
+    } catch {
+      setSanitizerOutput("");
+      setSanitizerMessage("Enter valid JSON to sanitize.");
+    }
+  };
+  const copySanitizedJson = async () => {
+    try {
+      await navigator.clipboard.writeText(sanitizerOutput());
+      setSanitizerMessage("Sanitized JSON copied.");
+    } catch {
+      setSanitizerMessage("Could not access the clipboard. Select and copy the output manually.");
+    }
+  };
+
   const generateDraft = () => runAction(async () => {
     followLiveOutput = true;
     await rpc.draft.generate({ incidentId: incidentId().trim() });
@@ -320,7 +345,8 @@ function App() {
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <nav class="flex rounded-xl border border-line bg-white p-1 text-sm font-bold" aria-label="Main navigation">
-          <a class={`nav-link ${!configurationPage ? "nav-link-active" : ""}`} href="/">Home</a>
+          <a class={`nav-link ${!configurationPage && !toolsPage ? "nav-link-active" : ""}`} href="/">Home</a>
+          <a class={`nav-link ${toolsPage ? "nav-link-active" : ""}`} href="/tools">Tools</a>
           <a class={`nav-link ${configurationPage ? "nav-link-active" : ""}`} href="/configuration">Configuration</a>
         </nav>
         <div class="flex items-center gap-2 rounded-full border border-line bg-white px-3 py-2 text-sm font-semibold">
@@ -375,6 +401,37 @@ function App() {
           <Show when={status()?.processingMode}><span id="processingMode" class="helper">Processing used: {status()?.processingMode}.</span></Show>
         </label>
         <button id="copy" class="button button-secondary mt-4" type="button" disabled={busy() || !status()?.draft} onClick={copyDraft}>Copy processed data</button>
+      </section>
+    </div>
+  );
+
+  const ToolsPage = () => (
+    <div class="mx-auto grid max-w-4xl gap-5">
+      <section class="panel">
+        <div class="mb-5">
+          <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Privacy utility</p>
+          <h2 class="m-0 text-xl font-bold">JSON sanitizer</h2>
+          <p class="helper mb-0 mt-2">Paste raw JSON to produce a flat object of dotted key paths. Values are replaced in your browser and the pasted data is not uploaded or saved.</p>
+        </div>
+        <label class="field">Raw JSON
+          <textarea id="sanitizerInput" class="control min-h-48 font-mono text-xs" rows="8" spellcheck={false} placeholder={'Paste JSON here, for example: {"user":{"email":"person@example.com"}}'} value={sanitizerInput()} onInput={(event) => { setSanitizerInput(event.currentTarget.value); setSanitizerOutput(""); setSanitizerMessage(""); }} />
+        </label>
+        <div class="mt-4 flex flex-wrap items-end gap-3">
+          <label class="field min-w-48">Replacement values
+            <select id="sanitizerMode" class="control" value={sanitizerMode()} onChange={(event) => setSanitizerMode(event.currentTarget.value as SanitizerValueMode)}>
+              <option value="placeholder">[REDACTED]</option>
+              <option value="empty">Empty strings</option>
+            </select>
+          </label>
+          <button id="sanitizeJson" class="button" type="button" disabled={!sanitizerInput().trim()} onClick={sanitizeInputJson}>Sanitize JSON</button>
+          <button class="button button-secondary" type="button" disabled={!sanitizerOutput()} onClick={copySanitizedJson}>Copy output</button>
+          <button class="button button-secondary" type="button" disabled={!sanitizerInput() && !sanitizerOutput()} onClick={() => { setSanitizerInput(""); setSanitizerOutput(""); setSanitizerMessage(""); }}>Clear</button>
+        </div>
+        <Show when={sanitizerMessage()}><p class="helper mt-3" role="status" aria-live="polite">{sanitizerMessage()}</p></Show>
+        <Show when={sanitizerOutput()}><label class="field mt-4">Sanitized flat JSON
+          <textarea id="sanitizerOutput" class="control min-h-48 font-mono text-xs" rows="8" readOnly value={sanitizerOutput()} />
+        </label></Show>
+        <p class="helper mb-0 mt-3">Array indexes are omitted. An empty array or object is retained as a key with the selected replacement value.</p>
       </section>
     </div>
   );
@@ -579,7 +636,9 @@ function App() {
     <main class="mx-auto w-[min(1120px,calc(100%-2rem))] py-8 sm:py-12">
       <Header />
       <Show when={config()} fallback={<section class="panel"><p id="status" class="helper m-0" role="status">{message()}</p></section>}>
-        {(settings) => configurationPage ? <ConfigurationPage {...{ settings }} /> : <HomePage {...{ settings }} />}
+        {(settings) => configurationPage
+          ? <ConfigurationPage {...{ settings }} />
+          : toolsPage ? <ToolsPage /> : <HomePage {...{ settings }} />}
       </Show>
     </main>
   );
