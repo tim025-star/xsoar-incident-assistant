@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { LAYA_MODEL } from "../src/laya-targets.js";
+import { LAYA_CHECKPOINT_ID, LAYA_MODEL } from "../src/laya-targets.js";
 
 const [runtimePath, modelDirectory, outputDirectory, repository, releaseTag] = process.argv.slice(2);
 if (![runtimePath, modelDirectory, outputDirectory, repository, releaseTag].every(Boolean)) {
@@ -52,5 +52,31 @@ for (const item of await files(modelDirectory)) {
   const assetName = `laya-english-${item.relative.replaceAll("/", "--")}`;
   modelFiles.push(await stage(item.absolute, assetName, { path: item.relative }));
 }
-const manifest = { schemaVersion: 3, protocolVersion: 2, layaVersion: "0.3.5", model: LAYA_MODEL, runtime, modelFiles };
+const training = JSON.parse(await readFile(path.join(modelDirectory, "manifest.json"), "utf8"));
+const weights = modelFiles.find((item) => item.path === "model.safetensors");
+const trainingComplete = training.optimizerSteps === training.expectedOptimizerSteps
+  && training.epochsCompleted === training.maximumEpochs
+  && training.reloadVerification?.choicesEqual === true
+  && training.reloadVerification?.finiteState === true
+  && training.reloadVerification?.maximumLogitDelta === 0
+  && training.reloadVerification?.probeSequences === training.developmentSequences;
+if (training.id !== LAYA_CHECKPOINT_ID || !weights
+  || training.promotionEligible !== false || !trainingComplete
+  || !Number.isInteger(training.trainingSequences) || !Number.isInteger(training.developmentSequences)
+  || !Number.isFinite(training.sequenceMetrics?.sequenceAccuracy)) {
+  throw new Error("The model directory does not contain a fully verified demo checkpoint manifest.");
+}
+const checkpoint = {
+  id: training.id,
+  label: "Reviewed 632-alert Laya demo",
+  channel: "demo",
+  weightsSha256: weights.sha256,
+  trainingComplete,
+  promotionEligible: false,
+  trainingSequences: training.trainingSequences,
+  developmentSequences: training.developmentSequences,
+  sequenceAccuracy: training.sequenceMetrics.sequenceAccuracy,
+  warning: "Experimental tuned checkpoint. Development comparison only; review every mapping before use."
+};
+const manifest = { schemaVersion: 4, protocolVersion: 2, layaVersion: "0.3.5", model: LAYA_MODEL, checkpoint, runtime, modelFiles };
 await writeFile(path.join(outputDirectory, "laya-mapper-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);

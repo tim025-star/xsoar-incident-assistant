@@ -6,10 +6,8 @@ import { fileURLToPath } from "node:url";
 import { BrowserSessionManager } from "./browser-session.js";
 import { appConfigInputSchema, loadConfig, resolvedAppConfigSchema, saveConfig } from "./config.js";
 import { createLocalAiInstaller } from "./local-ai-installer.js";
-import { createLayaDatasetStore, trainingExampleInputSchema } from "./laya-dataset.js";
-import { createLayaMapperInstaller, loadLayaInstallManifest } from "./laya-mapper-installer.js";
+import { createLayaMapperInstaller, loadLayaInstallManifest, readLayaInstallationIdentity } from "./laya-mapper-installer.js";
 import { createLayaMapper, LAYA_MAPPER_TARGETS, layaMapperSettingsSchema } from "./laya-mapper.js";
-import { createLayaTrainingManager } from "./laya-training.js";
 import { createOllamaClient, localAiSettingsSchema } from "./local-ai.js";
 import { runIncidentDraft } from "./workflow.js";
 
@@ -31,21 +29,33 @@ export function createAssistantRouter({
   configStore = { load: loadConfig, save: saveConfig },
   generateDraft = runIncidentDraft,
   layaMapper = createLayaMapper(),
-  layaDataset = createLayaDatasetStore(),
-  layaTraining,
   layaMapperInstaller,
+  layaInstallManifest,
+  layaInstallationIdentityReader = readLayaInstallationIdentity,
   localAi = createOllamaClient(),
   localAiInstaller
 } = {}) {
   localAiInstaller ||= createLocalAiInstaller({ localAi });
-  layaTraining ||= createLayaTrainingManager({ datasetStore: layaDataset });
+  const getLayaInstallManifest = async () => {
+    if (layaInstallManifest) return layaInstallManifest;
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    layaInstallManifest = await loadLayaInstallManifest(path.join(root, "resources", "laya-mapper-manifest.json"));
+    return layaInstallManifest;
+  };
   const getLayaMapperInstaller = async () => {
     if (layaMapperInstaller) return layaMapperInstaller;
-    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-    const manifest = await loadLayaInstallManifest(path.join(root, "resources", "laya-mapper-manifest.json"));
-    if (manifest.schemaVersion !== 3) throw new ORPCError("BAD_REQUEST", { message: "Update the application asset manifest to the English protocol-2 inference package." });
+    const manifest = await getLayaInstallManifest();
+    if (manifest.schemaVersion !== 4) throw new ORPCError("BAD_REQUEST", { message: "Update the application asset manifest to the reviewed demo checkpoint package." });
     layaMapperInstaller = createLayaMapperInstaller({ manifest });
     return layaMapperInstaller;
+  };
+  const checkpointState = async () => {
+    const manifest = await getLayaInstallManifest();
+    const installed = await layaInstallationIdentityReader();
+    const expected = manifest.checkpoint;
+    const matches = Boolean(expected && installed?.checkpoint?.id === expected.id
+      && installed?.checkpoint?.weightsSha256 === expected.weightsSha256);
+    return { expected, installed: installed?.checkpoint, matches };
   };
   let activity = {
     detail: "Connect Chrome, open an XSOAR incident, then build the response.",
@@ -53,6 +63,7 @@ export function createAssistantRouter({
     aiOutput: "",
     aiDraft: false,
     layaMapped: false,
+    layaProgress: { stage: "idle", completed: 0, total: 0 },
     processingMode: "",
     draftVersion: 0
   };
@@ -79,7 +90,7 @@ export function createAssistantRouter({
     try {
       return await withOperationLock("response build", async () => {
         const draftVersion = activity.draftVersion + 1;
-        activity = { detail: "Collecting incident evidence.", draft: "", aiOutput: "", aiDraft: false, layaMapped: false, processingMode: "", draftVersion };
+        activity = { detail: "Collecting incident evidence.", draft: "", aiOutput: "", aiDraft: false, layaMapped: false, layaProgress: activity.layaProgress, processingMode: "", draftVersion };
         const config = await configStore.load({ requireTenant: true });
         await sessions.start();
         const result = await generateDraft({
@@ -101,6 +112,7 @@ export function createAssistantRouter({
           aiOutput: activity.aiOutput,
           aiDraft: result.aiEnriched,
           layaMapped: result.layaMapped,
+          layaProgress: activity.layaProgress,
           processingMode: result.processingMode,
           draftVersion
         };
@@ -190,12 +202,25 @@ export function createAssistantRouter({
       })
     },
     layaMapper: {
-      status: os.handler(async () => ({ ...await layaMapper.status(), training: await layaTraining.status() })),
+      status: os.handler(async () => {
+        const checkpoint = await checkpointState();
+        if (!checkpoint.matches) return {
+          available: false,
+          checkpoint: checkpoint.expected,
+          installedCheckpoint: checkpoint.installed,
+          detail: `Install ${checkpoint.expected?.label || "the reviewed Laya demo checkpoint"} before running diagnostics.`
+        };
+        const runtime = await layaMapper.status();
+        return { ...runtime, checkpoint: checkpoint.expected, installedCheckpoint: checkpoint.installed };
+      }),
       diagnostics: os.input(layaDiagnosticInputSchema).handler(async ({ input }) =>
         withOperationLock("Laya-mapper diagnostic", async () => {
           const abortController = new AbortController();
           layaDiagnosticAbortController = abortController;
           try {
+            const checkpoint = await checkpointState();
+            if (!checkpoint.matches) throw new Error(`Install ${checkpoint.expected?.label || "the reviewed Laya demo checkpoint"} before running diagnostics.`);
+            activity = { ...activity, layaProgress: { stage: "loading", completed: 0, total: 1 } };
             const current = await configStore.load({ requireTenant: false });
             const result = await layaMapper.mapIncident({
               documents: input.documents,
@@ -204,12 +229,12 @@ export function createAssistantRouter({
               workerCount: current.layaMapper.workerCount,
               complete: true,
               signal: abortController.signal,
-              onProgress: ({ detail }) => {
-                activity = { ...activity, detail: `Laya test: ${detail}` };
+              onProgress: ({ detail, stage, completed, total, target, pass }) => {
+                activity = { ...activity, detail: `Laya test: ${detail}`, layaProgress: { stage, completed, total, target, pass } };
               }
             });
-            activity = { ...activity, detail: "Laya-mapper test completed without XSOAR." };
-            return result;
+            activity = { ...activity, detail: "Laya-mapper test completed without XSOAR.", layaProgress: { stage: "complete", completed: 1, total: 1 } };
+            return { ...result, checkpoint: checkpoint.expected };
           } catch (error) {
             return fail(abortController.signal.aborted ? new Error("Laya-mapper test was cancelled.") : error);
           } finally {
@@ -223,7 +248,7 @@ export function createAssistantRouter({
         }
         layaDiagnosticAbortController.abort();
         layaMapper.close?.();
-        activity = { ...activity, detail: "Cancelling the Laya-mapper test…" };
+        activity = { ...activity, detail: "Cancelling the Laya-mapper test…", layaProgress: { stage: "cancelling", completed: 0, total: 0 } };
         return status();
       }),
       install: os.handler(async () => withOperationLock("Laya-mapper installation", async () => {
@@ -235,85 +260,7 @@ export function createAssistantRouter({
             activity = { ...activity, detail: `${progress}${percent}` };
           }
         });
-      })),
-      examples: {
-        list: os.handler(async () => layaDataset.list()),
-        get: os.input(z.object({ id: z.string().uuid() }).strict()).handler(async ({ input }) => layaDataset.get(input.id)),
-        add: os.input(trainingExampleInputSchema).handler(async ({ input }) => withOperationLock("Laya dataset update", () => layaDataset.add(input))),
-        remove: os.input(z.object({ id: z.string().uuid() }).strict()).handler(async ({ input }) => withOperationLock("Laya dataset update", async () => {
-          await layaDataset.remove(input.id);
-          return layaDataset.list();
-        })),
-        clear: os.handler(async () => withOperationLock("Laya dataset update", async () => { await layaDataset.clear(); return []; })),
-        export: os.handler(async () => ({ jsonl: await layaDataset.exportJsonl() })),
-        import: os.input(z.object({ jsonl: z.string().max(128 * 1024) }).strict())
-          .handler(async ({ input }) => withOperationLock("Laya dataset update", () => layaDataset.importJsonl(input.jsonl)))
-      },
-      training: {
-        status: os.handler(async () => {
-          const training = await layaTraining.status();
-          if (!training.running && activeOperation === "Laya fine-tuning") activeOperation = "";
-          return training;
-        }),
-        install: os.input(z.object({ backend: z.enum(["auto", "cpu", "cuda"]).default("auto") }).strict())
-          .handler(async ({ input }) => withOperationLock("Laya fine-tuning tools installation", async () => {
-          const installer = await getLayaMapperInstaller();
-          return installer.installTrainingTools({
-            backend: input.backend,
-            onProgress: ({ status: progress, completed, total }) => {
-              const percent = total > 0 ? ` (${Math.min(100, Math.round((completed / total) * 100))}%)` : "";
-              activity = { ...activity, detail: `${progress}${percent}` };
-            }
-          });
-        })),
-        start: os.input(z.object({
-          device: z.enum(["auto", "cpu", "cuda"]).default("auto"),
-          resumeRunId: z.string().uuid().optional()
-        }).strict()).handler(async ({ input }) => {
-          if (activeOperation) throw new ORPCError("CONFLICT", { message: `Cannot start Laya fine-tuning while ${activeOperation} is running.` });
-          activeOperation = "Laya fine-tuning";
-          try {
-            const run = await layaTraining.start(input);
-            const completion = layaTraining.waitForCompletion?.(run.id);
-            if (completion?.finally) {
-              void completion.catch(() => {}).finally(() => {
-                if (activeOperation === "Laya fine-tuning") activeOperation = "";
-              });
-            }
-            activity = { ...activity, detail: "Laya fine-tuning started." };
-            return run;
-          } catch (error) {
-            activeOperation = "";
-            return fail(error);
-          }
-        }),
-        cancel: os.handler(async () => { await layaTraining.cancel(); return layaTraining.status(); }),
-        exportBundle: os.input(z.object({ destinationDirectory: z.string().trim().min(1).max(32767) }).strict())
-          .handler(async ({ input }) => withOperationLock("Laya training bundle export", async () => ({
-            path: await layaTraining.exportTrainingBundle(input.destinationDirectory)
-          })))
-      },
-      checkpoints: {
-        list: os.handler(async () => layaTraining.listCheckpoints()),
-        activate: os.input(z.object({ id: layaMapperSettingsSchema.shape.checkpointId }).strict()).handler(async ({ input }) => withOperationLock("Laya checkpoint activation", async () => {
-          if (input.id !== "base-english") throw new ORPCError("BAD_REQUEST", { message: "Custom checkpoint activation is disabled during the English baseline." });
-          return (await configStore.load({ requireTenant: false })).layaMapper;
-        })),
-        remove: os.input(z.object({ id: layaMapperSettingsSchema.shape.checkpointId }).strict()).handler(async ({ input }) => withOperationLock("Laya checkpoint deletion", async () => {
-          const current = await configStore.load({ requireTenant: false });
-          if (current.layaMapper.checkpointId === input.id) throw new ORPCError("CONFLICT", { message: "Activate another Laya checkpoint before deleting this one." });
-          await layaTraining.removeCheckpoint(input.id);
-          return layaTraining.listCheckpoints();
-        })),
-        import: os.input(z.object({ sourceDirectory: z.string().trim().min(1).max(32767) }).strict())
-          .handler(async ({ input }) => withOperationLock("Laya checkpoint import", () => layaTraining.importCheckpoint(input.sourceDirectory))),
-        export: os.input(z.object({
-          id: layaMapperSettingsSchema.shape.checkpointId,
-          destinationDirectory: z.string().trim().min(1).max(32767)
-        }).strict()).handler(async ({ input }) => withOperationLock("Laya checkpoint export", async () => ({
-          path: await layaTraining.exportCheckpoint(input.id, input.destinationDirectory)
-        })))
-      }
+      }))
     },
     browser: {
       setup: os.handler(async () => {

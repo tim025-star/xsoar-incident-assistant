@@ -3,12 +3,12 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createLayaMapper, flattenAlertDocuments, rejectionReason, resolveAlertPointer } from "../src/laya-mapper.js";
-import { LAYA_MAPPER_TARGETS } from "../src/laya-targets.js";
+import { createLayaMapper, flattenAlertDocuments, rejectionReason, resolveAlertPointer } from "../../src/laya-mapper.js";
+import { LAYA_MAPPER_TARGETS } from "../../src/laya-targets.js";
 import { createPrepareBridge } from "./laya-prepare-bridge.mjs";
 
 const NONE = "__none__";
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const [sourcePath, basePath, outputPath] = process.argv.slice(2).map((value) => value && path.resolve(value));
 if (!sourcePath || !basePath || !outputPath) {
   throw new Error("Usage: compile-laya-orchestration <approved-source.jsonl> <base-model-directory> <trace.jsonl>");
@@ -26,8 +26,11 @@ function approvedRecord(value) {
   if (!value || value.schemaVersion !== 2 || value.synthetic !== true || typeof value.sampleId !== "string") throw new Error("Source record is not synthetic schemaVersion 2 data.");
   if (!Array.isArray(value.documents) || value.documents.length < 1 || value.documents.length > 16 || Buffer.byteLength(JSON.stringify(value.documents)) > 96 * 1024) throw new Error(`Source record ${value.sampleId} exceeds production document limits.`);
   const reviewer = value.review?.reviewer;
-  if (value.review?.state !== "approved" || value.review?.blind !== true || !["pilotOnly", "releaseCandidate"].includes(value.review?.gate)
+  const gate = value.review?.gate;
+  if (value.review?.state !== "approved" || typeof value.review?.blind !== "boolean" || !["pilotOnly", "trainingOnly", "releaseCandidate"].includes(gate)
+      || (gate !== "trainingOnly" && value.review.blind !== true)
       || reviewer?.kind !== "independent-model" || typeof reviewer.model !== "string" || !reviewer.model
+      || (["trainingOnly", "releaseCandidate"].includes(gate) && !reviewer.model.toLowerCase().startsWith("gpt-6"))
       || !/^[a-f0-9]{64}$/.test(reviewer.promptHash || "")
       || reviewer.model !== value.provenance?.blindReviewerModel || reviewer.promptHash !== value.provenance?.blindReviewPromptHash
       || !/^[a-f0-9]{64}$/.test(value.provenance?.reviewArtifactSha256 || "")
@@ -120,7 +123,7 @@ async function traceRecord(record, bridge) {
 }
 
 const records = (await readFile(sourcePath, "utf8")).split(/\r?\n/).filter(Boolean).map((line) => approvedRecord(JSON.parse(line)));
-const bridge = createPrepareBridge({ compilerPath: path.join(root, "laya-mapper", "compiler.py"), basePath });
+const bridge = createPrepareBridge({ compilerPath: path.join(root, "trainer", "python", "compiler.py"), basePath });
 try {
   const traces = [];
   for (const record of records) traces.push(...await traceRecord(record, bridge));

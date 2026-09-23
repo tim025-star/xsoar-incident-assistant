@@ -30,16 +30,18 @@ DOCUMENTATION_NETWORKS = tuple(ipaddress.ip_network(value) for value in (
 FICTIONAL_DOMAINS = ("example.com", "example.net", "example.org", "example", "test", "invalid", "localhost")
 
 
-def _strings(value: Any):
+def _strings(value: Any, path: tuple[str, ...] = ()):
     if isinstance(value, str):
-        yield value
+        yield path, value
     elif isinstance(value, list):
-        for item in value:
-            yield from _strings(item)
+        for index, item in enumerate(value):
+            yield from _strings(item, (*path, str(index)))
     elif isinstance(value, dict):
+        semantic_key = value.get("key") if isinstance(value.get("key"), str) else value.get("name") if isinstance(value.get("name"), str) else None
         for key, item in value.items():
-            yield key
-            yield from _strings(item)
+            yield (*path, str(key)), str(key)
+            child = semantic_key if key == "value" and semantic_key else str(key)
+            yield from _strings(item, (*path, child))
 
 
 def _fictional_domain(domain: str) -> bool:
@@ -54,7 +56,7 @@ def mechanical_findings(record: dict[str, Any]) -> list[str]:
     for pattern in SECRET_PATTERNS:
         if pattern.search(rendered):
             findings.append("possible secret material")
-    for text in _strings(documents):
+    for path, text in _strings(documents):
         for match in EMAIL.finditer(text):
             domain = match.group(1).lower()
             if not _fictional_domain(domain):
@@ -64,7 +66,11 @@ def mechanical_findings(record: dict[str, Any]) -> list[str]:
                 findings.append(f"non-fictional Microsoft tenant domain: {match.group(0).lower()}")
         if TENANT_ID.search(text):
             findings.append("possible real tenant identifier")
+        dotted_version = bool(path and "version" in path[-1].lower()
+                              and re.fullmatch(r"\d+(?:\.\d+){2,4}", text))
         for token in set(IPV4.findall(text) + IPV6.findall(text)):
+            if dotted_version:
+                continue
             if TIME_FRAGMENT.fullmatch(token):
                 continue
             try:

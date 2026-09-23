@@ -29,8 +29,19 @@ let foregroundPage = "console";
 let registeredConsoleUrl = "";
 const pulledModels = [];
 const requestedIncidentIds = [];
-const layaExamples = [];
 let layaInstalled = false;
+const demoCheckpoint = {
+  id: "expanded-training-cuda-632-alerts-v1",
+  label: "Reviewed 632-alert Laya demo",
+  channel: "demo",
+  weightsSha256: "a".repeat(64),
+  trainingComplete: true,
+  promotionEligible: false,
+  trainingSequences: 23512,
+  developmentSequences: 5338,
+  sequenceAccuracy: 0.8115399025852379,
+  warning: "Review every mapping."
+};
 const firstAiChunk = `{"eventSummary":"${Array.from({ length: 60 }, (_, index) => `field-${index + 1}`).join("\\n")}`;
 const secondAiChunk = '","observedFacts":[]}';
 const generatedDraft = Array.from({ length: 60 }, (_, index) => `Evidence field ${index + 1}: observed value`).join("\n");
@@ -93,48 +104,21 @@ const app = createAssistantServer({
         checkpoints: []
       }),
       mapIncident: async ({ targets, onProgress }) => {
-        onProgress?.({ detail: "Final assessment sourceIp: forward 7/7 fields." });
-        await new Promise((resolve) => setTimeout(resolve, 700));
+        onProgress?.({ detail: "Final assessment sourceIp: forward 7/7 fields.", stage: "final_assessment", completed: 7, total: 7, target: "sourceIp", pass: "forward" });
+        await new Promise((resolve) => setTimeout(resolve, 2000));
         return {
           fields: targets.includes("sourceIp") ? { sourceIp: "203.0.113.8" } : {},
           paths: targets.includes("sourceIp") ? { sourceIp: "/documents/0/alertEnvelope/network/peer" } : {},
-          statuses: Object.fromEntries(targets.map((t) => [t, t === "sourceIp" ? "selected" : "no_supported_match"])), provenance: Object.fromEntries(targets.map((t) => [t, { agreement: { value: t === "sourceIp" ? "agreed" : "none" } }])), warning: "", complete: true, sourceComplete: true, processingComplete: true, runtime: { effectiveWorkers: 1 }, timings: { totalMs: 700 }, leaves: 7
+          statuses: Object.fromEntries(targets.map((t) => [t, t === "sourceIp" ? "selected" : "no_supported_match"])), provenance: Object.fromEntries(targets.map((t) => [t, { agreement: { value: t === "sourceIp" ? "agreed" : "none" } }])), warning: "", complete: true, sourceComplete: true, processingComplete: true, runtime: { effectiveWorkers: 1 }, timings: { totalMs: 2000 }, leaves: 7
         };
       },
       close: () => {}
     },
     layaMapperInstaller: {
-      installInference: async () => { layaInstalled = true; return { installed: true, checkpointId: "base-multilingual" }; },
-      installTrainingTools: async ({ backend = "auto" } = {}) => ({ installed: true, backend: backend === "auto" ? "cpu" : backend })
+      installInference: async () => { layaInstalled = true; return { installed: true, checkpointId: demoCheckpoint.id }; }
     },
-    layaDataset: {
-      list: async () => layaExamples.map(({ id, createdAt, labels }) => ({
-        id,
-        createdAt,
-        mappedFields: Object.keys(labels).filter((key) => labels[key].state === "mapped"),
-        absentFields: Object.keys(labels).filter((key) => labels[key].state === "absent")
-      })),
-      add: async ({ labels }) => {
-        const example = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), labels };
-        layaExamples.push(example);
-        return example;
-      },
-      remove: async (id) => { const index = layaExamples.findIndex((item) => item.id === id); if (index >= 0) layaExamples.splice(index, 1); },
-      get: async (id) => layaExamples.find((item) => item.id === id),
-      clear: async () => { layaExamples.splice(0); },
-      exportJsonl: async () => layaExamples.map(JSON.stringify).join("\n"),
-      importJsonl: async () => layaExamples
-    },
-    layaTraining: {
-      status: async () => ({ trainerInstalled: false, running: false, checkpoints: [], minimumExamples: 50, examples: layaExamples.length }),
-      listCheckpoints: async () => [],
-      start: async () => ({ id: crypto.randomUUID() }),
-      cancel: async () => {},
-      removeCheckpoint: async () => {},
-      importCheckpoint: async () => ({}),
-      exportCheckpoint: async (_id, destination) => destination,
-      exportTrainingBundle: async (destination) => destination
-    },
+    layaInstallManifest: { schemaVersion: 4, checkpoint: demoCheckpoint },
+    layaInstallationIdentityReader: async () => layaInstalled ? { schemaVersion: 1, checkpoint: demoCheckpoint } : undefined,
     generateDraft: async ({ incidentId, onProgress, enrichDraft }) => {
       requestedIncidentIds.push(incidentId);
       await onProgress("Running local AI data processing.");
@@ -175,7 +159,7 @@ try {
   assert.equal(await page.locator("#localAiEnabled").isChecked(), false);
   assert.equal(await page.locator("#layaMapperEnabled").count(), 0);
   assert.equal(await page.locator("#layaWorkerMode").inputValue(), "auto");
-  await page.locator("#layaModelIdentity").getByText("base-english", { exact: true }).waitFor();
+  await page.locator("#layaModelIdentity").getByText("expanded-training-cuda-632-alerts-v1", { exact: true }).waitFor();
   await page.locator("#installLayaMapper").click();
   await page.getByText("Laya-mapper is ready.").waitFor();
   await page.locator("#layaWorkerMode").selectOption("manual");
@@ -186,12 +170,12 @@ try {
   await page.locator("#runLayaTest").click();
   await page.locator("#layaTestProgress").waitFor();
   await page.locator("#layaTestProgress").getByText(/Laya test: Final assessment/).waitFor();
+  await page.locator("#layaProgressStage").getByText("final assessment", { exact: true }).waitFor();
   await page.locator("#layaTestResult").waitFor();
   assert.equal(await page.locator("#layaTestResult").getByText("203.0.113.8", { exact: true }).count(), 1);
   assert.equal(await page.locator("#layaTestResult").getByText("Value agreement: agreed", { exact: true }).count(), 1);
   assert.equal(await page.locator("#layaTestResult").getByText("/documents/0/alertEnvelope/network/peer", { exact: true }).count(), 1);
   assert.equal(await page.locator("#startLayaTraining").count(), 0);
-  assert.equal(layaExamples.length, 0);
   assert.equal(await page.locator("#localAiModel").inputValue(), "qwen3.5:9b");
   assert.deepEqual(await page.locator("#localAiModels option").evaluateAll((options) => options.map((option) => option.value)), ["qwen3.5:9b"]);
   assert.equal(await page.locator("#pullModel").textContent(), "Install default model");

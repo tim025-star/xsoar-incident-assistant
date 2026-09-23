@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import net from "node:net";
 import { performance } from "node:perf_hooks";
 import { z } from "zod";
-import { LAYA_TARGET_CATALOGUE, LAYA_MAPPER_TARGETS, LAYA_MODEL, LAYA_EXPERIMENTS, DEFAULT_LAYA_EXPERIMENT } from "./laya-targets.js";
+import { LAYA_TARGET_CATALOGUE, LAYA_MAPPER_TARGETS, LAYA_MODEL, LAYA_CHECKPOINT_ID, LAYA_EXPERIMENTS, DEFAULT_LAYA_EXPERIMENT } from "./laya-targets.js";
 import { createLayaWorkerPool } from "./laya-worker.js";
 export { LAYA_MAPPER_TARGETS, HISTORIC_LAYA_TARGETS } from "./laya-targets.js";
 export { createLayaSidecarRunner } from "./laya-worker.js";
 
-export const DEFAULT_LAYA_CHECKPOINT = LAYA_MODEL.id;
+export const DEFAULT_LAYA_CHECKPOINT = LAYA_CHECKPOINT_ID;
 export const layaMapperSettingsSchema = z.object({
   enabled: z.boolean().default(false),
   checkpointId: z.string().regex(/^[A-Za-z0-9._-]+$/).max(128).default(DEFAULT_LAYA_CHECKPOINT),
@@ -32,6 +32,16 @@ function isoTimestampMs(text) {
       || structural.getUTCDate() !== parts[2] || structural.getUTCHours() !== parts[3]
       || structural.getUTCMinutes() !== parts[4] || structural.getUTCSeconds() !== parts[5]) return NaN;
   return Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(text) ? text : `${text}Z`);
+}
+
+function unixTimestampMs(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return NaN;
+  const magnitude = Math.abs(numeric);
+  if (magnitude >= 1e17) return numeric / 1e6; // nanoseconds
+  if (magnitude >= 1e14) return numeric / 1e3; // microseconds
+  if (magnitude >= 1e11) return numeric; // milliseconds
+  return numeric * 1000; // seconds
 }
 
 export function flattenAlertDocuments(documents) {
@@ -70,7 +80,7 @@ export function rejectionReason(target, value) {
   if (type === "url") { try { return ["https:", "http:"].includes(new URL(text).protocol) ? "" : "invalid_url"; } catch { return "invalid_url"; } }
   if (type === "timestamp") {
     const numeric = typeof value === "number" || /^\d+(?:\.\d+)?$/.test(text) ? Number(value) : NaN;
-    const ms = Number.isFinite(numeric) ? numeric >= 1e12 ? numeric : numeric * 1000 : isoTimestampMs(text);
+    const ms = Number.isFinite(numeric) ? unixTimestampMs(numeric) : isoTimestampMs(text);
     return Number.isFinite(ms) && ms >= Date.UTC(2000, 0, 1) && ms < Date.UTC(2100, 0, 1) ? "" : "invalid_event_time";
   }
   return typeof value === "string" ? "" : type === "identifier" ? "requires_text_or_number" : "requires_text";
@@ -141,7 +151,9 @@ export function createLayaMapper({ runner = createLayaWorkerPool() } = {}) {
     close: () => runner.close?.(),
     async mapIncident({ documents, targets = LAYA_MAPPER_TARGETS, complete = true, workerMode = "auto", workerCount = 1, experiment = DEFAULT_LAYA_EXPERIMENT, onProgress, signal }) {
       const started = performance.now();
-      const progress = (detail) => { try { onProgress?.({ detail }); } catch {} };
+      const progress = (detail, stage = "working", completed = 0, total = 0, extra = {}) => {
+        try { onProgress?.({ detail, stage, completed, total, ...extra }); } catch {}
+      };
       if (!Array.isArray(targets) || targets.some((target) => !LAYA_MAPPER_TARGETS.includes(target))) throw new Error("Unsupported Laya target.");
       if (!Object.hasOwn(LAYA_EXPERIMENTS, experiment)) throw new Error("Unsupported Laya experiment.");
       const options = LAYA_EXPERIMENTS[experiment];
@@ -179,11 +191,11 @@ export function createLayaMapper({ runner = createLayaWorkerPool() } = {}) {
         const jobs = targets.flatMap((target) => candidatesByTarget.get(target).map((field) => ({ id: "d" + requestId++, kind: "classify", field, target: { id: target, ...LAYA_TARGET_CATALOGUE[target] } })));
         const batches = [];
         for (let index = 0; index < jobs.length; index += 16) batches.push(jobs.slice(index, index + 16));
-        progress("Loading base-English Laya; examining " + leaves.length + " fields for " + targets.length + " targets.");
+        progress("Loading the reviewed Laya demo checkpoint; examining " + leaves.length + " fields for " + targets.length + " targets.", "loading", 0, 1);
         if (jobs.length) runtime = await runner.configure?.({ workerMode, workerCount, workItems: batches.length });
         else runtime = { effectiveWorkers: 0, threadsPerWorker: 0, workerMode, requestedWorkers: workerCount, ready: false, detail: "No structurally eligible pairs require model inference." };
         if (jobs.length && experiment !== "baseline" && !runtime?.capabilities?.includes("value-groups-v1")) throw new Error("Update the Laya inference runtime for exact typed-value grouping.");
-        if (runtime) progress("Using " + runtime.effectiveWorkers + " CPU worker(s), " + runtime.threadsPerWorker + " threads each. Starting field assessment.");
+        if (runtime) progress("Using " + runtime.effectiveWorkers + " CPU worker(s), " + runtime.threadsPerWorker + " threads each. Starting field assessment.", "field_assessment", 0, jobs.length);
         let assessed = 0;
         await parallelJobs(batches, runtime?.effectiveWorkers || 1, async (batch) => {
           const results = await evaluate(batch);
@@ -192,7 +204,7 @@ export function createLayaMapper({ runner = createLayaWorkerPool() } = {}) {
             provenance[target.id].candidates.push({ id: field.id, pointer: field.pointer, score: item.score, windows: item.windows, selectedWindow: item.selectedWindow, evidence: item.evidence, tokenAccounting: item.tokenAccounting });
           });
           assessed += batch.length;
-          progress("Field assessment: " + assessed + "/" + jobs.length + " eligible pairs; " + (leaves.length * targets.length - jobs.length) + " structural rejections.");
+          progress("Field assessment: " + assessed + "/" + jobs.length + " eligible pairs; " + (leaves.length * targets.length - jobs.length) + " structural rejections.", "field_assessment", assessed, jobs.length);
         });
         timings.classificationMs = Math.round(performance.now() - classifyStarted);
         const selectionStarted = performance.now();
@@ -217,7 +229,7 @@ export function createLayaMapper({ runner = createLayaWorkerPool() } = {}) {
               if (increment < 1) throw new Error("Laya could not assess the next candidate.");
               offset += increment;
               winner = result.choice === NONE ? undefined : candidates.find((c) => c.id === result.choice);
-              progress("Final assessment " + target + ": " + pass + " " + offset + "/" + ordered.length + " fields.");
+              progress("Final assessment " + target + ": " + pass + " " + offset + "/" + ordered.length + " fields.", "final_assessment", offset, ordered.length, { target, pass });
             }
             return winner;
           };
@@ -295,7 +307,7 @@ export function createLayaMapper({ runner = createLayaWorkerPool() } = {}) {
         const trace = provenance[target];
         return [target, { totalFields: leaves.length, eligible: candidatesByTarget.get(target).length, distinctValues: new Set(candidatesByTarget.get(target).map(valueIdentity)).size, rejected: trace.rejected.length, scored: trace.candidates.length, finalAssessed: trace.assessedIds.length, windowsEvaluated: trace.candidates.reduce((n, c) => n + c.windows.length, 0), omittedContext: trace.candidates.reduce((n, c) => n + c.windows.reduce((m, w) => m + (w.tokenAccounting?.omittedSiblings || 0), 0), 0) }];
       }));
-      progress(processingComplete ? "Completed field mapping; review selected and tentative results." : "Mapping ended with incomplete model coverage.");
+      progress(processingComplete ? "Completed field mapping; review selected and tentative results." : "Mapping ended with incomplete model coverage.", processingComplete ? "complete" : "incomplete", 1, 1);
       return { fields, paths, statuses, provenance, coverage, warning: warnings.join(" "), complete: complete && processingComplete, sourceComplete: complete, processingComplete, leaves: leaves.length, decisionsCompleted, model: LAYA_MODEL, experiment, runtime, timings, scoreMeaning: "Model scores are not calibrated correctness estimates." };
     }
   };

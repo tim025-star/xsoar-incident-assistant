@@ -6,5 +6,6 @@
   "pilotEvaluationInterval": 5,
   "cpuHeadOnlyMicroBatch": 16,
   "cpuHeadOnlyAccumulation": 1,
+  "cudaInitialGradScale": 1024,
   "epochs": 3
 }
