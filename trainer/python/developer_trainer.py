@@ -126,13 +126,15 @@ def forward(model, batch, device, *, detach_encoder=False):
                  detach_encoder=detach_encoder)
 
 
-def predict(model, items, pad_id, device, *, detach_encoder=False):
+def predict(model, items, pad_id, device, *, detach_encoder=False, batch_size=16):
+    if type(batch_size) is not int or batch_size < 1:
+        raise ValueError("prediction batch size must be a positive integer")
     rows = [None] * len(items)
     indexed = sorted(enumerate(items), key=lambda pair: (len(pair[1]["ids"]), pair[0]))
     model.eval()
     with torch.no_grad():
-        for start in range(0, len(indexed), 16):
-            chunk = indexed[start:start + 16]
+        for start in range(0, len(indexed), batch_size):
+            chunk = indexed[start:start + batch_size]
             chunk_items = [item for _, item in chunk]
             batch = collate(chunk_items, pad_id)
             logits, _ = forward(model, batch, device, detach_encoder=detach_encoder)
@@ -287,7 +289,16 @@ def restore_pilot_state(path, model, optimizer, scheduler, scaler, bindings):
 
 def save_checkpoint(model, tokenizer, cfg, output: Path, manifest: dict[str, Any]) -> None:
     output.mkdir(parents=True, exist_ok=True)
-    save_file({key: value.half().contiguous().cpu() for key, value in model.state_dict().items()}, output / "model.safetensors")
+    parameters = dict(model.named_parameters())
+    weights = {}
+    for key, value in model.state_dict().items():
+        # The frozen base was loaded from fp16, so writing it as fp16 is lossless.
+        # Preserve trained parameters and mutable buffers at their working precision;
+        # otherwise the export itself can change the newly trained model's logits.
+        if value.is_floating_point() and key in parameters and not parameters[key].requires_grad:
+            value = value.half()
+        weights[key] = value.detach().contiguous().cpu()
+    save_file(weights, output / "model.safetensors")
     model.encoder.config.save_pretrained(output / "encoder")
     tokenizer.save_pretrained(output / "tokenizer")
     (output / "rl_agent_config.json").write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
@@ -295,11 +306,19 @@ def save_checkpoint(model, tokenizer, cfg, output: Path, manifest: dict[str, Any
 
 
 def verify_reload(model, cfg, checkpoint: Path, probe, pad_id, device, *, detach_encoder=False):
-    before = predict(model, probe, pad_id, device, detach_encoder=detach_encoder)
+    verification_batch_size = 8 if torch.device(device).type == "cuda" else 16
+    before = predict(model, probe, pad_id, device, detach_encoder=detach_encoder,
+                     batch_size=verification_batch_size)
+    # Verification is the final use of the trained model. Move it off the GPU
+    # before constructing the reload copy so 6 GiB devices never hold both.
+    model.to("cpu")
+    if torch.device(device).type == "cuda":
+        torch.cuda.empty_cache()
     reloaded = build_model(cfg, encoder_dir=checkpoint / "encoder")
     reloaded.load_state_dict(load_file(checkpoint / "model.safetensors"), strict=True)
     reloaded.to(device)
-    after = predict(reloaded, probe, pad_id, device, detach_encoder=detach_encoder)
+    after = predict(reloaded, probe, pad_id, device, detach_encoder=detach_encoder,
+                    batch_size=verification_batch_size)
     if (len(before) != len(probe) or len(after) != len(probe)
             or any(len(row["logits"]) != len(item["markers"])
                    or not all(math.isfinite(value) for value in row["logits"])
@@ -535,8 +554,14 @@ def train(args) -> None:
         "resumedFromOptimizerSteps": resumed_from_optimizer_steps,
         "recoveryState": state_path.name,
         "calibration": {"status": "unchanged", "sha256": sha256_json(original_calibration)},
+        "weightPrecision": {"trainedParameters": "source", "frozenParameters": "float16", "buffers": "source"},
         "sequenceMetrics": metrics, "reviewGates": sorted(review_gates), "promotionEligible": False,
     }
+    # Recovery is already durable and training is complete. Release optimiser
+    # tensors before the inference-only export verification begins.
+    del optimizer, scheduler, scaler, trainable
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
     save_checkpoint(model, tokenizer, cfg, output, manifest)
     manifest["reloadVerification"] = verify_reload(model, cfg, output, development_items, tokenizer.pad_token_id, device, detach_encoder=scope == "head-only")
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
