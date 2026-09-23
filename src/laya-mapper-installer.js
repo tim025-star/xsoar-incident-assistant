@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
-import { access, copyFile, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { downloadVerifiedAsset, verifyAssetFile } from "./local-ai-installer.js";
 import { createLayaSidecarRunner } from "./laya-worker.js";
-import { LAYA_MODEL, LAYA_PROMPT_VERSION, LAYA_TARGET_CATALOGUE } from "./laya-targets.js";
+import { LAYA_CHECKPOINT_ID, LAYA_MODEL, LAYA_PROMPT_VERSION, LAYA_TARGET_CATALOGUE } from "./laya-targets.js";
 
 const PROCESS_OUTPUT_LIMIT = 2 * 1024 * 1024;
 const EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -44,8 +44,40 @@ function validateArchive(asset, expectedEntry) {
   return asset;
 }
 
+function validateCheckpoint(checkpoint, modelFiles) {
+  if (!checkpoint || typeof checkpoint !== "object"
+    || checkpoint.id !== LAYA_CHECKPOINT_ID
+    || typeof checkpoint.label !== "string" || !checkpoint.label.trim() || checkpoint.label.length > 160
+    || checkpoint.channel !== "demo"
+    || typeof checkpoint.weightsSha256 !== "string" || !/^[a-f0-9]{64}$/.test(checkpoint.weightsSha256)
+    || typeof checkpoint.trainingComplete !== "boolean"
+    || checkpoint.promotionEligible !== false
+    || !Number.isInteger(checkpoint.trainingSequences) || checkpoint.trainingSequences < 1
+    || !Number.isInteger(checkpoint.developmentSequences) || checkpoint.developmentSequences < 1
+    || !Number.isFinite(checkpoint.sequenceAccuracy) || checkpoint.sequenceAccuracy < 0 || checkpoint.sequenceAccuracy > 1
+    || typeof checkpoint.warning !== "string" || !checkpoint.warning.trim() || checkpoint.warning.length > 500) {
+    throw new Error("The Laya demo checkpoint identity is invalid.");
+  }
+  const weights = modelFiles.find((item) => item.path === "model.safetensors");
+  if (!weights || weights.sha256 !== checkpoint.weightsSha256) {
+    throw new Error("The Laya demo checkpoint does not match its model weights.");
+  }
+  return Object.freeze({
+    id: checkpoint.id,
+    label: checkpoint.label.trim(),
+    channel: checkpoint.channel,
+    weightsSha256: checkpoint.weightsSha256,
+    trainingComplete: checkpoint.trainingComplete,
+    promotionEligible: false,
+    trainingSequences: checkpoint.trainingSequences,
+    developmentSequences: checkpoint.developmentSequences,
+    sequenceAccuracy: checkpoint.sequenceAccuracy,
+    warning: checkpoint.warning.trim()
+  });
+}
+
 export function parseLayaInstallManifest(value) {
-  if (!value || value.schemaVersion !== 3 || value.protocolVersion !== 2 || value.layaVersion !== "0.3.5") {
+  if (!value || ![3, 4].includes(value.schemaVersion) || value.protocolVersion !== 2 || value.layaVersion !== "0.3.5") {
     throw new Error("The Laya-mapper installation manifest is invalid.");
   }
   const runtime = validateArchive(value.runtime, "laya-mapper.exe");
@@ -60,11 +92,30 @@ export function parseLayaInstallManifest(value) {
     return item;
   });
   if (new Set(modelFiles.map((item) => item.path.toLowerCase())).size !== modelFiles.length) throw new Error("Duplicate model file path.");
-  return { schemaVersion: 3, protocolVersion: 2, model: LAYA_MODEL, layaVersion: value.layaVersion, runtime, modelFiles };
+  const checkpoint = value.schemaVersion === 4 ? validateCheckpoint(value.checkpoint, modelFiles) : undefined;
+  return { schemaVersion: value.schemaVersion, protocolVersion: 2, model: LAYA_MODEL, checkpoint, layaVersion: value.layaVersion, runtime, modelFiles };
 }
 
 export async function loadLayaInstallManifest(filePath) {
   return parseLayaInstallManifest(JSON.parse(await readFile(filePath, "utf8")));
+}
+
+export async function readLayaInstallationIdentity({ rootDirectory = defaultRootDirectory() } = {}) {
+  try {
+    const value = JSON.parse(await readFile(path.join(rootDirectory, "install.json"), "utf8"));
+    if (value?.schemaVersion !== 1 || typeof value?.checkpoint?.id !== "string"
+      || !/^[a-f0-9]{64}$/.test(value?.checkpoint?.weightsSha256 || "")) return undefined;
+    return value;
+  } catch (error) {
+    if (error?.code === "ENOENT" || error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+}
+
+async function atomicJson(filePath, value) {
+  const temporary = `${filePath}.${process.pid}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(temporary, filePath);
 }
 
 export async function verifyLayaMapperInstallation({ rootDirectory = defaultRootDirectory(), runnerFactory = createLayaSidecarRunner } = {}) {
@@ -231,9 +282,17 @@ export function createLayaMapperInstaller({
       }
       onProgress({ status: "Verifying the installed Laya runtime and checkpoint.", completed: total, total });
       await verifyInstallation({ rootDirectory });
+      if (manifest.checkpoint) {
+        await atomicJson(path.join(rootDirectory, "install.json"), {
+          schemaVersion: 1,
+          model: manifest.model,
+          checkpoint: manifest.checkpoint,
+          installedAt: new Date().toISOString()
+        });
+      }
       await rm(cacheDirectory, { recursive: true, force: true });
-      onProgress({ status: "Laya-mapper is installed.", completed: total, total });
-      return { installed: true, checkpointId: manifest.model.id };
+      onProgress({ status: `${manifest.checkpoint?.label || "Laya-mapper"} is installed.`, completed: total, total });
+      return { installed: true, checkpointId: manifest.checkpoint?.id || manifest.model.id };
     }
   };
 }

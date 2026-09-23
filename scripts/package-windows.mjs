@@ -52,7 +52,7 @@ async function stageRelease() {
     throw new Error("LAYA_MAPPER_MANIFEST_PATH must point to the pinned Laya-mapper release manifest included with this release.");
   }
   await requireFile(layaMapperManifestPath, "Laya-mapper release manifest");
-  if ((await loadLayaInstallManifest(layaMapperManifestPath)).schemaVersion !== 3) throw new Error("Release packaging requires the English inference-only schema-v3 manifest.");
+  if ((await loadLayaInstallManifest(layaMapperManifestPath)).schemaVersion !== 4) throw new Error("Release packaging requires the reviewed demo checkpoint schema-v4 manifest.");
   await requireFile(path.join(rootDirectory, "dist", "web", "index.html"), "Built web application");
 
   await rm(stageDirectory, { recursive: true, force: true });

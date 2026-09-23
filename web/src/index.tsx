@@ -81,6 +81,8 @@ function App() {
     : "Restart the app to open a valid local console.");
   const [busy, setBusy] = createSignal(false);
   const modelDownloadRunning = () => pullingModel() || status()?.operation === "model download";
+  const layaCheckpoint = () => layaStatus()?.checkpoint;
+  const layaProgress = () => status()?.layaProgress;
   const tenantMissing = () => !config()?.xsoar.allowedOrigin.trim();
   const chromeSetupRequired = () => /remote debugging|valid browser endpoint|could not connect to chrome/i.test(message());
   const processedResponse = () => {
@@ -432,9 +434,13 @@ function App() {
         <div class="mb-5">
           <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Optional semantic mapping</p>
           <h2 class="m-0 text-xl font-bold">Laya-mapper</h2>
-          <p class="helper mb-0 mt-2">An experimental, coverage-first baseline for mapping local JSON fields. Normal incident processing remains deterministic.</p>
+          <p class="helper mb-0 mt-2">A reviewed, coverage-first tuned model for mapping local JSON fields. Normal incident processing remains deterministic.</p>
         </div>
-        <p id="layaModelIdentity" class="helper">English base checkpoint · <code>base-english</code> · revision <code>1c5edc17a7acd8701df6fc341c0d179f1c62c982</code>. CPU only, unchanged weights. Diagnostics only; never applied to incidents.</p>
+        <p id="layaModelIdentity" class="helper">
+          Reviewed demo checkpoint · <code>{layaCheckpoint()?.id || "expanded-training-cuda-632-alerts-v1"}</code>
+          {layaCheckpoint() ? <> · weights <code>{layaCheckpoint()!.weightsSha256.slice(0, 12)}…</code> · {layaCheckpoint()!.trainingSequences.toLocaleString()} training sequences · {(layaCheckpoint()!.sequenceAccuracy * 100).toFixed(2)}% teacher-forced sequence score</> : ""}.
+          CPU inference; diagnostics only and never applied automatically. The sequence score is not production mapping accuracy.
+        </p>
         <div class="mt-4 grid gap-4 sm:grid-cols-2">
           <label class="field">Worker mode
             <select id="layaWorkerMode" class="control" disabled={busy()} value={settings().layaMapper.workerMode} onChange={(event) => { updateLayaMapper("workerMode", event.currentTarget.value); void runAction(persistLayaSettings); }}>
@@ -455,7 +461,7 @@ function App() {
 
         <details class="mt-5 border-t border-line pt-4" open>
           <summary class="cursor-pointer font-bold">Test Laya-mapper without XSOAR</summary>
-          <p class="helper">Paste fictional or approved alert JSON. This runs the fixed English base model locally with exact typed-value grouping. Repeated values retain every source pointer and alias assessment in provenance; one assessed representative continues into the distinct-value comparison. Every eligible field reaches final assessment. Pasted alerts and results are not saved automatically. Model scores are not calibrated probabilities of correctness.</p>
+          <p class="helper">Paste fictional or approved alert JSON. This runs the reviewed tuned demo checkpoint locally with exact typed-value grouping. Repeated values retain every source pointer and alias assessment in provenance; one assessed representative continues into the distinct-value comparison. Every eligible field reaches final assessment. Pasted alerts and results are not saved automatically. Model scores are not calibrated probabilities of correctness.</p>
           <label class="field">Test alert JSON
             <textarea id="layaTestJson" class="control min-h-64 font-mono text-xs" value={mapperTestJson()} onInput={(event) => { setMapperTestJson(event.currentTarget.value); setMapperTestResult(undefined); }} />
           </label>
@@ -478,14 +484,15 @@ function App() {
           <Show when={mapperTestRunning()}>
             <div id="layaTestProgress" class="mt-4 rounded-xl border border-brand/30 bg-blue-50 p-4" role="status" aria-live="polite">
               <div class="flex items-center justify-between gap-3 text-sm"><span>{message()}</span><span class="shrink-0 font-mono">{mapperTestElapsedSeconds()}s elapsed</span></div>
-              <progress class="mt-3 w-full">Working</progress>
+              <div class="mt-2 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-muted"><span id="layaProgressStage">{layaProgress()?.stage.replaceAll("_", " ") || "working"}</span><span>{layaProgress()?.total ? `${layaProgress()!.completed}/${layaProgress()!.total}` : ""}</span></div>
+              <progress class="mt-2 w-full" max={Math.max(1, layaProgress()?.total || 1)} value={layaProgress()?.total ? layaProgress()!.completed : 0}>Working</progress>
               <p class="helper mb-0 mt-2">CPU inference can take several minutes for large alerts or many selected fields. The current stage updates as each model comparison completes.</p>
             </div>
           </Show>
           <Show when={mapperTestResult()}>{(result) => (
             <div id="layaTestResult" class="mt-4 grid gap-3">
               <Show when={result().warning}><p class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm" role="alert">{result().warning}</p></Show>
-              <p class="helper">Workers: {result().runtime?.effectiveWorkers ?? 0} · Fields: {result().leaves} · Source complete: {String(result().sourceComplete)} · Model processing complete: {String(result().processingComplete)} · {result().timings.totalMs} ms</p>
+              <p class="helper">Checkpoint: <code>{result().checkpoint?.id || "unknown"}</code> · Workers: {result().runtime?.effectiveWorkers ?? 0} · Fields: {result().leaves} · Source complete: {String(result().sourceComplete)} · Model processing complete: {String(result().processingComplete)} · {result().timings.totalMs} ms</p>
               <div class="overflow-auto rounded-xl border border-line">
                 <table class="w-full text-left text-sm">
                   <thead class="bg-slate-50"><tr><th class="p-3">Canonical field</th><th class="p-3">Status</th><th class="p-3">Value / best guess</th><th class="p-3">Exact pointer and alternatives</th></tr></thead>
@@ -500,7 +507,7 @@ function App() {
           )}</Show>
         </details>
 
-        <p class="helper mt-4">Training is an optional separate product and is not installed or run by this application. Existing local training data is not deleted.</p>
+        <p class="helper mt-4">This checkpoint is released for reviewed demonstrations and feedback, not automatic incident updates. Training remains an optional separate product and is not installed or run by this application.</p>
       </section>
 
       <section class="panel">

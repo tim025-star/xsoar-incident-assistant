@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,31 +17,46 @@ const asset = (name, size = 4) => ({
   sha256: digest,
   url: `https://github.com/example/laya-assets/releases/download/v1/${name}`
 });
+const checkpoint = {
+  id: "expanded-training-cuda-632-alerts-v1",
+  label: "Reviewed 632-alert Laya demo",
+  channel: "demo",
+  weightsSha256: digest,
+  trainingComplete: true,
+  promotionEligible: false,
+  trainingSequences: 23512,
+  developmentSequences: 5338,
+  sequenceAccuracy: 0.8115399025852379,
+  warning: "Review every mapping."
+};
 const manifest = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   protocolVersion: 2,
   model: LAYA_MODEL,
+  checkpoint,
   layaVersion: "0.3.5",
   runtime: { ...asset("laya-mapper-runtime-cpu-x64.tar.gz"), entry: "laya-mapper.exe" },
   modelFiles: [{ ...asset("model.safetensors"), path: "model.safetensors" }]
 };
 
-test("English inference manifest requires the pinned identity and no trainer assets", async (context) => {
+test("demo inference manifest pins the base identity and trained checkpoint weights", async (context) => {
   const rootDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-english-install-"));
   context.after(() => rm(rootDirectory, { recursive: true, force: true }));
-  assert.equal(parseLayaInstallManifest(manifest).model.id, "base-english");
+  assert.equal(parseLayaInstallManifest(manifest).checkpoint.id, checkpoint.id);
   assert.throws(() => parseLayaInstallManifest({ ...manifest, schemaVersion: 2 }), /invalid/);
   assert.throws(() => parseLayaInstallManifest({ ...manifest, trainers: { cpu: {} } }), /must not contain trainer assets/);
   assert.throws(() => parseLayaInstallManifest({ ...manifest, model: { ...LAYA_MODEL, revision: "wrong" } }), /identity/);
+  assert.throws(() => parseLayaInstallManifest({ ...manifest, checkpoint: { ...checkpoint, weightsSha256: "b".repeat(64) } }), /does not match.*weights/i);
   const destinations = [];
   const installer = createLayaMapperInstaller({ manifest, rootDirectory,
     download: async (asset, destination) => { await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, Buffer.alloc(asset.size)); },
     extract: async (_, destination) => { destinations.push(destination); },
     verifyInstallation: async ({ rootDirectory: verifiedRoot }) => { assert.equal(verifiedRoot, rootDirectory); }
   });
-  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: "base-english" });
+  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: checkpoint.id });
   assert.deepEqual(destinations, [path.join(rootDirectory, "runtime-v2")]);
   await access(path.join(rootDirectory, "models/base-english/model.safetensors"));
+  assert.equal(JSON.parse(await readFile(path.join(rootDirectory, "install.json"), "utf8")).checkpoint.id, checkpoint.id);
 });
 
 test("Laya installation accepts only bounded GitHub release assets and installs verified files", async (context) => {
@@ -63,7 +78,7 @@ test("Laya installation accepts only bounded GitHub release assets and installs 
     },
     verifyInstallation: async () => {}
   });
-  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: "base-english" });
+  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: checkpoint.id });
   assert.deepEqual(downloaded, ["laya-mapper-runtime-cpu-x64.tar.gz", "model.safetensors"]);
   assert.throws(() => parseLayaInstallManifest({
     ...manifest,
@@ -90,6 +105,7 @@ test("Laya inference installation works from an offline asset pack", async (cont
     item.sha256 = checksum;
     await writeFile(path.join(offlineDirectory, item.name), contents);
   }
+  offlineManifest.checkpoint.weightsSha256 = checksum;
   const installer = createLayaMapperInstaller({
     manifest: offlineManifest,
     rootDirectory,

@@ -36,4 +36,5 @@ export const LAYA_TARGET_CATALOGUE = Object.freeze({
 export const LAYA_MAPPER_TARGETS = Object.freeze(Object.keys(LAYA_TARGET_CATALOGUE));
 export const HISTORIC_LAYA_TARGETS = Object.freeze(["customerName", "ruleName", "caseType", "incidentOutcome", "closeNotes", "historicalRecommendations"]);
 export const LAYA_MODEL = Object.freeze({ id: "base-english", repository: "convaiinnovations/laya", revision: "1c5edc17a7acd8701df6fc341c0d179f1c62c982", sdkVersion: "0.3.5", protocolVersion: 2 });
+export const LAYA_CHECKPOINT_ID = "expanded-training-cuda-632-alerts-v1";
 export const LAYA_PROMPT_VERSION = "english-fields-v3";

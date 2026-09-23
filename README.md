@@ -40,25 +40,25 @@ Select **Install default model** to use the verified GitHub path. If the default
 
 Cloud and remote model aliases are blocked. Before Ollama receives incident evidence, the selected model must appear on the loopback service at `127.0.0.1:11434` and pass a fresh local-model check. The tool has no cloud AI endpoint or configurable AI URL. Generated output streams in the processed-data field. Invalid or unavailable AI output falls back to the deterministic source-field response.
 
-### Experimental English Laya baseline
+### Reviewed Laya demo checkpoint
 
 Laya is diagnostics-only in this phase. Normal incident processing uses the existing deterministic mapper; Qwen enrichment is unchanged. Training code, datasets, and checkpoint-management controls are not part of the core application or installer. Upgrading does not delete existing datasets, multilingual downloads, or custom checkpoints already stored on disk.
 
 On **Configuration → Test Laya-mapper without XSOAR**, paste approved or fictional JSON, choose targets and automatic/manual CPU workers, and run the mapper. No tenant is needed. The panel shows every requested target, exact pointers, selected/tentative/no-supported-match/incomplete statuses, coverage, model scores, and expandable provenance. Pasted input and results are not saved automatically. Cancellation terminates active workers.
 
-The fixed model is the root English checkpoint of `convaiinnovations/laya`, revision `1c5edc17a7acd8701df6fc341c0d179f1c62c982`, with Laya SDK `0.3.5`. Its native limits remain 512 total and 192 question/options tokens. Weights and shipped temperatures are unchanged; the SDK's applied temperatures are recorded. These scores are **not calibrated for JSON mapping**.
+The demo checkpoint `expanded-training-cuda-632-alerts-v1` is a head-only fine-tune of the root English `convaiinnovations/laya` checkpoint at revision `1c5edc17a7acd8701df6fc341c0d179f1c62c982`, using Laya SDK `0.3.5`. It completed its fixed three-epoch schedule and exact 5,338-sequence save/reload verification. Its 81.15% teacher-forced sequence score is shown for provenance and is **not production mapping accuracy**. The checkpoint remains `promotionEligible: false`; every result requires analyst review.
 
 Every supported scalar/target pair is either explicitly rejected for a structural reason or assessed independently. Stage-one scores order the bucket; they never exclude candidates. Every eligible field reaches forward and reverse final comparisons, including overflow buckets. Disagreements produce a labelled tentative best guess; two none results produce no supported match. Full pointers and original values stay outside prompts and are resolved by ID. Long strings use overlapping token windows; omitted context is counted.
 
 The bounded input limits are 96 KiB, depth 30, and 10,000 visited nodes. CPU microbatches contain at most 16 sequences and 4,096 padded tokens. Automatic mode uses one resident model process because it was fastest in the measured one/two/four-worker benchmark. Manual mode supports 1–4 workers for other hardware, subject to pending work and a memory safety check. Workers reserve two logical processors for the application/OS and share the remaining thread budget.
 
-Installation uses verified GitHub release assets (fixed size and SHA-256), an inference-only schema-v3 manifest, an app-local `runtime-v2`, and `models/base-english`. The installer starts the installed runtime and performs a protocol-2 inference smoke check before reporting success. No Python installation or trainer download is required for end users. Offline asset packs are supported. Old protocol-1 executables cannot run the new mapper.
+Installation uses verified GitHub release assets (fixed size and SHA-256), an inference-only schema-v4 manifest, an app-local `runtime-v2`, and `models/base-english`. The manifest separately identifies the upstream architecture and trained checkpoint. The installer starts the installed runtime, performs a protocol-2 inference smoke check, and records the verified checkpoint identity before reporting success. An upgraded application refuses to label old base weights as the tuned checkpoint. No Python installation or trainer download is required for end users. Offline asset packs are supported. Old protocol-1 executables cannot run the mapper.
 
-Selecting **Install Laya-mapper** downloads about 970 MiB and uses about 1.3 GiB after installation. The measured single-worker process peaks near 2.8 GiB RAM; the automatic mode keeps one model resident and uses the available CPU thread budget while reserving two logical processors for Windows and the application.
+Selecting **Install Laya-mapper** downloads about 1.0 GiB and uses about 1.3 GiB after installation. The measured single-worker process peaks near 2.8 GiB RAM; automatic mode keeps one model resident and uses the available CPU thread budget while reserving two logical processors for Windows and the application.
 
-See [the baseline implementation and measured results](docs/laya-baseline.md) for evaluation commands, the labelled development/evaluation split, evidence and limitations.
+See [the v0.4.0 demo checkpoint report](docs/laya-demo-v0.4.0.md) and [the baseline implementation](docs/laya-baseline.md) for evaluation scope, evidence and limitations.
 
-The diagnostics mapper uses exact typed-value grouping with source aliases. It reports value agreement separately from pointer agreement and retains every alias for review. The [measured comparison](docs/laya-improvements.md) explains why richer role context, two-candidate comparisons, and model self-checks were rejected. No vendor-specific semantic mappings or training are present in this baseline.
+The diagnostics mapper uses exact typed-value grouping with source aliases. It reports value agreement separately from pointer agreement and retains every alias for review. The UI shows the active checkpoint hash, current inference stage, stage progress, elapsed time, worker allocation, coverage, result status, and full provenance. No vendor-specific semantic answer rules select mappings.
 
 ## Use
 
@@ -125,7 +125,7 @@ npm run test:trainer
 
 The end-user installer is built only from a version tag. It stages the built application, production dependencies, a pinned portable Node.js runtime, and the reviewed Laya asset manifest, then packages them with Inno Setup. Ollama and default-model versions, URLs, sizes, and hashes are pinned in `src/local-ai-installer.js`; the Laya CPU inference archive and English checkpoint files are pinned by size and SHA-256 in the staged release manifest.
 
-1. Run the manual **Laya-mapper Windows assets** workflow to build and smoke-test the application-local CPU inference archive and the pinned English checkpoint. Review the generated inference-only schema-v3 manifest and dependency inventories, then set repository variables `LAYA_MAPPER_MANIFEST_URL` and `LAYA_MAPPER_MANIFEST_SHA256`. For a local package, set `LAYA_MAPPER_MANIFEST_PATH` to that reviewed file. To prepare a disconnected deployment, download every manifest asset into the same directory as the resulting Setup executable; no network access is then required by the Laya installation task.
+1. Build and smoke-test the application-local CPU inference archive and reviewed checkpoint. Review the generated inference-only schema-v4 manifest, checkpoint identity, hashes, and dependency inventories, then set repository variables `LAYA_MAPPER_MANIFEST_URL` and `LAYA_MAPPER_MANIFEST_SHA256`. For a local package, set `LAYA_MAPPER_MANIFEST_PATH` to that reviewed file. To prepare a disconnected deployment, download every manifest asset into the same directory as the resulting Setup executable; no network access is then required by the Laya installation task.
 2. Update `package.json` with the release version and push a matching `v<version>` tag.
 3. The **Windows release** workflow verifies the project and runtime checksum, builds the unsigned installer, writes its SHA-256 sidecar, and publishes both files to the GitHub Release.
 

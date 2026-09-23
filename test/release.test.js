@@ -23,7 +23,7 @@ function deferred() { let resolve; const promise = new Promise((next) => { resol
 
 test("current Chrome is the only browser interface", () => {
   assert.equal(DEFAULT_APP_CONFIG.configVersion, 14);
-  assert.deepEqual(DEFAULT_APP_CONFIG.layaMapper, { enabled: false, checkpointId: "base-english", workerMode: "auto", workerCount: 1 });
+  assert.deepEqual(DEFAULT_APP_CONFIG.layaMapper, { enabled: false, checkpointId: "expanded-training-cuda-632-alerts-v1", workerMode: "auto", workerCount: 1 });
   assert.equal("session" in DEFAULT_APP_CONFIG, false);
   assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "");
   assert.deepEqual(DEFAULT_APP_CONFIG.localAi, { enabled: false, model: "qwen3.5:9b" });
@@ -143,7 +143,7 @@ test("legacy settings migrate by discarding retired fields", () => {
     assert.equal(key in migrated.xsoar.fieldLabels, false);
   }
   assert.deepEqual(migrated.localAi, { enabled: false, model: "qwen3.5:9b" });
-  assert.deepEqual(migrated.layaMapper, { enabled: false, checkpointId: "base-english", workerMode: "auto", workerCount: 1 });
+  assert.deepEqual(migrated.layaMapper, { enabled: false, checkpointId: "expanded-training-cuda-632-alerts-v1", workerMode: "auto", workerCount: 1 });
 });
 
 test("local AI settings can be saved while Chrome remains connected", async () => {
