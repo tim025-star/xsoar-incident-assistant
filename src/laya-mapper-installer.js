@@ -268,6 +268,36 @@ export function createLayaMapperInstaller({
       const total = manifest.runtime.size + manifest.modelFiles.reduce((sum, item) => sum + item.size, 0);
       let completed = 0;
       const progress = (status, assetCompleted) => onProgress({ status, completed: completed + assetCompleted, total });
+      onProgress({ status: "Checking the installed Laya runtime and checkpoint.", completed: 0, total });
+      const identity = await readLayaInstallationIdentity({ rootDirectory });
+      let current = identity?.checkpoint?.id === manifest.checkpoint?.id
+        && identity?.checkpoint?.weightsSha256 === manifest.checkpoint?.weightsSha256
+        && identity?.runtimeSha256 === manifest.runtime.sha256;
+      try {
+        if (current) await access(path.join(rootDirectory, "runtime-v2", manifest.runtime.entry));
+        if (current) {
+          for (const asset of manifest.modelFiles) {
+            const installed = path.join(rootDirectory, "models", manifest.model.id, ...asset.path.split("/"));
+            onProgress({ status: `Checking installed Laya-mapper ${asset.name}.`, completed: 0, total });
+            if (!(await verifyAssetFile(installed, asset, signal))) {
+              current = false;
+              break;
+            }
+          }
+        }
+        if (current) {
+          onProgress({ status: "Verifying the installed Laya runtime and checkpoint.", completed: 0, total });
+          await verifyInstallation({ rootDirectory });
+        }
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        current = false;
+      }
+      if (current) {
+        await rm(cacheDirectory, { recursive: true, force: true });
+        onProgress({ status: `${manifest.checkpoint?.label || "Laya-mapper"} is already installed; skipped download.`, completed: total, total });
+        return { installed: false, alreadyInstalled: true, checkpointId: manifest.checkpoint?.id || manifest.model.id };
+      }
       await installArchive(manifest.runtime, path.join(rootDirectory, "runtime-v2"), {
         signal,
         onProgress: ({ completed: value }) => progress(`Installing Laya-mapper ${manifest.runtime.name}.`, value)
@@ -287,6 +317,7 @@ export function createLayaMapperInstaller({
           schemaVersion: 1,
           model: manifest.model,
           checkpoint: manifest.checkpoint,
+          runtimeSha256: manifest.runtime.sha256,
           installedAt: new Date().toISOString()
         });
       }
