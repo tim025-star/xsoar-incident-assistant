@@ -4,15 +4,14 @@ import {
   buildHistoricalIncidentUrl,
   buildIncidentUrlFromId,
   buildIncidentSearchUrl,
-  buildSearchQuery,
   cleanText,
   incidentTicketIdFromUrl,
   mergeIncidentDetails,
   resolveSettings
 } from "./domain.js";
 import { LAYA_MAPPER_TARGETS } from "./laya-mapper.js";
+import { renderHistoricQuery } from "./historic-query.js";
 
-const HISTORIC_LOOKBACK_QUERY = 'created:>="3 months ago"';
 const HISTORIC_SEARCH_SAFETY_LIMIT = 1000;
 
 function isSameTenantAndAlertName(current, candidate, row) {
@@ -225,7 +224,7 @@ async function readHistoricCandidate({
 
 async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs, onProgress = async () => {} }) {
   try {
-    const query = buildSearchQuery(incident.incidentName, incident.tenantName, HISTORIC_LOOKBACK_QUERY);
+    const query = await renderHistoricQuery(settings, incident);
     const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, ""), { focusBeforeNavigation: true });
     temporaryTabs.add(searchTab);
     await adapter.focusTab(searchTab.id);
@@ -251,7 +250,7 @@ async function collectHistoric({ adapter, settings, incident, originalTab, tempo
         failures.push(warning);
         await onProgress(warning);
       } else if (candidate?.unrelated) {
-        await onProgress(`Skipped historic incident #${candidate.ticketId} because its client or alert type did not match.`);
+        await onProgress(`Skipped historic incident #${candidate.ticketId} because its tenant or incident name did not match.`);
       } else if (candidate) {
         items.push(candidate);
       }
@@ -341,7 +340,7 @@ export async function runIncidentDraft({
     if (mapIncident) await onProgress("Mapping source fields with local Laya-mapper.");
     const mapped = await applyLayaMapping(extractedIncident, mapIncident);
     const incident = mapped.incident;
-    await onProgress("Processing the selected alert and searching three months of history.");
+    await onProgress("Processing the selected alert and searching incident history.");
     const enrichmentPromise = (async () => {
       if (!enrichDraft) return { enrichment: null, warning: "", aiEnriched: false };
       try {
