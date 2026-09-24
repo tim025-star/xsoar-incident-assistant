@@ -269,15 +269,20 @@ export function createLayaMapperInstaller({
       let completed = 0;
       const progress = (status, assetCompleted) => onProgress({ status, completed: completed + assetCompleted, total });
       onProgress({ status: "Checking the installed Laya runtime and checkpoint.", completed: 0, total });
-      let current = true;
+      const identity = await readLayaInstallationIdentity({ rootDirectory });
+      let current = identity?.checkpoint?.id === manifest.checkpoint?.id
+        && identity?.checkpoint?.weightsSha256 === manifest.checkpoint?.weightsSha256
+        && identity?.runtimeSha256 === manifest.runtime.sha256;
       try {
-        await access(path.join(rootDirectory, "runtime-v2", manifest.runtime.entry));
-        for (const asset of manifest.modelFiles) {
-          const installed = path.join(rootDirectory, "models", manifest.model.id, ...asset.path.split("/"));
-          onProgress({ status: `Checking installed Laya-mapper ${asset.name}.`, completed: 0, total });
-          if (!(await verifyAssetFile(installed, asset, signal))) {
-            current = false;
-            break;
+        if (current) await access(path.join(rootDirectory, "runtime-v2", manifest.runtime.entry));
+        if (current) {
+          for (const asset of manifest.modelFiles) {
+            const installed = path.join(rootDirectory, "models", manifest.model.id, ...asset.path.split("/"));
+            onProgress({ status: `Checking installed Laya-mapper ${asset.name}.`, completed: 0, total });
+            if (!(await verifyAssetFile(installed, asset, signal))) {
+              current = false;
+              break;
+            }
           }
         }
         if (current) {
@@ -289,16 +294,7 @@ export function createLayaMapperInstaller({
         current = false;
       }
       if (current) {
-        const identity = manifest.checkpoint && await readLayaInstallationIdentity({ rootDirectory });
-        if (manifest.checkpoint && (identity?.checkpoint?.id !== manifest.checkpoint.id
-          || identity.checkpoint.weightsSha256 !== manifest.checkpoint.weightsSha256)) {
-          await atomicJson(path.join(rootDirectory, "install.json"), {
-            schemaVersion: 1,
-            model: manifest.model,
-            checkpoint: manifest.checkpoint,
-            installedAt: new Date().toISOString()
-          });
-        }
+        await rm(cacheDirectory, { recursive: true, force: true });
         onProgress({ status: `${manifest.checkpoint?.label || "Laya-mapper"} is already installed; skipped download.`, completed: total, total });
         return { installed: false, alreadyInstalled: true, checkpointId: manifest.checkpoint?.id || manifest.model.id };
       }
@@ -321,6 +317,7 @@ export function createLayaMapperInstaller({
           schemaVersion: 1,
           model: manifest.model,
           checkpoint: manifest.checkpoint,
+          runtimeSha256: manifest.runtime.sha256,
           installedAt: new Date().toISOString()
         });
       }

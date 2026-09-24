@@ -133,19 +133,30 @@ test("reselecting Laya in the application installer skips a verified current ins
   assert.equal(extracted, 1);
   assert.equal(verified, 2);
   assert.match(statuses.at(-1), /already installed; skipped download/i);
-  await rm(path.join(rootDirectory, "install.json"));
+  const cacheFile = path.join(rootDirectory, "install-cache", "stale-download");
+  await mkdir(path.dirname(cacheFile), { recursive: true });
+  await writeFile(cacheFile, "partial");
   assert.deepEqual(await installer.installInference(), repeat);
-  assert.equal(JSON.parse(await readFile(path.join(rootDirectory, "install.json"), "utf8")).checkpoint.weightsSha256, checksum);
-  assert.equal(downloaded.length, 2);
-  assert.equal(verified, 3);
-  await writeFile(path.join(rootDirectory, "models/base-english/model.safetensors"), "old!");
+  await assert.rejects(access(cacheFile), { code: "ENOENT" });
+  await rm(path.join(rootDirectory, "install.json"));
   assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: checkpoint.id });
+  assert.equal(JSON.parse(await readFile(path.join(rootDirectory, "install.json"), "utf8")).checkpoint.weightsSha256, checksum);
   assert.equal(downloaded.length, 4);
-  assert.equal(extracted, 2);
-  failNextVerification = true;
+  assert.equal(verified, 4);
+  const markerPath = path.join(rootDirectory, "install.json");
+  const marker = JSON.parse(await readFile(markerPath, "utf8"));
+  await writeFile(markerPath, JSON.stringify({ ...marker, runtimeSha256: "b".repeat(64) }));
   assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: checkpoint.id });
   assert.equal(downloaded.length, 6);
   assert.equal(extracted, 3);
+  await writeFile(path.join(rootDirectory, "models/base-english/model.safetensors"), "old!");
+  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: checkpoint.id });
+  assert.equal(downloaded.length, 8);
+  assert.equal(extracted, 4);
+  failNextVerification = true;
+  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: checkpoint.id });
+  assert.equal(downloaded.length, 10);
+  assert.equal(extracted, 5);
 });
 
 test("Laya inference installation works from an offline asset pack", async (context) => {
