@@ -77,7 +77,7 @@ If launch reports a startup error, reinstall the current release. The launcher d
 
 The separate **Configuration** page includes the tenant URL, analyst identity, incident routes, historic result limit, page timeout, local AI, output wording, and JSON log mappings. Each mapping accepts JSON keys or dotted paths such as `source.ip` or `events.actor.user_name`; array indexes are ignored. Existing XSOAR field labels and two-column log tables remain supported as fallbacks. No analyst name is hard-coded.
 
-XSOAR routes vary by deployment. Before operational use, confirm the configured incident route, URL template, incident list path, and search parameter against synthetic incidents. Historic searches submit exact `rawName` and `rawType` values plus a fixed three-month creation window through XSOAR's main incidents search input. Each candidate is then checked against the selected ticket's customer, rule, and type before its resolution is included. Automation stops or omits the candidate if navigation leaves the configured HTTPS origin or an incident path does not match.
+XSOAR routes vary by deployment. Before operational use, confirm the configured incident route, URL template, incident list path, and search parameter against synthetic incidents. Historic searches submit exact `rawName` and `tenantname` values plus a fixed three-month creation window through XSOAR's main incidents search input. Each candidate is checked against the selected ticket's tenant and alert name before its resolution is included. Automation stops or omits the candidate if navigation leaves the configured HTTPS origin or an incident path does not match.
 
 ## Credentials and data
 

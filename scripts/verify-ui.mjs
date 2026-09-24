@@ -380,7 +380,7 @@ try {
   await jsonLogPage.close();
 
   const searchPage = await browser.newPage();
-  const historicQuery = 'rawName:"Example detection" and rawType:"Endpoint" and (created:>="3 months ago")';
+  const historicQuery = 'rawName:"Example detection" and tenantname:"Example Organisation" and (created:>="3 months ago")';
   await searchPage.route("https://xsoar.example.test/**", (route) => route.fulfill({
     contentType: "text/html",
     body: `<header><span class="header-search"><input autocomplete="off" placeholder="Search in Incidents" type="text" class="xsoar-input search-input header-search-input"></span></header><main id="incidents-page"><div class="react-select-dropdown-multiple__input"><input type="text"></div><label>Incident query<textarea aria-label="Incident search query">-status:closed -category:job</textarea></label><div role="grid" aria-rowcount="0"></div><div class="table-paging-message"></div></main><script>document.querySelector("textarea").addEventListener("keydown", (event) => { if (event.key !== "Enter") return; event.preventDefault(); document.querySelector("[role=grid]").innerHTML = '<div class="row"><a href="/incidents">#4199</a></div>'; document.querySelector("[role=grid]").setAttribute("aria-rowcount", "1"); document.querySelector(".table-paging-message").textContent = "1-1 of 1"; });</script>`
@@ -431,7 +431,7 @@ try {
     if (requested.pathname === "/incidents") {
       await route.fulfill({
         contentType: "text/html",
-        body: `<main id="incidents-page"><label>Incident query<textarea aria-label="Incident search query"></textarea></label><div role="grid" aria-rowcount="0"></div><div class="table-paging-message"></div></main><script>document.querySelector("textarea").addEventListener("keydown", (event) => { if (event.key !== "Enter") return; event.preventDefault(); const grid = document.querySelector("[role=grid]"); grid.innerHTML = '<div role="row"><a href="/incidents">#4199</a></div>'; grid.setAttribute("aria-rowcount", "1"); document.querySelector(".table-paging-message").textContent = "1-1 of 1"; });</script>`
+        body: `<main id="incidents-page"><label>Incident query<textarea aria-label="Incident search query"></textarea></label><div role="grid" aria-rowcount="0"></div><div class="table-paging-message"></div></main><script>document.querySelector("textarea").addEventListener("keydown", (event) => { if (event.key !== "Enter") return; event.preventDefault(); const grid = document.querySelector("[role=grid]"); grid.innerHTML = '<div role="row"><div role="columnheader">Created</div><div role="columnheader">Tenant Name</div><div role="columnheader">ID</div><div role="columnheader">Name</div><div role="columnheader">Type</div></div><div role="row"><div role="gridcell">Yesterday</div><div role="gridcell">Example Organisation</div><div role="gridcell"><a href="/incident/4199">#4199</a></div><div role="gridcell">Synthetic alert</div><div role="gridcell">Endpoint</div></div>'; grid.setAttribute("aria-rowcount", "2"); document.querySelector(".table-paging-message").textContent = "1-1 of 1"; });</script>`
       });
       return;
     }
@@ -440,9 +440,10 @@ try {
     const resolution = ticketId === "4199" && historicLoads > 1
       ? '<div class="field-wrapper fieldId-closenotes"><label>Close Notes</label><div class="value-wrapper"><div class="text-field-display-value">Resolved after foreground retry</div></div></div>'
       : "";
+    const currentIdentity = ticketId === "4199" ? "" : `<div class="field-wrapper fieldId-customername"><label>Customer Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div><div class="field-wrapper fieldId-tenantname"><label>Tenant Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper"><div class="text-field-display-value">Synthetic Rule</div></div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper"><div class="text-field-display-value">Endpoint</div></div></div>`;
     await route.fulfill({
       contentType: "text/html",
-      body: `<div class="header-inv-id">#${ticketId}</div><div class="header-inv-title">Synthetic alert</div><div class="field-wrapper fieldId-customername"><label>Customer Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper"><div class="text-field-display-value">Synthetic Rule</div></div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper"><div class="text-field-display-value">Endpoint</div></div></div>${resolution}`
+      body: `<div class="header-inv-id">#${ticketId}</div><div class="header-inv-title">Synthetic alert</div>${currentIdentity}${resolution}`
     });
   });
   const workflowIncidentPage = await workflowContext.newPage();

@@ -116,6 +116,38 @@ test("incident extraction reconstructs only the named XSOAR event tables", async
   }
 });
 
+test("incident extraction reads Tenant Name independently from Type", async () => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  const tenantValue = { ...visible, getAttribute: () => null, textContent: "Tenant Alpha" };
+  const tenantRoot = {
+    querySelectorAll: (selector) => selector === ".text-field-display-value" ? [tenantValue] : []
+  };
+  const tenantField = {
+    ...visible,
+    matches: (selector) => selector === ".field-wrapper",
+    querySelector: (selector) => selector === ".value-wrapper" ? tenantRoot : null
+  };
+  const page = incidentPage();
+  const querySelectorAll = page.querySelectorAll.bind(page);
+  page.querySelectorAll = (selector) => selector === ".fieldId-tenantname"
+    ? [tenantField] : querySelectorAll(selector);
+  globalThis.location = new URL("https://xsoar.example.test/Custom/GenericLayout/4200");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = page;
+
+  try {
+    const result = await extractIncidentFromPage(incidentSettings({
+      fieldLabels: { tenantName: ["Tenant Name"], caseType: ["Type"], ruleName: ["Rule Name"] }
+    }));
+    assert.equal(result.tenantName, "Tenant Alpha");
+    assert.equal(result.caseType, "");
+  } finally {
+    globalThis.document = original.document;
+    globalThis.location = original.location;
+    globalThis.window = original.window;
+  }
+});
+
 test("incident extraction reads the ticket from a direct XSOAR result route", async () => {
   const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
   const page = incidentPage();
@@ -407,13 +439,19 @@ test("historic search preserves collected rows across pagination loading", async
 
 test("historic search returns the direct link from a fixed data table result row", async () => {
   const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
-  const link = { ...visible, getAttribute: () => "/incident/4199", closest: () => ({}) };
+  const headers = ["Created", "Tenant Name", "ID", "Name", "Type"]
+    .map((textContent) => ({ textContent }));
+  const cells = ["Yesterday", "Example Organisation", "#4199", "Example detection", "Endpoint"]
+    .map((textContent) => ({ textContent }));
+  const row = { querySelectorAll: (selector) => selector === "[role='gridcell']" ? cells : [] };
+  const link = { ...visible, getAttribute: () => "/incident/4199", closest: () => row };
   const root = {
     ...visible,
     scrollTop: 0,
     clientHeight: 500,
     querySelector: () => null,
-    querySelectorAll: (selector) => selector === "a[href]" ? [link] : []
+    querySelectorAll: (selector) => selector === "a[href]" ? [link]
+      : selector === "[role='columnheader']" ? headers : []
   };
   globalThis.location = new URL("https://xsoar.example.test/incidents");
   globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
@@ -432,6 +470,9 @@ test("historic search returns the direct link from a fixed data table result row
     });
     assert.deepEqual(result.ticketIds, ["4199"]);
     assert.deepEqual(result.ticketUrls, { 4199: "https://xsoar.example.test/incident/4199" });
+    assert.deepEqual(result.ticketRows, {
+      4199: { tenantName: "Example Organisation", name: "Example detection", type: "Endpoint" }
+    });
   } finally {
     globalThis.document = original.document;
     globalThis.location = original.location;

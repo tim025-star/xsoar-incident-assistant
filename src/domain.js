@@ -1,5 +1,6 @@
 export const FIELD_LABELS = Object.freeze({
   customerName: ["Customer Name"],
+  tenantName: ["Tenant Name"],
   classification: ["Classification"],
   occurred: ["Occurred"],
   incidentOutcome: ["Incident Outcome"],
@@ -244,13 +245,13 @@ function escapeQueryValue(value) {
   return cleanText(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-export function buildSearchQuery(incidentName, caseType, lookbackQuery = "") {
-  if (!isAvailable(incidentName) || !isAvailable(caseType)) {
-    throw new Error("The incident must expose both Incident Name and Type before a historic search can run.");
+export function buildSearchQuery(incidentName, tenantName, lookbackQuery = "") {
+  if (!isAvailable(incidentName) || !isAvailable(tenantName)) {
+    throw new Error("The incident must expose both Incident Name and Tenant Name before a historic search can run.");
   }
   const parts = [
     `rawName:"${escapeQueryValue(incidentName)}"`,
-    `rawType:"${escapeQueryValue(caseType)}"`
+    `tenantname:"${escapeQueryValue(tenantName)}"`
   ];
   if (cleanText(lookbackQuery)) parts.push(`(${cleanText(lookbackQuery)})`);
   return parts.join(" and ");

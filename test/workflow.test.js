@@ -13,6 +13,7 @@ function createAdapter({
   searchError,
   searchTicketIds = ["4200", "4199", "4198", "4197"],
   searchTicketUrls = {},
+  searchTicketRows = {},
   onExtract = () => {},
   onSearch = () => {}
 } = {}) {
@@ -59,7 +60,9 @@ function createAdapter({
         }
         return {
           ticketId,
+          incidentName: "Example detection",
           customerName: "Example Organisation",
+          tenantName: "Example Organisation",
           ruleName: "Example Rule",
           caseType: "Endpoint",
           closeNotes: `Resolved incident ${ticketId}`,
@@ -73,6 +76,7 @@ function createAdapter({
         ruleName: "Example Rule",
         caseType: "Endpoint",
         customerName: "Example Organisation",
+        tenantName: "Example Organisation",
         tabUrls: [],
         ...currentIncident
       };
@@ -80,7 +84,7 @@ function createAdapter({
     async extractSearchResults(id, options) {
       onSearch(options);
       if (searchError) throw searchError;
-      return { ticketIds: searchTicketIds.slice(0, options.maxResults), ticketUrls: searchTicketUrls, truncated: searchTicketIds.length > options.maxResults };
+      return { ticketIds: searchTicketIds.slice(0, options.maxResults), ticketUrls: searchTicketUrls, ticketRows: searchTicketRows, truncated: searchTicketIds.length > options.maxResults };
     },
     async closeTab(id) { events.push(`close:${id}`); closed.push(id); tabs.delete(id); },
     async focusTab(id) { events.push(`focus:${id}`); this.focused.push(id); }
@@ -99,8 +103,8 @@ test("workflow searches three months of same-client alert history while AI proce
   let searchOptions;
   const adapter = createAdapter({
     historicalIncidents: {
-      4198: { customerName: "Different Organisation" },
-      4197: { caseType: "Different Type" }
+      4198: { tenantName: "Different Organisation" },
+      4197: { incidentName: "Different alert" }
     },
     onSearch: (options) => {
       searchedWhileAiPending = aiPending;
@@ -122,6 +126,8 @@ test("workflow searches three months of same-client alert history while AI proce
   assert.equal(new URL(adapter.opened[0]).search, "");
   assert.match(searchOptions.expectedQuery, /rawName:"Example detection"/);
   assert.doesNotMatch(searchOptions.expectedQuery, /rawName:"Example Rule"/);
+  assert.match(searchOptions.expectedQuery, /tenantname:"Example Organisation"/);
+  assert.doesNotMatch(searchOptions.expectedQuery, /rawType/);
   assert.match(searchOptions.expectedQuery, /created:>="3 months ago"/);
   assert.match(result.draft, /Historic\n1\. #4199: Resolved incident 4199/);
   assert.doesNotMatch(result.draft, /#4198|#4197/);
@@ -159,6 +165,31 @@ test("workflow opens the incident link supplied by a filtered XSOAR result row",
 
   assert.equal(adapter.opened[1], "https://xsoar.example.test/incident/4199");
   assert.match(result.draft, /#4199: Resolved incident 4199/);
+});
+
+test("historic review uses the verified result row when detail views omit duplicate identity fields", async () => {
+  const adapter = createAdapter({
+    searchTicketIds: ["4200", "4199"],
+    searchTicketUrls: { 4199: "https://xsoar.example.test/incident/4199" },
+    searchTicketRows: { 4199: { tenantName: "Example Organisation", name: "Example detection" } },
+    historicalIncidents: { 4199: { customerName: "", ruleName: "", caseType: "", incidentName: "" } }
+  });
+  const result = await runIncidentDraft({ adapter, settings });
+
+  assert.equal(adapter.opened[1], "https://xsoar.example.test/incident/4199");
+  assert.match(result.draft, /#4199: Resolved incident 4199/);
+  assert.equal(result.reviewed, 1);
+});
+
+test("historic review excludes a result row from a different tenant", async () => {
+  const adapter = createAdapter({
+    searchTicketIds: ["4200", "4199"],
+    searchTicketRows: { 4199: { tenantName: "Different Tenant", name: "Example detection" } }
+  });
+  const result = await runIncidentDraft({ adapter, settings });
+
+  assert.equal(result.reviewed, 0);
+  assert.doesNotMatch(result.draft, /#4199: Resolved incident 4199/);
 });
 
 test("workflow retries an incomplete historic incident once in the foreground", async () => {
@@ -206,7 +237,7 @@ test("workflow reports the ticket and safe reason after both historic attempts f
 test("workflow continues past other clients until it finds the requested number of same-client resolutions", async () => {
   const searchTicketIds = ["4200", ...Array.from({ length: 20 }, (_, index) => String(4199 - index)), "4179"];
   const historicalIncidents = Object.fromEntries(
-    searchTicketIds.slice(1, -1).map((ticketId) => [ticketId, { customerName: "Different Organisation" }])
+    searchTicketIds.slice(1, -1).map((ticketId) => [ticketId, { tenantName: "Different Organisation" }])
   );
   const result = await runIncidentDraft({
     adapter: createAdapter({ searchTicketIds, historicalIncidents }),
@@ -241,13 +272,12 @@ test("workflow merges trusted detail views for historic identity and resolution 
     adapter: createAdapter({
       searchTicketIds: ["4200", "4199"],
       historicalIncidents: {
-        4199: { customerName: "", ruleName: "", caseType: "", closeNotes: "", tabUrls: [detailUrl] }
+        4199: { tenantName: "", incidentName: "", closeNotes: "", tabUrls: [detailUrl] }
       },
       historicalViews: {
         [detailUrl]: {
-          customerName: "Example Organisation",
-          ruleName: "Example Rule",
-          caseType: "Endpoint",
+          tenantName: "Example Organisation",
+          incidentName: "Example detection",
           closeNotes: "Resolved from the investigation view"
         }
       },
@@ -259,7 +289,7 @@ test("workflow merges trusted detail views for historic identity and resolution 
   assert.match(result.draft, /#4199: Resolved from the investigation view/);
   assert.ok(extractionCalls.some(({ url }) => url === detailUrl));
   assert.ok(extractionCalls.some(({ url, settings: extractionSettings }) =>
-    url.endsWith("/4199") && extractionSettings.requiredFields?.includes("customerName")));
+    url.endsWith("/4199") && extractionSettings.requiredFields?.includes("tenantName")));
   assert.ok(extractionCalls.some(({ url, settings: extractionSettings }) =>
     url.endsWith("/4199") && extractionSettings.requiredAnyFields?.includes("closeNotes")));
 });
