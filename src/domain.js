@@ -34,7 +34,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   incidentPathTemplate: "/Custom/GenericLayout/{id}",
   incidentsPath: "/incidents",
   searchQueryParameter: "query",
+  // Retained so existing saved configurations continue to load.
   lookbackQuery: "created:>=\"3 months ago\"",
+  historicQueryTemplate: 'rawName:{incidentName} and tenantname:{tenantName} and (created:>="3 months ago")',
   maxHistoricalIncidents: 5,
   pageReadyTimeoutMs: 20000,
   incidentInfoTabLabel: "Incident Info",
@@ -118,6 +120,7 @@ export function resolveSettings(input = {}) {
     "incidentsPath",
     "searchQueryParameter",
     "lookbackQuery",
+    "historicQueryTemplate",
     "incidentInfoTabLabel",
     "investigationTabLabel"
   ]) {
@@ -142,6 +145,9 @@ export function resolveSettings(input = {}) {
   }
   if (!/^[A-Za-z0-9._~-]+$/.test(settings.searchQueryParameter)) {
     throw new Error("searchQueryParameter contains unsupported characters.");
+  }
+  if (settings.historicQueryTemplate.length > 2048 || /[\r\n\u0000-\u001f]/.test(settings.historicQueryTemplate)) {
+    throw new Error("historicQueryTemplate must be a single-line query no longer than 2048 characters.");
   }
   const incidentsUrl = new URL(settings.incidentsPath, settings.allowedOrigin);
   if (!settings.incidentsPath.startsWith("/") || incidentsUrl.origin !== settings.allowedOrigin
@@ -245,16 +251,12 @@ function escapeQueryValue(value) {
   return cleanText(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-export function buildSearchQuery(incidentName, tenantName, lookbackQuery = "") {
+export function buildSearchQuery(incidentName, tenantName, template = DEFAULT_SETTINGS.historicQueryTemplate) {
   if (!isAvailable(incidentName) || !isAvailable(tenantName)) {
     throw new Error("The incident must expose both Incident Name and Tenant Name before a historic search can run.");
   }
-  const parts = [
-    `rawName:"${escapeQueryValue(incidentName)}"`,
-    `tenantname:"${escapeQueryValue(tenantName)}"`
-  ];
-  if (cleanText(lookbackQuery)) parts.push(`(${cleanText(lookbackQuery)})`);
-  return parts.join(" and ");
+  return template.replace(/\{incidentName\}|\{tenantName\}/g, (placeholder) =>
+    `"${escapeQueryValue(placeholder === "{incidentName}" ? incidentName : tenantName)}"`);
 }
 
 export function buildIncidentSearchUrl(settings, query) {

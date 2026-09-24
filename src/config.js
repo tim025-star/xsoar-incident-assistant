@@ -46,6 +46,7 @@ const xsoarShape = {
   incidentsPath: z.string(),
   searchQueryParameter: z.string(),
   lookbackQuery: z.string(),
+  historicQueryTemplate: z.string(),
   maxHistoricalIncidents: z.number().int(),
   pageReadyTimeoutMs: z.number().int(),
   incidentInfoTabLabel: z.string(),

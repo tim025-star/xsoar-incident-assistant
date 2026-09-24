@@ -231,13 +231,16 @@ try {
   assert.deepEqual(pulledModels, ["qwen3.5:9b", "slow-model"]);
   await page.locator("#localAiEnabled").check();
 
-  await page.getByText("Advanced XSOAR routing").click();
+  await page.getByText("Advanced XSOAR routing and historic search").click();
+  const customHistoricQuery = 'name:{incidentName} and tenantname:{tenantName} and status:closed';
+  await page.locator("#historicQueryTemplate").fill(customHistoricQuery);
   await page.locator("#maxHistoricalIncidents").fill("10");
   await page.locator("#analystName").fill("Example Analyst");
   await page.locator("#saveMappings").click();
   await page.getByText("XSOAR config saved.").waitFor();
   assert.deepEqual(uiConfig.xsoar.fieldLabels.occurred, ["Occurred", "Event Time"]);
   assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
+  assert.equal(uiConfig.xsoar.historicQueryTemplate, customHistoricQuery);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
 
   await page.getByRole("link", { name: "Home" }).click();

@@ -11,13 +11,13 @@ type Status = Awaited<ReturnType<typeof rpc.status>>;
 type LocalAiStatus = Awaited<ReturnType<typeof rpc.localAi.status>>;
 type LayaStatus = Awaited<ReturnType<typeof rpc.layaMapper.status>>;
 type LayaDiagnostic = Awaited<ReturnType<typeof rpc.layaMapper.diagnostics>>;
-type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "searchQueryParameter";
+type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "searchQueryParameter" | "historicQueryTemplate";
 type NumberSetting = "maxHistoricalIncidents" | "pageReadyTimeoutMs";
 type TemplateSetting = keyof AppConfig["xsoar"]["template"];
 type FieldLabelSetting = keyof AppConfig["xsoar"]["fieldLabels"];
 
 const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting & keyof typeof LAYA_TARGET_CATALOGUE; name: string; use: string }> = [
-  { key: "customerName", name: "Customer name", use: "customer.name → greeting and historic match" },
+  { key: "customerName", name: "Customer name", use: "customer.name → greeting" },
   { key: "occurred", name: "Time stamp", use: "@timestamp → event breakdown" },
   { key: "sourceUsername", name: "Source user", use: "source.user.name → user and source" },
   { key: "clientUserName", name: "Client user", use: "client.user.name → fallback user" },
@@ -32,8 +32,8 @@ const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting & keyof typeof LAYA_TARGET_
   { key: "serviceMessage", name: "Service message", use: "message → error / service message" },
   { key: "eventInfo", name: "Event info", use: "event.original → fallback message" },
   { key: "errorMessage", name: "Error message", use: "error.message → fallback message" },
-  { key: "ruleName", name: "Rule name", use: "rule.name → alert context and historic match" },
-  { key: "caseType", name: "Case type", use: "event.category → alert context and historic match" },
+  { key: "ruleName", name: "Rule name", use: "rule.name → alert context" },
+  { key: "caseType", name: "Case type", use: "event.category → alert context" },
   { key: "classification", name: "Classification", use: "classification → recorded classification" },
   { key: "incidentOutcome", name: "Incident outcome", use: "event.outcome → factual AI context" },
   { key: "closeNotes", name: "Close notes", use: "close.notes → factual AI context" },
@@ -420,7 +420,7 @@ function App() {
         </details>
         <label class="field">Processed incident data
           <textarea ref={draftElement} id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="Processed source fields appear here." value={processedResponse()} onScroll={updateLiveOutputFollow} />
-          <span class="helper">The model extracts facts from the selected alert only. In parallel, the app searches three months of matching XSOAR history and appends past resolutions under Historic.</span>
+          <span class="helper">The model extracts facts from the selected alert only. In parallel, the app uses the configured XSOAR historic query and appends matching past resolutions under Historic.</span>
           <Show when={status()?.processingMode}><span id="processingMode" class="helper">Processing used: {status()?.processingMode}.</span></Show>
         </label>
         <Show when={status()?.draft && (status()?.layaFields?.length || status()?.layaTentativeFields?.length)}>
@@ -490,7 +490,7 @@ function App() {
             </label>
           </div>
           <details class="mt-5 border-t border-line pt-4">
-            <summary class="cursor-pointer font-bold">Advanced XSOAR routing</summary>
+            <summary class="cursor-pointer font-bold">Advanced XSOAR routing and historic search</summary>
             <div class="mt-4 grid gap-4">
               <label class="field">Incident route regex
                 <input id="incidentUrlPattern" class="control font-mono text-sm" value={settings().xsoar.incidentUrlPattern} onInput={(event) => updateTextSetting("incidentUrlPattern", event.currentTarget.value)} />
@@ -507,10 +507,14 @@ function App() {
                   <input id="searchQueryParameter" class="control" value={settings().xsoar.searchQueryParameter} onInput={(event) => updateTextSetting("searchQueryParameter", event.currentTarget.value)} />
                 </label>
               </div>
+              <label class="field">Historic search query
+                <textarea id="historicQueryTemplate" class="control font-mono text-sm" rows="3" spellcheck={false} value={settings().xsoar.historicQueryTemplate} onInput={(event) => updateTextSetting("historicQueryTemplate", event.currentTarget.value)} />
+                <span class="helper">This is the query Playwright enters in XSOAR. Use <code>{"{incidentName}"}</code> and <code>{"{tenantName}"}</code> for values from the current incident; both are inserted as quoted, escaped values. Historic results are still checked against that incident’s tenant and name.</span>
+              </label>
               <div class="grid gap-4 sm:grid-cols-2">
                 <label class="field">Historic resolutions to include
                   <input id="maxHistoricalIncidents" class="control" type="number" min="1" max="20" value={settings().xsoar.maxHistoricalIncidents} onInput={(event) => updateNumberSetting("maxHistoricalIncidents", event.currentTarget.valueAsNumber)} />
-                  <span class="helper">Searches the previous three months for the same client, rule, and alert type.</span>
+                  <span class="helper">Includes matching incident resolutions from the query results, up to this limit.</span>
                 </label>
                 <label class="field">Page load timeout (ms)
                   <input id="pageReadyTimeoutMs" class="control" type="number" min="1000" max="120000" value={settings().xsoar.pageReadyTimeoutMs} onInput={(event) => updateNumberSetting("pageReadyTimeoutMs", event.currentTarget.valueAsNumber)} />

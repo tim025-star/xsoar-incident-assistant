@@ -133,6 +133,18 @@ test("workflow searches three months of same-client alert history while AI proce
   assert.doesNotMatch(result.draft, /#4198|#4197/);
 });
 
+test("workflow submits the configured historic query to Playwright", async () => {
+  let query;
+  await runIncidentDraft({
+    adapter: createAdapter({ searchTicketIds: ["4200"], onSearch: (options) => { query = options.expectedQuery; } }),
+    settings: resolveSettings({
+      ...settings,
+      historicQueryTemplate: 'name:{incidentName} and tenantname:{tenantName} and status:closed'
+    })
+  });
+  assert.equal(query, 'name:"Example detection" and tenantname:"Example Organisation" and status:closed');
+});
+
 test("workflow visibly opens and completes each historic incident tab before starting the next", async () => {
   const adapter = createAdapter({ searchTicketIds: ["4200", "4199", "4198"] });
 
