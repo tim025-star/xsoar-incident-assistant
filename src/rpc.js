@@ -8,7 +8,7 @@ import { appConfigInputSchema, loadConfig, resolvedAppConfigSchema, saveConfig }
 import { createLocalAiInstaller } from "./local-ai-installer.js";
 import { createLayaMapperInstaller, loadLayaInstallManifest, readLayaInstallationIdentity } from "./laya-mapper-installer.js";
 import { createLayaMapper, LAYA_MAPPER_TARGETS, layaMapperSettingsSchema } from "./laya-mapper.js";
-import { createOllamaClient, localAiSettingsSchema } from "./local-ai.js";
+import { boundedAlertJson, createOllamaClient, localAiSettingsSchema } from "./local-ai.js";
 import { runIncidentDraft } from "./workflow.js";
 
 const draftRequestSchema = z.object({
@@ -57,12 +57,20 @@ export function createAssistantRouter({
       && installed?.checkpoint?.weightsSha256 === expected.weightsSha256);
     return { expected, installed: installed?.checkpoint, matches };
   };
+  const ensureLayaAvailable = async () => {
+    const checkpoint = await checkpointState();
+    if (!checkpoint.matches || !(await layaMapper.status()).available) {
+      throw new Error("Install the reviewed Laya checkpoint and runtime before enabling incident routing.");
+    }
+  };
   let activity = {
     detail: "Connect Chrome, open an XSOAR incident, then build the response.",
     draft: "",
     aiOutput: "",
     aiDraft: false,
     layaMapped: false,
+    layaFields: /** @type {Array<{key: string, pointer: string}>} */ ([]),
+    layaTentativeFields: /** @type {string[]} */ ([]),
     layaProgress: { stage: "idle", completed: 0, total: 0 },
     processingMode: "",
     draftVersion: 0
@@ -90,13 +98,29 @@ export function createAssistantRouter({
     try {
       return await withOperationLock("response build", async () => {
         const draftVersion = activity.draftVersion + 1;
-        activity = { detail: "Collecting incident evidence.", draft: "", aiOutput: "", aiDraft: false, layaMapped: false, layaProgress: activity.layaProgress, processingMode: "", draftVersion };
+        activity = { detail: "Collecting incident evidence.", draft: "", aiOutput: "", aiDraft: false, layaMapped: false, layaFields: [], layaTentativeFields: [], layaProgress: { stage: "idle", completed: 0, total: 0 }, processingMode: "", draftVersion };
         const config = await configStore.load({ requireTenant: true });
+        const mapIncident = config.layaMapper.enabled ? async ({ incident, targets }) => {
+          await ensureLayaAvailable();
+          if (incident.alertJsonComplete !== true) throw new Error("The complete detailed alert JSON was not available for Laya mapping.");
+          const documents = boundedAlertJson(incident.alertJson, incident.alertJsonComplete);
+          return layaMapper.mapIncident({
+            documents,
+            targets,
+            complete: true,
+            workerMode: config.layaMapper.workerMode,
+            workerCount: config.layaMapper.workerCount,
+            onProgress: ({ detail, stage, completed, total, target, pass }) => {
+              activity = { ...activity, detail: `Laya mapping: ${detail}`, layaProgress: { stage, completed, total, target, pass } };
+            }
+          });
+        } : undefined;
         await sessions.start();
         const result = await generateDraft({
           adapter: sessions.adapter(config.xsoar),
           settings: config.xsoar,
           incidentId,
+          mapIncident,
           enrichDraft: config.localAi.enabled ? (input) => localAi.enrich({
             ...input,
             model: config.localAi.model,
@@ -112,6 +136,8 @@ export function createAssistantRouter({
           aiOutput: activity.aiOutput,
           aiDraft: result.aiEnriched,
           layaMapped: result.layaMapped,
+          layaFields: result.layaFields || [],
+          layaTentativeFields: result.layaTentativeFields || [],
           layaProgress: activity.layaProgress,
           processingMode: result.processingMode,
           draftVersion
@@ -135,6 +161,8 @@ export function createAssistantRouter({
           throw new ORPCError("CONFLICT", { message: "Disconnect Chrome before changing settings." });
         }
         try {
+          const current = await configStore.load({ requireTenant: false });
+          if (input.layaMapper?.enabled && !current.layaMapper.enabled) await ensureLayaAvailable();
           const config = await configStore.save(input);
           activity = { ...activity, detail: "XSOAR config saved." };
           return config;
@@ -158,6 +186,7 @@ export function createAssistantRouter({
       saveLayaMapper: os.input(layaMapperSettingsSchema).output(layaMapperSettingsSchema).handler(async ({ input }) => {
         try {
           const current = await configStore.load({ requireTenant: false });
+          if (input.enabled && !current.layaMapper.enabled) await ensureLayaAvailable();
           const saved = await configStore.save(
             { ...current, layaMapper: input },
             { requireTenant: false, allowRouteMismatch: true }

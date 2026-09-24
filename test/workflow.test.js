@@ -379,13 +379,15 @@ test("Laya mapping populates canonical fields before deterministic template gene
     settings,
     mapIncident: async ({ incident, targets }) => {
       calls.push({ incident, targets });
-      return { fields: { sourceIp: "203.0.113.77" }, warning: "" };
+      return { fields: { sourceIp: "203.0.113.77" }, paths: { sourceIp: "/documents/0/opaque" }, statuses: { sourceIp: "selected" }, complete: true, sourceComplete: true, processingComplete: true, warning: "" };
     }
   });
   assert.equal(calls.length, 1);
   assert.ok(calls[0].targets.includes("sourceIp"));
   assert.match(result.draft, /Source: 203\.0\.113\.77/);
   assert.equal(result.layaMapped, true);
+  assert.deepEqual(result.layaFields, [{ key: "sourceIp", pointer: "/documents/0/opaque" }]);
+  assert.deepEqual(result.layaTentativeFields, []);
   assert.equal(result.aiEnriched, false);
   assert.equal(result.processingMode, "Laya mapping");
   assert.equal(extractionCalls[0].settings.requireAlertJson, false);
@@ -399,7 +401,7 @@ test("Qwen receives Laya-mapped canonical fields when both local processors are 
       searchTicketIds: ["4200"]
     }),
     settings,
-    mapIncident: async () => ({ fields: { sourceUsername: "example.user" }, warning: "" }),
+    mapIncident: async () => ({ fields: { sourceUsername: "example.user" }, statuses: { sourceUsername: "selected" }, complete: true, sourceComplete: true, processingComplete: true, warning: "" }),
     enrichDraft: async ({ incident }) => {
       enrichedIncident = incident;
       return { eventSummary: "Mapped event.", observedFacts: [] };
@@ -425,4 +427,46 @@ test("Laya failure falls back to configured fields with a visible warning", asyn
   assert.doesNotMatch(result.warning, /private model detail/);
   assert.equal(result.layaMapped, false);
   assert.equal(result.processingMode, "Deterministic extraction");
+});
+
+test("Laya output fields do not change historic incident matching", async () => {
+  const result = await runIncidentDraft({
+    adapter: createAdapter({
+      currentIncident: { alertJson: [{ customer: "Other Organisation" }], alertJsonComplete: true },
+      searchTicketIds: ["4200", "4199"]
+    }),
+    settings,
+    mapIncident: async () => ({
+      fields: { customerName: "Other Organisation" },
+      statuses: { customerName: "selected" },
+      complete: true, sourceComplete: true, processingComplete: true
+    })
+  });
+  assert.match(result.draft, /Other Organisation/);
+  assert.match(result.draft, /#4199: Resolved incident 4199/);
+  assert.equal(result.reviewed, 1);
+});
+
+test("Laya does not place tentative or incomplete guesses in the output template", async () => {
+  for (const complete of [true, false]) {
+    const result = await runIncidentDraft({
+      adapter: createAdapter({
+        currentIncident: { sourceIp: "192.0.2.12", alertJson: [{ opaque: "203.0.113.77" }], alertJsonComplete: true },
+        searchTicketIds: ["4200"]
+      }),
+      settings,
+      mapIncident: async () => ({
+        fields: { sourceIp: "203.0.113.77" },
+        statuses: { sourceIp: complete ? "tentative" : "selected" },
+        complete, sourceComplete: true, processingComplete: complete,
+        warning: complete ? "Tentative best guess." : "Model processing incomplete."
+      })
+    });
+    assert.match(result.draft, /Source: 192\.0\.2\.12/);
+    assert.doesNotMatch(result.draft, /Source: 203\.0\.113\.77/);
+    assert.equal(result.layaMapped, false);
+    assert.deepEqual(result.layaFields, []);
+    assert.deepEqual(result.layaTentativeFields, complete ? ["sourceIp"] : []);
+    assert.match(result.warning, complete ? /Tentative/ : /configured source-field mappings were used/);
+  }
 });

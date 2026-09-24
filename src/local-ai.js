@@ -82,7 +82,7 @@ function sanitizeAlertJson(value, state = { nodes: 0 }, depth = 0) {
     .map(([key, item]) => [key, sanitizeAlertJson(item, state, depth + 1)]));
 }
 
-function boundedAlertJson(value, complete) {
+export function boundedAlertJson(value, complete) {
   if (complete === false) {
     throw new Error("The complete detailed alert JSON exceeds the safe local-processing limit.");
   }
@@ -90,9 +90,12 @@ function boundedAlertJson(value, complete) {
   if (complete === true && documents.length === 0) {
     throw new Error("The complete detailed alert JSON was not available for local processing.");
   }
+  if (documents.length > 100) {
+    throw new Error("The complete detailed alert JSON exceeds the safe local-processing limit.");
+  }
   const bounded = [];
   let characters = 0;
-  for (const document of documents.slice(0, 100)) {
+  for (const document of documents) {
     let serialized;
     try { serialized = JSON.stringify(document); } catch { throw new Error("The detailed alert JSON could not be serialized safely."); }
     if (!serialized || characters + serialized.length > MAX_ALERT_JSON_CHARACTERS) {

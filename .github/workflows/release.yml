@@ -68,4 +68,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
-        run: gh release create $env:GITHUB_REF_NAME .\artifacts\*.exe .\artifacts\*.sha256 --generate-notes --verify-tag --notes "Laya diagnostics use a reviewed demo checkpoint and require human review; they are not applied automatically. This installer is unsigned. Verify its SHA-256 checksum before running it; Windows may show an unknown-publisher warning."
+        run: gh release create $env:GITHUB_REF_NAME .\artifacts\*.exe .\artifacts\*.sha256 --generate-notes --verify-tag --notes "Laya incident mapping is opt-in and uses the reviewed demo checkpoint. Analysts must review mapped fields before copying the response. This installer is unsigned. Verify its SHA-256 checksum before running it; Windows may show an unknown-publisher warning."

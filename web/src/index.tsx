@@ -89,6 +89,7 @@ function App() {
   const modelDownloadRunning = () => pullingModel() || status()?.operation === "model download";
   const layaCheckpoint = () => layaStatus()?.checkpoint;
   const layaProgress = () => status()?.layaProgress;
+  const layaFieldName = (key: string) => FIELD_MAPPINGS.find((field) => field.key === key)?.name || key;
   const tenantMissing = () => !config()?.xsoar.allowedOrigin.trim();
   const chromeSetupRequired = () => /remote debugging|valid browser endpoint|could not connect to chrome/i.test(message());
   const processedResponse = () => {
@@ -217,8 +218,14 @@ function App() {
   const persistLayaSettings = async () => {
     const current = config();
     if (!current) return;
-    const layaMapper = await rpc.config.saveLayaMapper(current.layaMapper);
-    setConfig((latest) => latest ? { ...latest, layaMapper } : latest);
+    try {
+      const layaMapper = await rpc.config.saveLayaMapper(current.layaMapper);
+      setConfig((latest) => latest ? { ...latest, layaMapper } : latest);
+    } catch (error) {
+      const persisted = await rpc.config.get().catch(() => undefined);
+      if (persisted) setConfig(persisted);
+      throw error;
+    }
   };
   const updateLayaMapper = (key: "workerMode" | "workerCount", value: string) => {
     setConfig((current) => {
@@ -382,7 +389,23 @@ function App() {
         <div class="rounded-xl border border-line bg-slate-50 p-4">
           <p class="mb-1 text-xs font-bold uppercase tracking-wider text-muted">Run status</p>
           <p id="status" class="m-0 leading-6" role="status" aria-live="polite">{message()}</p>
+          <Show when={status()?.operation === "response build" && layaProgress()?.stage !== "idle"}>
+            <div id="incidentLayaProgress" class="mt-3" role="status" aria-live="polite">
+              <div class="flex justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-muted">
+                <span>Laya stage: {layaProgress()?.stage.replaceAll("_", " ")}</span>
+                <span>{layaProgress()?.total ? `${layaProgress()!.completed}/${layaProgress()!.total}` : ""}</span>
+              </div>
+              <progress class="mt-2 w-full" max={Math.max(1, layaProgress()?.total || 1)} value={layaProgress()?.total ? layaProgress()!.completed : 0}>Working</progress>
+            </div>
+          </Show>
         </div>
+        <label class="mt-5 flex items-start gap-3 text-sm">
+          <input id="useLayaMapping" type="checkbox" class="mt-1" disabled={busy() || (!layaStatus()?.available && !settings().layaMapper.enabled)} checked={settings().layaMapper.enabled} onChange={(event) => {
+            setConfig((current) => current ? { ...current, layaMapper: { ...current.layaMapper, enabled: event.currentTarget.checked } } : current);
+            void runAction(persistLayaSettings);
+          }} />
+          <span><strong>Route collected alert JSON through Laya</strong><span class="helper block">Use selected field matches in the response template. Tentative or incomplete matches keep the configured source fields. Review the result before copying. {layaStatus()?.available ? "" : "Install Laya-mapper in Configuration to enable this."}</span></span>
+        </label>
         <div class="my-5 flex flex-wrap gap-2.5">
           <button id="open" class="button" type="button" disabled={busy() || status()?.session.running || tenantMissing()} onClick={() => runAction(() => rpc.browser.open())}>Connect Chrome</button>
           <button id="run" class="button" type="button" disabled={busy() || tenantMissing()} onClick={generateDraft}>Process data</button>
@@ -400,6 +423,17 @@ function App() {
           <span class="helper">The model extracts facts from the selected alert only. In parallel, the app searches three months of matching XSOAR history and appends past resolutions under Historic.</span>
           <Show when={status()?.processingMode}><span id="processingMode" class="helper">Processing used: {status()?.processingMode}.</span></Show>
         </label>
+        <Show when={status()?.draft && (status()?.layaFields?.length || status()?.layaTentativeFields?.length)}>
+          <div id="layaFieldProvenance" class="mt-4 rounded-xl border border-line bg-slate-50 p-4 text-sm">
+            <Show when={status()?.layaFields?.length}>
+              <p class="m-0 font-bold">Laya-supplied fields in the final incident record</p>
+              <ul class="mb-0 mt-2 list-inside list-disc"><For each={status()?.layaFields || []}>{(field) => <li>{layaFieldName(field.key)} <code class="break-all">{field.pointer}</code></li>}</For></ul>
+            </Show>
+            <Show when={status()?.layaTentativeFields?.length}>
+              <p class="mb-0 mt-3 font-semibold">Tentative Laya matches were not applied: {status()?.layaTentativeFields?.map(layaFieldName).join(", ")}.</p>
+            </Show>
+          </div>
+        </Show>
         <button id="copy" class="button button-secondary mt-4" type="button" disabled={busy() || !status()?.draft} onClick={copyDraft}>Copy processed data</button>
       </section>
     </div>
@@ -491,12 +525,12 @@ function App() {
         <div class="mb-5">
           <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Optional semantic mapping</p>
           <h2 class="m-0 text-xl font-bold">Laya-mapper</h2>
-          <p class="helper mb-0 mt-2">A reviewed, coverage-first tuned model for mapping local JSON fields. Normal incident processing remains deterministic.</p>
+          <p class="helper mb-0 mt-2">A reviewed, coverage-first tuned model for mapping local JSON fields. Enable incident routing on Home after installation.</p>
         </div>
         <p id="layaModelIdentity" class="helper">
           Reviewed demo checkpoint · <code>{layaCheckpoint()?.id || "expanded-training-cuda-632-alerts-v1"}</code>
           {layaCheckpoint() ? <> · weights <code>{layaCheckpoint()!.weightsSha256.slice(0, 12)}…</code> · {layaCheckpoint()!.trainingSequences.toLocaleString()} training sequences · {(layaCheckpoint()!.sequenceAccuracy * 100).toFixed(2)}% teacher-forced sequence score</> : ""}.
-          CPU inference; diagnostics only and never applied automatically. The sequence score is not production mapping accuracy.
+          CPU inference; incident routing requires an explicit opt-in. The sequence score is not production mapping accuracy.
         </p>
         <div class="mt-4 grid gap-4 sm:grid-cols-2">
           <label class="field">Worker mode

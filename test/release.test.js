@@ -272,6 +272,80 @@ test("shared operation locking and draft versions survive identical AI draft tex
   } finally { await closeServer(app.server); }
 });
 
+test("enabled incident routing passes bounded sanitized Playwright JSON to the verified Laya checkpoint", async () => {
+  const stored = resolveAppConfig({
+    xsoar: { allowedOrigin: "https://xsoar.example.test" },
+    layaMapper: { enabled: true, workerMode: "manual", workerCount: 2 }
+  });
+  const checkpoint = { id: stored.layaMapper.checkpointId, weightsSha256: "reviewed-weights" };
+  let mapperInput;
+  const app = createAssistantServer({
+    token: "laya-routing-token",
+    routerOptions: {
+      sessions: { status: () => ({ running: false }), start: async () => {}, adapter: () => ({}) },
+      configStore: { load: async () => stored },
+      layaInstallManifest: { checkpoint },
+      layaInstallationIdentityReader: async () => ({ checkpoint }),
+      layaMapper: { status: async () => ({ available: true }), mapIncident: async (input) => {
+        mapperInput = input;
+        return { fields: { sourceIp: "203.0.113.77" }, statuses: { sourceIp: "selected" }, complete: true, sourceComplete: true, processingComplete: true };
+      } },
+      generateDraft: async ({ mapIncident }) => {
+        assert.equal(typeof mapIncident, "function");
+        const mapping = await mapIncident({
+          incident: { alertJson: [{ sourceIp: "203.0.113.77", password: "private-value" }], alertJsonComplete: true },
+          targets: ["sourceIp"]
+        });
+        assert.equal(mapping.fields.sourceIp, "203.0.113.77");
+        return { draft: "Mapped response", reviewed: 0, aiEnriched: false, layaMapped: true, processingMode: "Laya mapping" };
+      }
+    }
+  });
+  const origin = new URL(await app.listen(0)).origin;
+  const client = createORPCClient(new RPCLink({ url: `${origin}/rpc`, headers: { "X-Assistant-Token": "laya-routing-token", Origin: origin } }));
+  try {
+    const result = await client.draft.generate({ incidentId: "" });
+    assert.equal(result.draft, "Mapped response");
+    assert.deepEqual(mapperInput.documents, [{ sourceIp: "203.0.113.77" }]);
+    assert.deepEqual(mapperInput.targets, ["sourceIp"]);
+    assert.equal(mapperInput.workerMode, "manual");
+    assert.equal(mapperInput.workerCount, 2);
+  } finally { await closeServer(app.server); }
+});
+
+test("Laya routing cannot be activated until checkpoint identity and runtime are ready", async () => {
+  let stored = resolveAppConfig({ xsoar: { allowedOrigin: "https://xsoar.example.test" } });
+  const checkpoint = { id: stored.layaMapper.checkpointId, weightsSha256: "reviewed-weights" };
+  let installed = false;
+  let runtimeReady = false;
+  let saves = 0;
+  const app = createAssistantServer({
+    token: "laya-activation-token",
+    routerOptions: {
+      sessions: { status: () => ({ running: false }) },
+      configStore: {
+        load: async () => stored,
+        save: async (input) => { saves += 1; stored = resolveAppConfig(input); return stored; }
+      },
+      layaInstallManifest: { checkpoint },
+      layaInstallationIdentityReader: async () => installed ? { checkpoint } : undefined,
+      layaMapper: { status: async () => ({ available: runtimeReady }) }
+    }
+  });
+  const origin = new URL(await app.listen(0)).origin;
+  const client = createORPCClient(new RPCLink({ url: `${origin}/rpc`, headers: { "X-Assistant-Token": "laya-activation-token", Origin: origin } }));
+  const enabled = { ...stored.layaMapper, enabled: true };
+  try {
+    await assert.rejects(() => client.config.saveLayaMapper(enabled), /Install the reviewed Laya checkpoint and runtime/);
+    installed = true;
+    await assert.rejects(() => client.config.save({ ...stored, layaMapper: enabled }), /Install the reviewed Laya checkpoint and runtime/);
+    assert.equal(saves, 0);
+    runtimeReady = true;
+    assert.equal((await client.config.saveLayaMapper(enabled)).enabled, true);
+    assert.equal(saves, 1);
+  } finally { await closeServer(app.server); }
+});
+
 test("runtime version check matches the Vite-supported Node ranges", () => {
   for (const version of ["20.19.0", "20.20.1", "22.12.0", "23.0.0", "24.1.0"]) {
     assert.equal(isSupportedNodeVersion(version), true, `${version} should be accepted`);
