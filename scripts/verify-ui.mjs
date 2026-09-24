@@ -234,6 +234,17 @@ try {
   await page.getByText("Advanced XSOAR routing and historic search").click();
   const customHistoricQuery = 'name:{incidentName} and tenantname:{tenantName} and status:closed';
   await page.locator("#historicQueryTemplate").fill(customHistoricQuery);
+  await page.locator("#previewHistoricQuery").click();
+  await page.locator("#historicQueryPreview").getByText('name:"Example detection" and tenantname:"Example Organisation" and status:closed').waitFor();
+  await page.locator("#historicQueryMode").selectOption("json");
+  await page.locator("#historicQueryJson").fill(JSON.stringify({ query: customHistoricQuery }));
+  await page.locator("#previewHistoricQuery").click();
+  await page.locator("#historicQueryPreview").getByText('name:"Example detection" and tenantname:"Example Organisation" and status:closed').waitFor();
+  await page.locator("#historicQueryMode").selectOption("javascript");
+  const customHistoricJavaScript = 'function buildQuery(incident, quote) { if (incident.tenantName === "Example Organisation") return `name:${quote(incident.incidentName)} and tenantname:${quote(incident.tenantName)} and status:closed`; return "status:open"; }';
+  await page.locator("#historicQueryJavaScript").fill(customHistoricJavaScript);
+  await page.locator("#previewHistoricQuery").click();
+  await page.locator("#historicQueryPreview").getByText('name:"Example detection" and tenantname:"Example Organisation" and status:closed').waitFor();
   await page.locator("#maxHistoricalIncidents").fill("10");
   await page.locator("#analystName").fill("Example Analyst");
   await page.locator("#saveMappings").click();
@@ -241,6 +252,8 @@ try {
   assert.deepEqual(uiConfig.xsoar.fieldLabels.occurred, ["Occurred", "Event Time"]);
   assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
   assert.equal(uiConfig.xsoar.historicQueryTemplate, customHistoricQuery);
+  assert.equal(uiConfig.xsoar.historicQueryMode, "javascript");
+  assert.equal(uiConfig.xsoar.historicQueryJavaScript, customHistoricJavaScript);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
 
   await page.getByRole("link", { name: "Home" }).click();

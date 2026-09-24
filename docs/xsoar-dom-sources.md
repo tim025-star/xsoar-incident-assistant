@@ -31,7 +31,7 @@ The extractor deliberately rejects arbitrary `td` elements, unrelated multi-colu
 ## Historic incident search
 
 - The incidents page is opened at the configured same-origin `incidentsPath` without a query string.
-- The default query uses `rawName` from the incident header name (`.header-inv-title`), not the separate `Rule Name` field, and `tenantname` from the incident's `Tenant Name` field. The editable query template supports `{incidentName}` and `{tenantName}` placeholders, inserted as quoted, escaped values. The `Type` column is a separate value and is not used by the default query.
+- The default query uses `rawName` from the incident header name (`.header-inv-title`), not the separate `Rule Name` field, and `tenantname` from the incident's `Tenant Name` field. Template and JSON modes support `{incidentName}` and `{tenantName}` placeholders, inserted as quoted, escaped values. JavaScript mode receives those values and `ticketId` in a limited `incident` object and provides `quote(value)` for safely inserting them. The `Type` column is a separate value and is not used by the default query.
 - The historic query is entered through the visible Incidents-page query bar within the workspace containing the results grid. Candidate controls are ranked by query/search semantics and existing query syntax; ambiguous matches fail closed.
 - `.header-search`, `.r-header-actions-container`, and launcher search controls are explicitly excluded. The top-right `Search in Incidents` box is a global search box, not the Incidents-page query bar.
 - Playwright fills that input and presses Enter so XSOAR's own event handlers update the search state.

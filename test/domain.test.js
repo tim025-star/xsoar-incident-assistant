@@ -61,6 +61,7 @@ test("historic query templates can change XSOAR fields and safely insert current
     () => resolveSettings({ ...settings(), historicQueryTemplate: 'rawName:{incidentName}\nand status:closed' }),
     /single-line query/
   );
+  assert.equal(settings().historicQueryMode, "template");
 });
 
 test("incident navigation remains in the configured tenant and path", () => {

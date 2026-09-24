@@ -36,7 +36,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   searchQueryParameter: "query",
   // Retained so existing saved configurations continue to load.
   lookbackQuery: "created:>=\"3 months ago\"",
+  historicQueryMode: "template",
   historicQueryTemplate: 'rawName:{incidentName} and tenantname:{tenantName} and (created:>="3 months ago")',
+  historicQueryJson: '{\n  "query": "rawName:{incidentName} and tenantname:{tenantName} and (created:>=\\"3 months ago\\")"\n}',
+  historicQueryJavaScript: 'function buildQuery(incident, quote) {\n  const name = quote(incident.incidentName);\n  const tenant = quote(incident.tenantName);\n  return `rawName:${name} and tenantname:${tenant} and (created:>="3 months ago")`;\n}',
   maxHistoricalIncidents: 5,
   pageReadyTimeoutMs: 20000,
   incidentInfoTabLabel: "Incident Info",
@@ -121,6 +124,8 @@ export function resolveSettings(input = {}) {
     "searchQueryParameter",
     "lookbackQuery",
     "historicQueryTemplate",
+    "historicQueryJson",
+    "historicQueryJavaScript",
     "incidentInfoTabLabel",
     "investigationTabLabel"
   ]) {
@@ -148,6 +153,21 @@ export function resolveSettings(input = {}) {
   }
   if (settings.historicQueryTemplate.length > 2048 || /[\r\n\u0000-\u001f]/.test(settings.historicQueryTemplate)) {
     throw new Error("historicQueryTemplate must be a single-line query no longer than 2048 characters.");
+  }
+  if (!["template", "json", "javascript"].includes(settings.historicQueryMode)) {
+    throw new Error("historicQueryMode must be template, json, or javascript.");
+  }
+  if (settings.historicQueryJson.length > 8192 || settings.historicQueryJavaScript.length > 8192) {
+    throw new Error("Historic JSON and JavaScript must each be no longer than 8192 characters.");
+  }
+  if (settings.historicQueryMode === "json") {
+    let parsed;
+    try { parsed = JSON.parse(settings.historicQueryJson); } catch { throw new Error("historicQueryJson must be valid JSON."); }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
+      || Object.keys(parsed).some((key) => key !== "query")
+      || typeof parsed.query !== "string" || !parsed.query.trim()) {
+      throw new Error('historicQueryJson must be an object with a non-empty "query" string.');
+    }
   }
   const incidentsUrl = new URL(settings.incidentsPath, settings.allowedOrigin);
   if (!settings.incidentsPath.startsWith("/") || incidentsUrl.origin !== settings.allowedOrigin

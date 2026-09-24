@@ -145,6 +145,19 @@ test("workflow submits the configured historic query to Playwright", async () =>
   assert.equal(query, 'name:"Example detection" and tenantname:"Example Organisation" and status:closed');
 });
 
+test("workflow submits a conditional JavaScript historic query to Playwright", async () => {
+  let query;
+  await runIncidentDraft({
+    adapter: createAdapter({ searchTicketIds: ["4200"], onSearch: (options) => { query = options.expectedQuery; } }),
+    settings: resolveSettings({
+      ...settings,
+      historicQueryMode: "javascript",
+      historicQueryJavaScript: 'function buildQuery(incident, quote) { if (incident.tenantName === "Example Organisation") return `rawName:${quote(incident.incidentName)} and tenantname:${quote(incident.tenantName)} and status:closed`; return "status:open"; }'
+    })
+  });
+  assert.equal(query, 'rawName:"Example detection" and tenantname:"Example Organisation" and status:closed');
+});
+
 test("workflow visibly opens and completes each historic incident tab before starting the next", async () => {
   const adapter = createAdapter({ searchTicketIds: ["4200", "4199", "4198"] });
 

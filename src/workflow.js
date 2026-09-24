@@ -4,13 +4,13 @@ import {
   buildHistoricalIncidentUrl,
   buildIncidentUrlFromId,
   buildIncidentSearchUrl,
-  buildSearchQuery,
   cleanText,
   incidentTicketIdFromUrl,
   mergeIncidentDetails,
   resolveSettings
 } from "./domain.js";
 import { LAYA_MAPPER_TARGETS } from "./laya-mapper.js";
+import { renderHistoricQuery } from "./historic-query.js";
 
 const HISTORIC_SEARCH_SAFETY_LIMIT = 1000;
 
@@ -224,7 +224,7 @@ async function readHistoricCandidate({
 
 async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs, onProgress = async () => {} }) {
   try {
-    const query = buildSearchQuery(incident.incidentName, incident.tenantName, settings.historicQueryTemplate);
+    const query = await renderHistoricQuery(settings, incident);
     const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, ""), { focusBeforeNavigation: true });
     temporaryTabs.add(searchTab);
     await adapter.focusTab(searchTab.id);
