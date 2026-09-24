@@ -1,6 +1,6 @@
 {
   "name": "xsoar-incident-assistant",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": false,
   "description": "A local Playwright assistant for processing Cortex XSOAR incident data.",
   "type": "module",
