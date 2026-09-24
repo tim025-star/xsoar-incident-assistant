@@ -90,6 +90,64 @@ test("Laya installation accepts only bounded GitHub release assets and installs 
   }), /GitHub release URLs/i);
 });
 
+test("reselecting Laya in the application installer skips a verified current installation", async (context) => {
+  const rootDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-repeat-install-"));
+  context.after(() => rm(rootDirectory, { recursive: true, force: true }));
+  const contents = Buffer.alloc(4);
+  const checksum = createHash("sha256").update(contents).digest("hex");
+  const currentManifest = {
+    ...manifest,
+    checkpoint: { ...checkpoint, weightsSha256: checksum },
+    modelFiles: [{ ...manifest.modelFiles[0], sha256: checksum }]
+  };
+  const downloaded = [];
+  let extracted = 0;
+  let verified = 0;
+  let failNextVerification = false;
+  const statuses = [];
+  const installer = createLayaMapperInstaller({
+    manifest: currentManifest,
+    rootDirectory,
+    download: async (requested, destination) => {
+      downloaded.push(requested.name);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await writeFile(destination, contents);
+    },
+    extract: async (_archive, destination, entry) => {
+      extracted += 1;
+      await mkdir(destination, { recursive: true });
+      await writeFile(path.join(destination, entry), "fixture");
+    },
+    verifyInstallation: async () => {
+      verified += 1;
+      if (failNextVerification) {
+        failNextVerification = false;
+        throw new Error("The existing runtime is unhealthy.");
+      }
+    }
+  });
+  await installer.installInference();
+  const repeat = await installer.installInference({ onProgress: ({ status }) => statuses.push(status) });
+  assert.deepEqual(repeat, { installed: false, alreadyInstalled: true, checkpointId: checkpoint.id });
+  assert.deepEqual(downloaded, ["laya-mapper-runtime-cpu-x64.tar.gz", "model.safetensors"]);
+  assert.equal(extracted, 1);
+  assert.equal(verified, 2);
+  assert.match(statuses.at(-1), /already installed; skipped download/i);
+  await rm(path.join(rootDirectory, "install.json"));
+  assert.deepEqual(await installer.installInference(), repeat);
+  assert.equal(JSON.parse(await readFile(path.join(rootDirectory, "install.json"), "utf8")).checkpoint.weightsSha256, checksum);
+  assert.equal(downloaded.length, 2);
+  assert.equal(verified, 3);
+  await writeFile(path.join(rootDirectory, "models/base-english/model.safetensors"), "old!");
+  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: checkpoint.id });
+  assert.equal(downloaded.length, 4);
+  assert.equal(extracted, 2);
+  failNextVerification = true;
+  assert.deepEqual(await installer.installInference(), { installed: true, checkpointId: checkpoint.id });
+  assert.equal(downloaded.length, 6);
+  assert.equal(extracted, 3);
+});
+
 test("Laya inference installation works from an offline asset pack", async (context) => {
   const rootDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-offline-install-"));
   const offlineDirectory = await mkdtemp(path.join(os.tmpdir(), "laya-offline-assets-"));

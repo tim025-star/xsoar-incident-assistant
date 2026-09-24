@@ -268,6 +268,40 @@ export function createLayaMapperInstaller({
       const total = manifest.runtime.size + manifest.modelFiles.reduce((sum, item) => sum + item.size, 0);
       let completed = 0;
       const progress = (status, assetCompleted) => onProgress({ status, completed: completed + assetCompleted, total });
+      onProgress({ status: "Checking the installed Laya runtime and checkpoint.", completed: 0, total });
+      let current = true;
+      try {
+        await access(path.join(rootDirectory, "runtime-v2", manifest.runtime.entry));
+        for (const asset of manifest.modelFiles) {
+          const installed = path.join(rootDirectory, "models", manifest.model.id, ...asset.path.split("/"));
+          onProgress({ status: `Checking installed Laya-mapper ${asset.name}.`, completed: 0, total });
+          if (!(await verifyAssetFile(installed, asset, signal))) {
+            current = false;
+            break;
+          }
+        }
+        if (current) {
+          onProgress({ status: "Verifying the installed Laya runtime and checkpoint.", completed: 0, total });
+          await verifyInstallation({ rootDirectory });
+        }
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        current = false;
+      }
+      if (current) {
+        const identity = manifest.checkpoint && await readLayaInstallationIdentity({ rootDirectory });
+        if (manifest.checkpoint && (identity?.checkpoint?.id !== manifest.checkpoint.id
+          || identity.checkpoint.weightsSha256 !== manifest.checkpoint.weightsSha256)) {
+          await atomicJson(path.join(rootDirectory, "install.json"), {
+            schemaVersion: 1,
+            model: manifest.model,
+            checkpoint: manifest.checkpoint,
+            installedAt: new Date().toISOString()
+          });
+        }
+        onProgress({ status: `${manifest.checkpoint?.label || "Laya-mapper"} is already installed; skipped download.`, completed: total, total });
+        return { installed: false, alreadyInstalled: true, checkpointId: manifest.checkpoint?.id || manifest.model.id };
+      }
       await installArchive(manifest.runtime, path.join(rootDirectory, "runtime-v2"), {
         signal,
         onProgress: ({ completed: value }) => progress(`Installing Laya-mapper ${manifest.runtime.name}.`, value)
