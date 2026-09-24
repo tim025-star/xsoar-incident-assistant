@@ -33,12 +33,13 @@ test("settings accept one exact HTTPS origin and keep the analyst name configura
   }
 });
 
-test("historic searches use exact alert type and a verified three-month URL query", () => {
+test("historic searches use exact alert name and tenant with a three-month window", () => {
   const resolved = settings();
-  const query = buildSearchQuery("Example detection", "Endpoint", 'created:>="3 months ago"');
+  const query = buildSearchQuery("Example detection", "Tenant Alpha", 'created:>="3 months ago"');
   const url = buildIncidentSearchUrl(resolved, query);
 
-  assert.match(query, /^rawName:"Example detection" and rawType:"Endpoint"/);
+  assert.match(query, /^rawName:"Example detection" and tenantname:"Tenant Alpha"/);
+  assert.doesNotMatch(query, /rawType/);
   assert.match(query, /created:>="3 months ago"/);
   assert.equal(new URL(buildIncidentSearchUrl(resolved, "")).search, "");
   assert.equal(assertSearchUrl(url, resolved, query).origin, resolved.allowedOrigin);

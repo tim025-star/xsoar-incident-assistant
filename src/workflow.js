@@ -15,16 +15,17 @@ import { LAYA_MAPPER_TARGETS } from "./laya-mapper.js";
 const HISTORIC_LOOKBACK_QUERY = 'created:>="3 months ago"';
 const HISTORIC_SEARCH_SAFETY_LIMIT = 1000;
 
-function isSameClientAndAlertType(current, candidate) {
+function isSameTenantAndAlertName(current, candidate, row) {
   const normalize = (value) => cleanText(value).toLowerCase();
-  return Boolean(
-    normalize(current.customerName)
-    && normalize(current.ruleName)
-    && normalize(current.caseType)
-    && normalize(candidate.customerName) === normalize(current.customerName)
-    && normalize(candidate.ruleName) === normalize(current.ruleName)
-    && normalize(candidate.caseType) === normalize(current.caseType)
-  );
+  const tenantName = normalize(current.tenantName);
+  const incidentName = normalize(current.incidentName);
+  const candidateTenant = normalize(candidate.tenantName);
+  const candidateName = normalize(candidate.incidentName);
+  return Boolean(tenantName && incidentName
+    && normalize(row?.tenantName || candidate.tenantName) === tenantName
+    && normalize(row?.name || candidate.incidentName) === incidentName
+    && (!candidateTenant || candidateTenant === tenantName)
+    && (!candidateName || candidateName === incidentName));
 }
 
 function hasHistoricResolution(candidate) {
@@ -151,6 +152,7 @@ async function readHistoricCandidate({
   temporaryTabs,
   ticketId,
   ticketUrl,
+  ticketRow,
   onProgress = async () => {}
 }) {
   let tab;
@@ -175,13 +177,14 @@ async function readHistoricCandidate({
         const finalUrl = assertIncidentUrl(await adapter.getTabUrl(tab.id), settings, "Historic incident navigation");
         const finalTicketId = ticketIdFromIncidentUrl(finalUrl, settings, "Historic incident navigation");
         if (finalTicketId !== String(ticketId)) throw new Error("XSOAR opened a different historic incident than requested.");
+        const hasRowIdentity = Boolean(ticketRow?.tenantName && ticketRow?.name);
         const detail = await extractIncidentViews({
           adapter,
           settings,
           primaryTab: tab,
           primaryUrl: finalUrl.toString(),
           temporaryTabs,
-          requiredFields: ["customerName", "ruleName", "caseType"],
+          requiredFields: hasRowIdentity ? [] : ["tenantName", "incidentName"],
           requiredAnyFields: ["historicalRecommendations", "closeNotes", "incidentOutcome"],
           requireAlertJson: false,
           focusOpenedTabs: true
@@ -189,9 +192,11 @@ async function readHistoricCandidate({
         if (String(detail.ticketId) !== String(ticketId)) {
           throw new Error("XSOAR opened a different historic incident than requested.");
         }
-        const missingIdentity = ["customerName", "ruleName", "caseType"].filter((key) => !cleanText(detail[key]));
-        if (missingIdentity.length) throw new Error(`Required incident fields did not become ready: ${missingIdentity.join(", ")}.`);
-        if (!isSameClientAndAlertType(incident, detail)) return { unrelated: true, ticketId: String(ticketId) };
+        if (!hasRowIdentity) {
+          const missingIdentity = ["tenantName", "incidentName"].filter((key) => !cleanText(detail[key]));
+          if (missingIdentity.length) throw new Error(`Required incident fields did not become ready: ${missingIdentity.join(", ")}.`);
+        }
+        if (!isSameTenantAndAlertName(incident, detail, ticketRow)) return { unrelated: true, ticketId: String(ticketId) };
         const candidate = {
           ticketId: detail.ticketId,
           historicalRecommendations: detail.historicalRecommendations,
@@ -220,7 +225,7 @@ async function readHistoricCandidate({
 
 async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs, onProgress = async () => {} }) {
   try {
-    const query = buildSearchQuery(incident.incidentName, incident.caseType, HISTORIC_LOOKBACK_QUERY);
+    const query = buildSearchQuery(incident.incidentName, incident.tenantName, HISTORIC_LOOKBACK_QUERY);
     const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, ""), { focusBeforeNavigation: true });
     temporaryTabs.add(searchTab);
     await adapter.focusTab(searchTab.id);
@@ -239,7 +244,7 @@ async function collectHistoric({ adapter, settings, incident, originalTab, tempo
       await onProgress(`Reviewing historic incident #${ticketId} (${index + 1} of ${ticketIds.length}).`);
       const candidate = await readHistoricCandidate({
         adapter, settings, incident, originalTab, temporaryTabs, ticketId,
-        ticketUrl: result.ticketUrls?.[ticketId], onProgress
+        ticketUrl: result.ticketUrls?.[ticketId], ticketRow: result.ticketRows?.[ticketId], onProgress
       });
       if (candidate?.error) {
         const warning = `Historic incident #${candidate.ticketId} could not be read: ${candidate.error}`;

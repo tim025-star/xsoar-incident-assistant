@@ -31,12 +31,13 @@ The extractor deliberately rejects arbitrary `td` elements, unrelated multi-colu
 ## Historic incident search
 
 - The incidents page is opened at the configured same-origin `incidentsPath` without a query string.
-- `rawName` is populated from the incident header name (`.header-inv-title`), not the separate `Rule Name` field. `rawType` is populated from the incident `Type`/`Case Type` field.
+- `rawName` is populated from the incident header name (`.header-inv-title`), not the separate `Rule Name` field. `tenantname` is populated from the incident's `Tenant Name` field; the `Type` column is a separate value and is not used in the search query.
 - The historic query is entered through the visible Incidents-page query bar within the workspace containing the results grid. Candidate controls are ranked by query/search semantics and existing query syntax; ambiguous matches fail closed.
 - `.header-search`, `.r-header-actions-container`, and launcher search controls are explicitly excluded. The top-right `Search in Incidents` box is a global search box, not the Incidents-page query bar.
 - Playwright fills that input and presses Enter so XSOAR's own event handlers update the search state.
 - Search submission is confirmed only when the exact query remains in that same control and the incidents workspace mutates. Current XSOAR builds can keep search state entirely in the page without mirroring it into the URL.
 - Results remain scoped to the configured same-origin incidents path and same-origin incident links. Recognized result links are retained and opened directly for historic review, with the ticket ID checked against the result and opened page. Rows without a recognized incident link continue through the configured incident route.
+- Fixed data table rows provide the tenant and alert name alongside the incident link. Matching rows can supply that identity when historic detail views omit duplicate identity fields. The opened detail must still expose a historic resolution.
 - Current XSOAR result links can use `/incident<view-id>/<ticket-id>/overview`; the second numeric segment is the incident ticket ID. Legacy `/incident/<ticket-id>` and configured custom-layout routes remain supported.
 - Some result tables expose the ticket only as an exact visible `#<ticket-id>` link label. That fallback is accepted only for a visible same-origin link inside a `tr`, `[role="row"]`, or `.row` result row; the resulting navigation still uses the configured validated incident route.
 - Historic matches are reviewed sequentially. Each incident and any required secondary view is brought to the foreground before navigation and again before extraction, then closed before the next historic incident starts. A failed, incomplete, or wrong-ticket historic render is retried once in the foreground. Final failures retain the ticket ID and a bounded single-line reason in the run warning.

@@ -376,6 +376,7 @@ export async function extractSearchResultsFromPage(options) {
   }
   const ticketIds = new Set();
   const ticketUrls = {};
+  const ticketRows = {};
   let initialLoadFinished = false;
   let initialBusyObserved = false;
   const initialSettleDeadline = Date.now() + 500;
@@ -389,12 +390,18 @@ export async function extractSearchResultsFromPage(options) {
       if (busy) {
         ticketIds.clear();
         for (const ticketId of Object.keys(ticketUrls)) delete ticketUrls[ticketId];
+        for (const ticketId of Object.keys(ticketRows)) delete ticketRows[ticketId];
         initialBusyObserved = true;
       } else if (initialBusyObserved || Date.now() >= initialSettleDeadline) {
         initialLoadFinished = true;
       }
     }
     if (initialLoadFinished && !busy) {
+      const headers = Array.from(root.querySelectorAll("[role='columnheader']"))
+        .map((header) => normalize(header.textContent).toLowerCase());
+      const tenantColumn = headers.indexOf("tenant name");
+      const nameColumn = headers.indexOf("name");
+      const typeColumn = headers.indexOf("type");
       for (const link of root.querySelectorAll("a[href]")) {
         if (!isVisible(link)) continue;
         let url;
@@ -414,6 +421,17 @@ export async function extractSearchResultsFromPage(options) {
           if (!url.search && !url.hash && (url.pathname.match(ticketPattern)
             || url.pathname.match(incidentOverviewPattern)
             || configuredTicketId)) ticketUrls[ticketId] ||= url.toString();
+          const row = link.closest?.("[role='row']");
+          const cells = row?.querySelectorAll?.("[role='gridcell']") || [];
+          if (tenantColumn >= 0 && nameColumn >= 0 && cells.length === headers.length) {
+            const tenantName = normalize(cells[tenantColumn].textContent);
+            const name = normalize(cells[nameColumn].textContent);
+            if (tenantName && name) ticketRows[ticketId] ||= {
+              tenantName,
+              name,
+              type: typeColumn >= 0 ? normalize(cells[typeColumn].textContent) : ""
+            };
+          }
         }
       }
     }
@@ -463,6 +481,9 @@ export async function extractSearchResultsFromPage(options) {
     ticketUrls: Object.fromEntries(selectedTicketIds
       .filter((ticketId) => ticketUrls[ticketId])
       .map((ticketId) => [ticketId, ticketUrls[ticketId]])),
+    ticketRows: Object.fromEntries(selectedTicketIds
+      .filter((ticketId) => ticketRows[ticketId])
+      .map((ticketId) => [ticketId, ticketRows[ticketId]])),
     truncated: allTicketIds.length > maxResults
       || Boolean(state.pagingTotal && state.pagingEnd < state.pagingTotal)
       || state.pagingUnknown
