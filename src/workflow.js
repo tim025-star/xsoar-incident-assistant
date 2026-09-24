@@ -10,7 +10,7 @@ import {
   mergeIncidentDetails,
   resolveSettings
 } from "./domain.js";
-import { HISTORIC_LAYA_TARGETS, LAYA_MAPPER_TARGETS } from "./laya-mapper.js";
+import { LAYA_MAPPER_TARGETS } from "./laya-mapper.js";
 
 const HISTORIC_LOOKBACK_QUERY = 'created:>="3 months ago"';
 const HISTORIC_SEARCH_SAFETY_LIMIT = 1000;
@@ -38,20 +38,32 @@ function nonEmptyMappedFields(fields = {}) {
 }
 
 async function applyLayaMapping(incident, mapIncident, targets = LAYA_MAPPER_TARGETS) {
-  if (!mapIncident) return { incident, warning: "", mapped: false };
+  if (!mapIncident) return { incident, warning: "", mapped: false, fields: [], tentativeFields: [] };
+  if (incident.alertJsonComplete !== true || !Array.isArray(incident.alertJson) || !incident.alertJson.length) {
+    return { incident, warning: "Complete alert JSON was not available for Laya-mapper; configured source-field mappings were used.", mapped: false, fields: [], tentativeFields: [] };
+  }
   try {
     const result = await mapIncident({ incident, targets });
-    const fields = nonEmptyMappedFields(result?.fields);
+    const complete = result?.complete === true && result?.sourceComplete === true && result?.processingComplete === true;
+    const selected = complete
+      ? Object.fromEntries(Object.entries(result.fields || {}).filter(([key]) => targets.includes(key) && result.statuses?.[key] === "selected"))
+      : {};
+    const fields = nonEmptyMappedFields(selected);
+    const tentativeFields = targets.filter((key) => result.statuses?.[key] === "tentative");
     return {
       incident: { ...incident, ...fields },
-      warning: cleanText(result?.warning),
-      mapped: Object.keys(fields).length > 0
+      warning: [!complete ? "Laya-mapper did not complete on full alert JSON; configured source-field mappings were used." : "", tentativeFields.length ? `Tentative Laya matches were not applied: ${tentativeFields.join(", ")}.` : "", cleanText(result?.warning)].filter(Boolean).join(" "),
+      mapped: Object.keys(fields).length > 0,
+      fields: Object.keys(fields).map((key) => ({ key, pointer: result.paths?.[key] || "" })),
+      tentativeFields
     };
   } catch {
     return {
       incident,
       warning: "Laya-mapper could not map this alert; configured source-field mappings were used.",
-      mapped: false
+      mapped: false,
+      fields: [],
+      tentativeFields: []
     };
   }
 }
@@ -139,7 +151,6 @@ async function readHistoricCandidate({
   temporaryTabs,
   ticketId,
   ticketUrl,
-  mapIncident,
   onProgress = async () => {}
 }) {
   let tab;
@@ -164,19 +175,17 @@ async function readHistoricCandidate({
         const finalUrl = assertIncidentUrl(await adapter.getTabUrl(tab.id), settings, "Historic incident navigation");
         const finalTicketId = ticketIdFromIncidentUrl(finalUrl, settings, "Historic incident navigation");
         if (finalTicketId !== String(ticketId)) throw new Error("XSOAR opened a different historic incident than requested.");
-        let detail = await extractIncidentViews({
+        const detail = await extractIncidentViews({
           adapter,
           settings,
           primaryTab: tab,
           primaryUrl: finalUrl.toString(),
           temporaryTabs,
-          requiredFields: mapIncident ? [] : ["customerName", "ruleName", "caseType"],
-          requiredAnyFields: mapIncident ? [] : ["historicalRecommendations", "closeNotes", "incidentOutcome"],
+          requiredFields: ["customerName", "ruleName", "caseType"],
+          requiredAnyFields: ["historicalRecommendations", "closeNotes", "incidentOutcome"],
           requireAlertJson: false,
           focusOpenedTabs: true
         });
-        const mapped = await applyLayaMapping(detail, mapIncident, HISTORIC_LAYA_TARGETS);
-        detail = mapped.incident;
         if (String(detail.ticketId) !== String(ticketId)) {
           throw new Error("XSOAR opened a different historic incident than requested.");
         }
@@ -192,7 +201,7 @@ async function readHistoricCandidate({
         if (!hasHistoricResolution(candidate)) {
           throw new Error("Required historic resolution fields did not become ready.");
         }
-        return { ...candidate, mappingWarning: mapped.warning, layaMapped: mapped.mapped };
+        return candidate;
       } catch (error) {
         lastError = error;
         if (attempt === 1) throw error;
@@ -209,7 +218,7 @@ async function readHistoricCandidate({
   }
 }
 
-async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs, mapIncident, onProgress = async () => {} }) {
+async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs, onProgress = async () => {} }) {
   try {
     const query = buildSearchQuery(incident.incidentName, incident.caseType, HISTORIC_LOOKBACK_QUERY);
     const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, ""), { focusBeforeNavigation: true });
@@ -230,7 +239,7 @@ async function collectHistoric({ adapter, settings, incident, originalTab, tempo
       await onProgress(`Reviewing historic incident #${ticketId} (${index + 1} of ${ticketIds.length}).`);
       const candidate = await readHistoricCandidate({
         adapter, settings, incident, originalTab, temporaryTabs, ticketId,
-        ticketUrl: result.ticketUrls?.[ticketId], mapIncident, onProgress
+        ticketUrl: result.ticketUrls?.[ticketId], onProgress
       });
       if (candidate?.error) {
         const warning = `Historic incident #${candidate.ticketId} could not be read: ${candidate.error}`;
@@ -240,7 +249,6 @@ async function collectHistoric({ adapter, settings, incident, originalTab, tempo
         await onProgress(`Skipped historic incident #${candidate.ticketId} because its client or alert type did not match.`);
       } else if (candidate) {
         items.push(candidate);
-        if (candidate.mappingWarning) warnings.push(candidate.mappingWarning);
       }
     }
     warnings.push(...failures);
@@ -351,7 +359,7 @@ export async function runIncidentDraft({
       }
     })();
     const historicPromise = collectHistoric({
-      adapter, settings, incident, originalTab, temporaryTabs, mapIncident, onProgress
+      adapter, settings, incident: extractedIncident, originalTab, temporaryTabs, onProgress
     });
     const [processed, historic] = await Promise.all([enrichmentPromise, historicPromise]);
     const draft = buildDraft({ ...incident, historical: historic.items }, settings.template, processed.enrichment);
@@ -364,6 +372,8 @@ export async function runIncidentDraft({
       reviewed: historic.items.length,
       aiEnriched: processed.aiEnriched,
       layaMapped: mapped.mapped,
+      layaFields: mapped.fields,
+      layaTentativeFields: mapped.tentativeFields,
       processingMode
     };
   } finally {

@@ -119,8 +119,19 @@ const app = createAssistantServer({
     },
     layaInstallManifest: { schemaVersion: 4, checkpoint: demoCheckpoint },
     layaInstallationIdentityReader: async () => layaInstalled ? { schemaVersion: 1, checkpoint: demoCheckpoint } : undefined,
-    generateDraft: async ({ incidentId, onProgress, enrichDraft }) => {
+    generateDraft: async ({ incidentId, onProgress, enrichDraft, mapIncident }) => {
       requestedIncidentIds.push(incidentId);
+      if (incidentId === "4301") {
+        const mapped = await mapIncident({
+          incident: { alertJson: [{ sourceIp: "203.0.113.8" }], alertJsonComplete: true },
+          targets: ["sourceIp"]
+        });
+        return {
+          draft: `Source: ${mapped.fields.sourceIp}`, warning: "", reviewed: 0, aiEnriched: false,
+          layaMapped: true, layaFields: [{ key: "sourceIp", pointer: mapped.paths.sourceIp }],
+          layaTentativeFields: [], processingMode: "Laya mapping"
+        };
+      }
       await onProgress("Running local AI data processing.");
       await enrichDraft?.({ incident: {} });
       foregroundPage = "workflow";
@@ -231,6 +242,12 @@ try {
 
   await page.getByRole("link", { name: "Home" }).click();
   await page.getByRole("heading", { name: "Process incident data" }).waitFor();
+  await page.locator("#useLayaMapping").check();
+  await page.getByText("Laya-mapper config saved.").waitFor();
+  assert.equal(uiConfig.layaMapper.enabled, true);
+  await page.locator("#useLayaMapping").uncheck();
+  await page.getByText("Laya-mapper config saved.").waitFor();
+  assert.equal(uiConfig.layaMapper.enabled, false);
   await page.locator("#open").click();
   await page.locator("#stop:not([disabled])").waitFor({ timeout: 2000 });
   assert.equal(starts, 1);
@@ -302,6 +319,14 @@ try {
   workflowPage = undefined;
   assert.deepEqual(requestedIncidentIds, ["4300"]);
   assert.equal(await page.locator("#copy").isDisabled(), false);
+  await page.locator("#useLayaMapping").check();
+  await page.getByText("Laya-mapper config saved.").waitFor();
+  await page.locator("#incidentId").fill("4301");
+  await page.locator("#run").click();
+  await page.locator("#incidentLayaProgress").getByText("Laya stage: final assessment").waitFor();
+  await page.locator("#layaFieldProvenance").getByText("Source IP").waitFor();
+  assert.match(await page.locator("#draft").inputValue(), /Source: 203\.0\.113\.8/);
+  assert.match(await page.locator("#layaFieldProvenance").textContent(), /\/documents\/0\/alertEnvelope\/network\/peer/);
 
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);

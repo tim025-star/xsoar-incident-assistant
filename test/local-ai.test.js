@@ -241,4 +241,8 @@ test("evidence is bounded", () => {
     () => buildEnrichmentEvidence({ alertJson: [{ detail: "a".repeat(100 * 1024) }, { retained: true }] }),
     /complete detailed alert JSON exceeds/
   );
+  assert.throws(
+    () => buildEnrichmentEvidence({ alertJson: Array.from({ length: 101 }, (_, index) => ({ index })), alertJsonComplete: true }),
+    /complete detailed alert JSON exceeds/
+  );
 });

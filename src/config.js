@@ -137,7 +137,7 @@ export function resolveAppConfig(input = {}, { requireTenant = true, allowRouteM
       fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...suppliedFieldLabels },
       template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
     },
-    layaMapper: { ...DEFAULT_APP_CONFIG.layaMapper, ...(input.layaMapper || {}), enabled: false, checkpointId: DEFAULT_LAYA_CHECKPOINT },
+    layaMapper: { ...DEFAULT_APP_CONFIG.layaMapper, ...(input.layaMapper || {}), checkpointId: DEFAULT_LAYA_CHECKPOINT },
     localAi: { ...DEFAULT_APP_CONFIG.localAi, ...(input.localAi || {}) }
   };
   if (!requireTenant && !String(merged.xsoar.allowedOrigin || "").trim()) return merged;
