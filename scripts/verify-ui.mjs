@@ -223,6 +223,11 @@ try {
   assert.equal(await page.locator("#pullModel").textContent(), "Pull selected model");
   await page.locator("#pullModel").click();
   await page.locator("#cancelPull").waitFor();
+  const pullStartDeadline = Date.now() + 5000;
+  while (!pulledModels.includes("slow-model") && Date.now() < pullStartDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.ok(pulledModels.includes("slow-model"), "the download must start on the server before reloading the page");
   await page.reload();
   await page.locator("#cancelPull").waitFor();
   await page.locator("#cancelPull").click();
