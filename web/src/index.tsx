@@ -11,13 +11,14 @@ type Status = Awaited<ReturnType<typeof rpc.status>>;
 type LocalAiStatus = Awaited<ReturnType<typeof rpc.localAi.status>>;
 type LayaStatus = Awaited<ReturnType<typeof rpc.layaMapper.status>>;
 type LayaDiagnostic = Awaited<ReturnType<typeof rpc.layaMapper.diagnostics>>;
-type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "searchQueryParameter";
+type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "searchQueryParameter" | "historicQueryTemplate" | "historicQueryJson" | "historicQueryJavaScript";
 type NumberSetting = "maxHistoricalIncidents" | "pageReadyTimeoutMs";
+type HistoricQueryMode = AppConfig["xsoar"]["historicQueryMode"];
 type TemplateSetting = keyof AppConfig["xsoar"]["template"];
 type FieldLabelSetting = keyof AppConfig["xsoar"]["fieldLabels"];
 
 const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting & keyof typeof LAYA_TARGET_CATALOGUE; name: string; use: string }> = [
-  { key: "customerName", name: "Customer name", use: "customer.name → greeting and historic match" },
+  { key: "customerName", name: "Customer name", use: "customer.name → greeting" },
   { key: "occurred", name: "Time stamp", use: "@timestamp → event breakdown" },
   { key: "sourceUsername", name: "Source user", use: "source.user.name → user and source" },
   { key: "clientUserName", name: "Client user", use: "client.user.name → fallback user" },
@@ -32,8 +33,8 @@ const FIELD_MAPPINGS: Array<{ key: FieldLabelSetting & keyof typeof LAYA_TARGET_
   { key: "serviceMessage", name: "Service message", use: "message → error / service message" },
   { key: "eventInfo", name: "Event info", use: "event.original → fallback message" },
   { key: "errorMessage", name: "Error message", use: "error.message → fallback message" },
-  { key: "ruleName", name: "Rule name", use: "rule.name → alert context and historic match" },
-  { key: "caseType", name: "Case type", use: "event.category → alert context and historic match" },
+  { key: "ruleName", name: "Rule name", use: "rule.name → alert context" },
+  { key: "caseType", name: "Case type", use: "event.category → alert context" },
   { key: "classification", name: "Classification", use: "classification → recorded classification" },
   { key: "incidentOutcome", name: "Incident outcome", use: "event.outcome → factual AI context" },
   { key: "closeNotes", name: "Close notes", use: "close.notes → factual AI context" },
@@ -82,6 +83,12 @@ function App() {
   const [sanitizerMessage, setSanitizerMessage] = createSignal("");
   const [pullingModel, setPullingModel] = createSignal(false);
   const [incidentId, setIncidentId] = createSignal("");
+  const [previewIncidentName, setPreviewIncidentName] = createSignal("Example detection");
+  const [previewTenantName, setPreviewTenantName] = createSignal("Example Organisation");
+  const [previewTicketId, setPreviewTicketId] = createSignal("4200");
+  const [historicQueryPreview, setHistoricQueryPreview] = createSignal("");
+  const [historicQueryPreviewError, setHistoricQueryPreviewError] = createSignal("");
+  const [historicQueryPreviewBusy, setHistoricQueryPreviewBusy] = createSignal(false);
   const [message, setMessage] = createSignal(sessionToken
     ? "Loading console status…"
     : "Restart the app to open a valid local console.");
@@ -128,6 +135,38 @@ function App() {
       next.xsoar[key] = value;
       return next;
     });
+    if (key.startsWith("historicQuery")) {
+      setHistoricQueryPreview("");
+      setHistoricQueryPreviewError("");
+    }
+  };
+  const updateHistoricQueryMode = (mode: HistoricQueryMode) => {
+    setConfig((current) => current ? { ...current, xsoar: { ...current.xsoar, historicQueryMode: mode } } : current);
+    setHistoricQueryPreview("");
+    setHistoricQueryPreviewError("");
+  };
+  const previewHistoricQuery = async () => {
+    const current = config();
+    if (!current) return;
+    setHistoricQueryPreviewBusy(true);
+    setHistoricQueryPreview("");
+    setHistoricQueryPreviewError("");
+    try {
+      const result = await rpc.config.previewHistoricQuery({
+        mode: current.xsoar.historicQueryMode,
+        template: current.xsoar.historicQueryTemplate,
+        json: current.xsoar.historicQueryJson,
+        javascript: current.xsoar.historicQueryJavaScript,
+        incidentName: previewIncidentName(),
+        tenantName: previewTenantName(),
+        ticketId: previewTicketId()
+      });
+      setHistoricQueryPreview(result.query);
+    } catch (error) {
+      setHistoricQueryPreviewError(errorMessage(error));
+    } finally {
+      setHistoricQueryPreviewBusy(false);
+    }
   };
   const updateNumberSetting = (key: NumberSetting, value: number) => {
     setConfig((current) => {
@@ -420,7 +459,7 @@ function App() {
         </details>
         <label class="field">Processed incident data
           <textarea ref={draftElement} id="draft" class="control min-h-96 resize-y font-mono text-sm leading-6" rows="18" readOnly placeholder="Processed source fields appear here." value={processedResponse()} onScroll={updateLiveOutputFollow} />
-          <span class="helper">The model extracts facts from the selected alert only. In parallel, the app searches three months of matching XSOAR history and appends past resolutions under Historic.</span>
+          <span class="helper">The model extracts facts from the selected alert only. In parallel, the app uses the configured XSOAR historic query and appends matching past resolutions under Historic.</span>
           <Show when={status()?.processingMode}><span id="processingMode" class="helper">Processing used: {status()?.processingMode}.</span></Show>
         </label>
         <Show when={status()?.draft && (status()?.layaFields?.length || status()?.layaTentativeFields?.length)}>
@@ -490,7 +529,7 @@ function App() {
             </label>
           </div>
           <details class="mt-5 border-t border-line pt-4">
-            <summary class="cursor-pointer font-bold">Advanced XSOAR routing</summary>
+            <summary class="cursor-pointer font-bold">Advanced XSOAR routing and historic search</summary>
             <div class="mt-4 grid gap-4">
               <label class="field">Incident route regex
                 <input id="incidentUrlPattern" class="control font-mono text-sm" value={settings().xsoar.incidentUrlPattern} onInput={(event) => updateTextSetting("incidentUrlPattern", event.currentTarget.value)} />
@@ -507,10 +546,52 @@ function App() {
                   <input id="searchQueryParameter" class="control" value={settings().xsoar.searchQueryParameter} onInput={(event) => updateTextSetting("searchQueryParameter", event.currentTarget.value)} />
                 </label>
               </div>
+              <div class="grid gap-3">
+                <label class="field">Historic query format
+                  <select id="historicQueryMode" class="control" value={settings().xsoar.historicQueryMode} onChange={(event) => updateHistoricQueryMode(event.currentTarget.value as HistoricQueryMode)}>
+                    <option value="template">Template</option>
+                    <option value="json">JSON</option>
+                    <option value="javascript">JavaScript</option>
+                  </select>
+                </label>
+                <Show when={settings().xsoar.historicQueryMode === "template"}>
+                  <label class="field">Historic search query template
+                    <textarea id="historicQueryTemplate" class="control font-mono text-sm" rows="3" spellcheck={false} value={settings().xsoar.historicQueryTemplate} onInput={(event) => updateTextSetting("historicQueryTemplate", event.currentTarget.value)} />
+                    <span class="helper">Use <code>{"{incidentName}"}</code> and <code>{"{tenantName}"}</code> for quoted, escaped values from the current incident.</span>
+                  </label>
+                </Show>
+                <Show when={settings().xsoar.historicQueryMode === "json"}>
+                  <label class="field">Historic search JSON
+                    <textarea id="historicQueryJson" class="control font-mono text-sm" rows="5" spellcheck={false} value={settings().xsoar.historicQueryJson} onInput={(event) => updateTextSetting("historicQueryJson", event.currentTarget.value)} />
+                    <span class="helper">Provide a JSON object with a <code>query</code> string. It supports the same <code>{"{incidentName}"}</code> and <code>{"{tenantName}"}</code> placeholders.</span>
+                  </label>
+                </Show>
+                <Show when={settings().xsoar.historicQueryMode === "javascript"}>
+                  <label class="field">Historic search JavaScript
+                    <textarea id="historicQueryJavaScript" class="control font-mono text-sm" rows="8" spellcheck={false} value={settings().xsoar.historicQueryJavaScript} onInput={(event) => updateTextSetting("historicQueryJavaScript", event.currentTarget.value)} />
+                    <span class="helper">Define <code>buildQuery(incident, quote)</code> and return a query string. Available values: <code>incident.incidentName</code>, <code>incident.tenantName</code>, and <code>incident.ticketId</code>. Use <code>quote(value)</code> when inserting incident values. Code runs in an isolated JavaScript runtime without XSOAR page access.</span>
+                  </label>
+                </Show>
+                <div class="grid gap-3 sm:grid-cols-3">
+                  <label class="field">Preview incident name
+                    <input id="previewIncidentName" class="control" value={previewIncidentName()} onInput={(event) => { setPreviewIncidentName(event.currentTarget.value); setHistoricQueryPreview(""); setHistoricQueryPreviewError(""); }} />
+                  </label>
+                  <label class="field">Preview tenant name
+                    <input id="previewTenantName" class="control" value={previewTenantName()} onInput={(event) => { setPreviewTenantName(event.currentTarget.value); setHistoricQueryPreview(""); setHistoricQueryPreviewError(""); }} />
+                  </label>
+                  <label class="field">Preview incident ID
+                    <input id="previewTicketId" class="control" value={previewTicketId()} onInput={(event) => { setPreviewTicketId(event.currentTarget.value); setHistoricQueryPreview(""); setHistoricQueryPreviewError(""); }} />
+                  </label>
+                </div>
+                <button id="previewHistoricQuery" class="button button-secondary" type="button" disabled={historicQueryPreviewBusy()} onClick={previewHistoricQuery}>Preview query</button>
+                <Show when={historicQueryPreview()}><p id="historicQueryPreview" class="helper break-all" role="status">{historicQueryPreview()}</p></Show>
+                <Show when={historicQueryPreviewError()}><p id="historicQueryPreviewError" class="helper" role="alert">{historicQueryPreviewError()}</p></Show>
+                <p class="helper mb-0">Playwright sends the resulting query to XSOAR. Historic results must still match the selected incident’s tenant and name.</p>
+              </div>
               <div class="grid gap-4 sm:grid-cols-2">
                 <label class="field">Historic resolutions to include
                   <input id="maxHistoricalIncidents" class="control" type="number" min="1" max="20" value={settings().xsoar.maxHistoricalIncidents} onInput={(event) => updateNumberSetting("maxHistoricalIncidents", event.currentTarget.valueAsNumber)} />
-                  <span class="helper">Searches the previous three months for the same client, rule, and alert type.</span>
+                  <span class="helper">Includes matching incident resolutions from the query results, up to this limit.</span>
                 </label>
                 <label class="field">Page load timeout (ms)
                   <input id="pageReadyTimeoutMs" class="control" type="number" min="1000" max="120000" value={settings().xsoar.pageReadyTimeoutMs} onInput={(event) => updateNumberSetting("pageReadyTimeoutMs", event.currentTarget.valueAsNumber)} />

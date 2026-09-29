@@ -1,6 +1,6 @@
 # XSOAR Incident Assistant
 
-XSOAR Incident Assistant is a local Windows data-processing tool for SOC analysts. It collects the selected Cortex XSOAR alert, searches three months of same-client and same-alert-type history for past resolutions, and formats the evidence for analyst review. It does not decide what happened, recommend actions, update XSOAR, or submit forms.
+XSOAR Incident Assistant is a local Windows data-processing tool for SOC analysts. It collects the selected Cortex XSOAR alert, searches matching incident history for past resolutions, and formats the evidence for analyst review. It does not decide what happened, recommend actions, update XSOAR, or submit forms.
 
 This is an independent community project. It is not affiliated with or endorsed by Palo Alto Networks.
 
@@ -69,15 +69,15 @@ The diagnostics mapper uses exact typed-value grouping with source aliases. It r
 5. When processing is complete, the app returns to the local console automatically. Review the alert fields in **Processed incident data** and use the key details for your own investigation.
 6. Select **Copy processed data** when you need the alert details on the clipboard.
 
-When Incident ID is blank, the tool uses the only open incident tab. If several are open, enter the intended ID to avoid triaging the wrong case. An entered ID opens through the configured incident URL template. While Local AI processes the current alert, the tool searches the previous three months for matching incidents. It closes temporary views, search tabs, and historic incident tabs after evidence collection.
+When Incident ID is blank, the tool uses the only open incident tab. If several are open, enter the intended ID to avoid triaging the wrong case. An entered ID opens through the configured incident URL template. While Local AI processes the current alert, the tool searches for matching incidents using the configured query. It closes temporary views, search tabs, and historic incident tabs after evidence collection.
 
 If launch reports a startup error, reinstall the current release. The launcher displays an error instead of failing silently.
 
 ## Configure and verify your tenant
 
-The separate **Configuration** page includes the tenant URL, analyst identity, incident routes, historic result limit, page timeout, local AI, output wording, and JSON log mappings. Each mapping accepts JSON keys or dotted paths such as `source.ip` or `events.actor.user_name`; array indexes are ignored. Existing XSOAR field labels and two-column log tables remain supported as fallbacks. No analyst name is hard-coded.
+The separate **Configuration** page includes the tenant URL, analyst identity, incident routes, historic search query, result limit, page timeout, local AI, output wording, and JSON log mappings. Each mapping accepts JSON keys or dotted paths such as `source.ip` or `events.actor.user_name`; array indexes are ignored. Existing XSOAR field labels and two-column log tables remain supported as fallbacks. No analyst name is hard-coded.
 
-XSOAR routes vary by deployment. Before operational use, confirm the configured incident route, URL template, incident list path, and search parameter against synthetic incidents. Historic searches submit exact `rawName` and `tenantname` values plus a fixed three-month creation window through XSOAR's main incidents search input. Each candidate is checked against the selected ticket's tenant and alert name before its resolution is included. Automation stops or omits the candidate if navigation leaves the configured HTTPS origin or an incident path does not match.
+XSOAR routes vary by deployment. Before operational use, confirm the configured incident route, URL template, incident list path, and search parameter against synthetic incidents. The Historic search query in Configuration supports a template, a JSON object with a `query` string, or a JavaScript `buildQuery(incident, quote)` function that returns a query. Its default submits exact `rawName` and `tenantname` values plus a three-month creation window through XSOAR's main incidents search input. Template and JSON modes replace `{incidentName}` and `{tenantName}` with quoted, escaped values. JavaScript receives `incident.incidentName`, `incident.tenantName`, `incident.ticketId`, and `quote(value)`; use `quote` around inserted incident values. Preview the result with sample values before saving. JavaScript executes in a separate, bounded QuickJS runtime without access to the XSOAR page. Each candidate is checked against the selected ticket's tenant and incident name before its resolution is included. Automation stops or omits the candidate if navigation leaves the configured HTTPS origin or an incident path does not match.
 
 ## Credentials and data
 

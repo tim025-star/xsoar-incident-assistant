@@ -223,6 +223,11 @@ try {
   assert.equal(await page.locator("#pullModel").textContent(), "Pull selected model");
   await page.locator("#pullModel").click();
   await page.locator("#cancelPull").waitFor();
+  const pullStartDeadline = Date.now() + 5000;
+  while (!pulledModels.includes("slow-model") && Date.now() < pullStartDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.ok(pulledModels.includes("slow-model"), "the download must start on the server before reloading the page");
   await page.reload();
   await page.locator("#cancelPull").waitFor();
   await page.locator("#cancelPull").click();
@@ -231,13 +236,29 @@ try {
   assert.deepEqual(pulledModels, ["qwen3.5:9b", "slow-model"]);
   await page.locator("#localAiEnabled").check();
 
-  await page.getByText("Advanced XSOAR routing").click();
+  await page.getByText("Advanced XSOAR routing and historic search").click();
+  const customHistoricQuery = 'name:{incidentName} and tenantname:{tenantName} and status:closed';
+  await page.locator("#historicQueryTemplate").fill(customHistoricQuery);
+  await page.locator("#previewHistoricQuery").click();
+  await page.locator("#historicQueryPreview").getByText('name:"Example detection" and tenantname:"Example Organisation" and status:closed').waitFor();
+  await page.locator("#historicQueryMode").selectOption("json");
+  await page.locator("#historicQueryJson").fill(JSON.stringify({ query: customHistoricQuery }));
+  await page.locator("#previewHistoricQuery").click();
+  await page.locator("#historicQueryPreview").getByText('name:"Example detection" and tenantname:"Example Organisation" and status:closed').waitFor();
+  await page.locator("#historicQueryMode").selectOption("javascript");
+  const customHistoricJavaScript = 'function buildQuery(incident, quote) { if (incident.tenantName === "Example Organisation") return `name:${quote(incident.incidentName)} and tenantname:${quote(incident.tenantName)} and status:closed`; return "status:open"; }';
+  await page.locator("#historicQueryJavaScript").fill(customHistoricJavaScript);
+  await page.locator("#previewHistoricQuery").click();
+  await page.locator("#historicQueryPreview").getByText('name:"Example detection" and tenantname:"Example Organisation" and status:closed').waitFor();
   await page.locator("#maxHistoricalIncidents").fill("10");
   await page.locator("#analystName").fill("Example Analyst");
   await page.locator("#saveMappings").click();
   await page.getByText("XSOAR config saved.").waitFor();
   assert.deepEqual(uiConfig.xsoar.fieldLabels.occurred, ["Occurred", "Event Time"]);
   assert.equal(uiConfig.xsoar.maxHistoricalIncidents, 10);
+  assert.equal(uiConfig.xsoar.historicQueryTemplate, customHistoricQuery);
+  assert.equal(uiConfig.xsoar.historicQueryMode, "javascript");
+  assert.equal(uiConfig.xsoar.historicQueryJavaScript, customHistoricJavaScript);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
 
   await page.getByRole("link", { name: "Home" }).click();

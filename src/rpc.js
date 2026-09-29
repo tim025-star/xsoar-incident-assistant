@@ -9,10 +9,22 @@ import { createLocalAiInstaller } from "./local-ai-installer.js";
 import { createLayaMapperInstaller, loadLayaInstallManifest, readLayaInstallationIdentity } from "./laya-mapper-installer.js";
 import { createLayaMapper, LAYA_MAPPER_TARGETS, layaMapperSettingsSchema } from "./laya-mapper.js";
 import { boundedAlertJson, createOllamaClient, localAiSettingsSchema } from "./local-ai.js";
+import { renderHistoricQuery } from "./historic-query.js";
+import { resolveSettings } from "./domain.js";
 import { runIncidentDraft } from "./workflow.js";
 
 const draftRequestSchema = z.object({
   incidentId: z.string().trim().max(32).regex(/^\d*$/, "Incident ID must contain digits only.")
+}).strict();
+
+const historicQueryPreviewSchema = z.object({
+  mode: z.enum(["template", "json", "javascript"]),
+  template: z.string().max(2048),
+  json: z.string().max(8192),
+  javascript: z.string().max(8192),
+  incidentName: z.string().trim().min(1).max(512),
+  tenantName: z.string().trim().min(1).max(512),
+  ticketId: z.string().trim().max(32)
 }).strict();
 
 const layaDiagnosticInputSchema = z.object({
@@ -156,6 +168,20 @@ export function createAssistantRouter({
   const router = {
     config: {
       get: os.output(resolvedAppConfigSchema).handler(async () => configStore.load()),
+      previewHistoricQuery: os.input(historicQueryPreviewSchema).output(z.object({ query: z.string() }).strict()).handler(async ({ input }) => {
+        try {
+          const settings = resolveSettings({
+            allowedOrigin: "https://xsoar.example.test",
+            historicQueryMode: input.mode,
+            historicQueryTemplate: input.template,
+            historicQueryJson: input.json,
+            historicQueryJavaScript: input.javascript
+          });
+          return { query: await renderHistoricQuery(settings, input) };
+        } catch (error) {
+          throw new ORPCError("BAD_REQUEST", { message: messageFor(error) });
+        }
+      }),
       save: os.input(appConfigInputSchema).output(resolvedAppConfigSchema).handler(async ({ input }) => {
         if (sessions.status().running) {
           throw new ORPCError("CONFLICT", { message: "Disconnect Chrome before changing settings." });

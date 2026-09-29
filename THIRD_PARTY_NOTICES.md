@@ -1,5 +1,12 @@
 # Third-party notices
 
+## QuickJS Emscripten
+
+The optional JavaScript historic-query editor runs code in a QuickJS WebAssembly runtime supplied by `quickjs-emscripten` 0.32.0. The package is distributed under the MIT License and is included with the application.
+
+- Project: https://github.com/justjake/quickjs-emscripten
+- License: https://github.com/justjake/quickjs-emscripten/blob/main/LICENSE
+
 ## Laya
 
 The optional Laya-mapper installer can download self-contained application-local CPU inference, CPU training, and CUDA training archives plus the `laya-multilingual` checkpoint built from Laya `0.3.5`. Laya is maintained by ConvAI Innovations and distributed under the Apache License 2.0. The model checkpoint retains the licence and provenance published with the upstream project. These files are not bundled in the main Windows installer; each separately published GitHub Release asset is pinned by byte length and SHA-256 in the release manifest embedded in that installer. The archives include their pinned Python, PyTorch, Transformers, Safetensors, and supporting runtime dependencies, so client computers do not need a system Python installation.

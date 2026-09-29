@@ -35,7 +35,7 @@ test("settings accept one exact HTTPS origin and keep the analyst name configura
 
 test("historic searches use exact alert name and tenant with a three-month window", () => {
   const resolved = settings();
-  const query = buildSearchQuery("Example detection", "Tenant Alpha", 'created:>="3 months ago"');
+  const query = buildSearchQuery("Example detection", "Tenant Alpha", resolved.historicQueryTemplate);
   const url = buildIncidentSearchUrl(resolved, query);
 
   assert.match(query, /^rawName:"Example detection" and tenantname:"Tenant Alpha"/);
@@ -47,6 +47,21 @@ test("historic searches use exact alert name and tenant with a three-month windo
     () => assertSearchUrl("https://xsoar.example.test/incidents?query=changed", resolved, query),
     /did not retain/
   );
+});
+
+test("historic query templates can change XSOAR fields and safely insert current incident values", () => {
+  const template = 'name:{incidentName} and tenantname:{tenantName} and status:closed';
+  const resolved = resolveSettings({ ...settings(), historicQueryTemplate: template });
+  assert.equal(resolved.historicQueryTemplate, template);
+  assert.equal(
+    buildSearchQuery('Alert "A"', 'Tenant\\North', resolved.historicQueryTemplate),
+    'name:"Alert \\"A\\"" and tenantname:"Tenant\\\\North" and status:closed'
+  );
+  assert.throws(
+    () => resolveSettings({ ...settings(), historicQueryTemplate: 'rawName:{incidentName}\nand status:closed' }),
+    /single-line query/
+  );
+  assert.equal(settings().historicQueryMode, "template");
 });
 
 test("incident navigation remains in the configured tenant and path", () => {
