@@ -34,14 +34,14 @@ export const DEFAULT_SETTINGS = Object.freeze({
   incidentPathTemplate: "/Custom/GenericLayout/{id}",
   incidentsPath: "/incidents",
   // Retained for saved configurations and legacy URL helpers; query-bar search does not use it.
-  searchQueryParameter: "query",
+  searchQueryParameter: "q",
   // Retained so existing saved configurations continue to load.
-  lookbackQuery: "created:>=\"3 months ago\"",
+  lookbackQuery: "created:>=\"30 days ago\"",
   historicQueryMode: "template",
-  historicQueryTemplate: 'name:{incidentName} and tenantname:{tenantName} and (created:>="3 months ago")',
+  historicQueryTemplate: 'name:{incidentName} and tenantname:{tenantName}',
   historicQueryJson: '{\n  "query": "name:{incidentName} and tenantname:{tenantName} and (created:>=\\"3 months ago\\")"\n}',
   historicQueryJavaScript: 'function buildQuery(incident, quote) {\n  const name = quote(incident.incidentName);\n  const tenant = quote(incident.tenantName);\n  return `name:${name} and tenantname:${tenant} and (created:>="3 months ago")`;\n}',
-  maxHistoricalIncidents: 5,
+  maxHistoricalIncidents: 3,
   pageReadyTimeoutMs: 20000,
   incidentInfoTabLabel: "Incident Info",
   investigationTabLabel: "Investigation",
@@ -52,10 +52,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
     greeting: "Hello",
     // Retained only so existing configuration files continue to load; processed output never renders it.
     recommendationsHeading: "Recommended Actions",
-    contactText: "If you require more information or would like to discuss this incident, contact your security operations team and quote the incident ID.",
+    contactText: "If you require further details or you would like to discuss this incident, please contact our 24x7 team and quote the Ticket ID.",
     signOff: "Kind regards,",
-    analystName: "",
-    analystTitle: "Security Analyst"
+    analystName: "Tim McNaughton-Perry",
+    analystTitle: "Security Specialist"
   }
 });
 

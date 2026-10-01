@@ -250,6 +250,10 @@ try {
   assert.equal(await page.locator("#allowedOrigin").count(), 0, "configuration controls must not appear on the home page");
   await page.getByRole("link", { name: "Configuration", exact: true }).click();
   await page.getByRole("heading", { name: "JSON log mapping" }).waitFor();
+  assert.equal(await page.locator("#analystName").inputValue(), "Tim McNaughton-Perry");
+  assert.equal(await page.locator("#analystTitle").inputValue(), "Security Specialist");
+  assert.equal(await page.locator("#historicQueryTemplate").inputValue(), 'name:{incidentName} and tenantname:{tenantName}');
+  assert.equal(await page.locator("#maxHistoricalIncidents").inputValue(), "3");
   assert.equal(await page.locator("#localAiEnabled,#layaWorkerMode").count(), 0, "optional settings belong on their own pages");
   assert.equal(await page.locator("#searchQueryParameter").count(), 0, "the unused URL search parameter must not be editable");
   await page.getByRole("link", { name: "Tools", exact: true }).click();
@@ -383,7 +387,7 @@ try {
   assert.equal(await page.locator("#historicQueryJson").inputValue(), "{");
   assert.equal(await page.locator("#historicQueryMode").inputValue(), "json");
   assert.equal(await page.locator("#analystName").inputValue(), "Example Analyst");
-  assert.equal(uiConfig.xsoar.template.analystName, "");
+  assert.equal(uiConfig.xsoar.template.analystName, "Tim McNaughton-Perry");
   await page.locator("#historicQueryJson").fill(JSON.stringify({ query: customHistoricQuery }));
   await page.locator("#previewHistoricQuery").click();
   await page.locator("#historicQueryPreview").getByText('name:"Example detection" and tenantname:"Example Organisation" and status:closed').waitFor();
@@ -713,7 +717,7 @@ try {
       return detail;
     },
     extractSearchResults: async (openedPage, options) => {
-      assert.equal(options.expectedQuery, 'name:"Synthetic alert" and tenantname:"Example Organisation" and (created:>="3 months ago")');
+      assert.equal(options.expectedQuery, 'name:"Synthetic alert" and tenantname:"Example Organisation"');
       await submitHistoricSearch(openedPage, {
         ...options,
         expectedOrigin: workflowSettings.allowedOrigin,

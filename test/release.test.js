@@ -25,7 +25,7 @@ test("current Chrome is the only browser interface", () => {
   assert.equal(DEFAULT_APP_CONFIG.configVersion, 15);
   assert.deepEqual(DEFAULT_APP_CONFIG.layaMapper, { enabled: false, checkpointId: "expanded-training-cuda-632-alerts-v1", workerMode: "auto", workerCount: 1 });
   assert.equal("session" in DEFAULT_APP_CONFIG, false);
-  assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "");
+  assert.equal(DEFAULT_APP_CONFIG.xsoar.template.analystName, "Tim McNaughton-Perry");
   assert.deepEqual(DEFAULT_APP_CONFIG.localAi, { enabled: false, model: "qwen3.5:9b" });
 });
 
