@@ -661,6 +661,7 @@ try {
 
   const workflowContext = await browser.newContext();
   let historicLoads = 0;
+  let historicAlternateDiscovered = false;
   await workflowContext.route("https://xsoar.example.test/**", async (route) => {
     const requested = new URL(route.request().url());
     if (requested.pathname === "/incidents") {
@@ -675,11 +676,14 @@ try {
     const resolution = ticketId === "4199" && historicLoads > 1
       ? '<div class="field-wrapper fieldId-closenotes"><label>Close Notes</label><div class="value-wrapper"><div class="text-field-display-value">Resolved after foreground retry</div></div></div>'
       : "";
+    const historicTabs = ticketId === "4199" && historicLoads > 2
+      ? '<a role="tab" href="/incident/4199"><span class="tab-label">Investigation</span></a>'
+      : "";
     const currentIdentity = ticketId === "4199" ? "" : `<div class="field-wrapper fieldId-customername"><label>Customer Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper"><div class="text-field-display-value">Synthetic Rule</div></div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper"><div class="text-field-display-value">Endpoint</div></div></div>`;
     const delayedIdentity = ticketId === "4199" ? "" : `<div id="identity"></div><script>setTimeout(() => { document.querySelector(".header-inv-title").textContent = "Synthetic alert"; document.querySelector("#identity").innerHTML = '<div class="field-wrapper fieldId-accountshortname"><label>Account Short Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div>'; }, 900);</script>`;
     await route.fulfill({
       contentType: "text/html",
-      body: `<div class="header-inv-id">#${ticketId}</div><div class="header-inv-title">${ticketId === "4199" ? "Synthetic alert" : ""}</div>${currentIdentity}${resolution}${delayedIdentity}`
+      body: `<div class="header-inv-id">#${ticketId}</div><div class="header-inv-title">${ticketId === "4199" ? "Synthetic alert" : ""}</div>${currentIdentity}${resolution}${delayedIdentity}${historicTabs}`
     });
   });
   const workflowIncidentPage = await workflowContext.newPage();
@@ -703,10 +707,11 @@ try {
       await openedPage.goto(requestedUrl, { waitUntil: "domcontentloaded" });
     },
     getTabUrl: async (openedPage) => openedPage.url(),
-    extractIncident: async (openedPage, extractionSettings) => openedPage.evaluate(
-      extractIncidentFromPage,
-      extractionSettings
-    ),
+    extractIncident: async (openedPage, extractionSettings) => {
+      const detail = await openedPage.evaluate(extractIncidentFromPage, extractionSettings);
+      if (detail.ticketId === "4199" && detail.tabUrls.length) historicAlternateDiscovered = true;
+      return detail;
+    },
     extractSearchResults: async (openedPage, options) => {
       assert.equal(options.expectedQuery, 'name:"Synthetic alert" and tenantname:"Example Organisation" and (created:>="3 months ago")');
       await submitHistoricSearch(openedPage, {
@@ -735,6 +740,16 @@ try {
   assert.match(workflowResult.draft, /#4199: Resolved after foreground retry/);
   assert.ok(workflowProgress.some((message) => /Retrying historic incident #4199/.test(message)));
   assert.deepEqual(workflowContext.pages(), [workflowIncidentPage], "temporary search and historic tabs must be closed");
+  const readyWorkflow = await runIncidentDraft({
+    adapter: workflowAdapter,
+    settings: workflowSettings,
+    incidentId: "4200"
+  });
+  assert.ok(historicAlternateDiscovered, "the completed historic page must expose an actual alternate view link");
+  assert.equal(historicLoads, 3, "a complete historic page must be visited once despite its alternate view link");
+  assert.equal(readyWorkflow.reviewed, 1);
+  assert.equal(readyWorkflow.warning, "");
+  assert.deepEqual(workflowContext.pages(), [workflowIncidentPage]);
   await workflowContext.close();
 
   console.log("Current-Chrome-only UI, foreground historic retry workflow, upgrade migration, incidents-query submission, and extraction verification passed.");

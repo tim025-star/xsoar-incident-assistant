@@ -806,6 +806,32 @@ test("historic search reports truncation when paging proves more rows exist", as
   }
 });
 
+test("historic search understands the XSOAR Showing incidents paging format", async (t) => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  t.after(() => Object.assign(globalThis, original));
+  const root = {
+    ...visible,
+    clientHeight: 500,
+    scrollTop: 0,
+    querySelector: () => null,
+    querySelectorAll: (selector) => selector === "a[href]"
+      ? [{ ...visible, getAttribute: () => "/incident/4199" }] : []
+  };
+  globalThis.location = new URL("https://xsoar.example.test/incidents");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = {
+    body: root,
+    querySelector: (selector) => selector === ".fixedDataTableLayout_main" ? root
+      : selector === ".table-paging-message" ? { textContent: "Showing incidents 1 to 1 out of 1" } : null,
+    querySelectorAll: () => []
+  };
+  const result = await extractSearchResultsFromPage({
+    expectedOrigin: "https://xsoar.example.test", expectedPath: "/incidents", timeoutMs: 2000, maxResults: 5
+  });
+  assert.deepEqual(result.ticketIds, ["4199"]);
+  assert.equal(result.truncated, false);
+});
+
 test("historic search treats unrecognised paging text as truncated", async () => {
   const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
   const link = { ...visible, getAttribute: () => "/incident/4199" };
