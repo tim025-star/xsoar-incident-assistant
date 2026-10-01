@@ -1,7 +1,6 @@
 import {
   assertIncidentUrl,
   buildDraft,
-  buildHistoricalIncidentUrl,
   buildIncidentUrlFromId,
   buildIncidentSearchUrl,
   cleanText,
@@ -151,7 +150,6 @@ async function readHistoricCandidate({
   adapter,
   settings,
   incident,
-  originalTab,
   temporaryTabs,
   ticketId,
   ticketUrl,
@@ -162,7 +160,7 @@ async function readHistoricCandidate({
   try {
     const requestedUrl = ticketUrl
       ? assertIncidentUrl(ticketUrl, settings, "Historic result navigation").toString()
-      : buildHistoricalIncidentUrl(originalTab.url, ticketId, settings);
+      : buildIncidentUrlFromId(ticketId, settings);
     if (ticketIdFromIncidentUrl(requestedUrl, settings, "Historic result navigation") !== String(ticketId)) {
       throw new Error("XSOAR result link did not match the historic incident ID.");
     }
@@ -226,7 +224,7 @@ async function readHistoricCandidate({
   }
 }
 
-async function collectHistoric({ adapter, settings, incident, originalTab, temporaryTabs, onProgress = async () => {} }) {
+async function collectHistoric({ adapter, settings, incident, temporaryTabs, onProgress = async () => {} }) {
   try {
     const query = await renderHistoricQuery(settings, incident);
     const searchTab = await adapter.openTab(buildIncidentSearchUrl(settings, ""), { focusBeforeNavigation: true });
@@ -246,7 +244,7 @@ async function collectHistoric({ adapter, settings, incident, originalTab, tempo
       if (items.length >= settings.maxHistoricalIncidents) break;
       await onProgress(`Reviewing historic incident #${ticketId} (${index + 1} of ${ticketIds.length}).`);
       const candidate = await readHistoricCandidate({
-        adapter, settings, incident, originalTab, temporaryTabs, ticketId,
+        adapter, settings, incident, temporaryTabs, ticketId,
         ticketUrl: result.ticketUrls?.[ticketId], ticketRow: result.ticketRows?.[ticketId], onProgress
       });
       if (candidate?.error) {
@@ -369,7 +367,7 @@ export async function runIncidentDraft({
       }
     })();
     const historicPromise = collectHistoric({
-      adapter, settings, incident: extractedIncident, originalTab, temporaryTabs, onProgress
+      adapter, settings, incident: extractedIncident, temporaryTabs, onProgress
     });
     const [processed, historic] = await Promise.all([enrichmentPromise, historicPromise]);
     const draft = buildDraft({ ...incident, historical: historic.items }, settings.template, processed.enrichment);

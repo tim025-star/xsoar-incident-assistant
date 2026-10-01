@@ -391,6 +391,17 @@ test("workflow uses a configured incident route with the ID in the final path se
   assert.equal(adapter.opened.length, 5);
 });
 
+test("ID-only history rows use the configured route from a current overview page", async () => {
+  const adapter = createAdapter({ searchTicketIds: ["4199"] });
+  adapter.getActiveTab = async () => ({ id: 1, url: "https://xsoar.example.test/incident17/4200/overview" });
+  const result = await runIncidentDraft({ adapter, settings });
+  assert.equal(result.warning, "");
+  assert.equal(result.reviewed, 1);
+  assert.deepEqual(adapter.opened, [
+    "https://xsoar.example.test/incidents", "https://xsoar.example.test/Custom/GenericLayout/4199"
+  ]);
+});
+
 test("workflow retains the source-field response if local processing fails", async () => {
   const result = await runIncidentDraft({
     adapter: createAdapter(), settings,

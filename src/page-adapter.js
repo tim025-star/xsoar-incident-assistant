@@ -395,8 +395,19 @@ export async function extractSearchResultsFromPage(options) {
   const initialSettleDeadline = Date.now() + 500;
   const collect = () => {
     assertCurrentPage();
-    const root = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page")
-      || document.body;
+    let resultsRoot = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page,.regular-table");
+    if (!resultsRoot) {
+      const tables = Array.from(document.querySelectorAll("table")).filter(isVisible).filter((table) => {
+        const headers = Array.from(table.querySelectorAll("thead th"))
+          .map((header) => normalize(header.textContent).toLowerCase());
+        return headers.includes("name")
+          && headers.filter((header) => /^(?:id|incident id|ticket id)$/.test(header)).length === 1;
+      });
+      if (tables.length > 1) throw new Error("XSOAR historic search exposed multiple possible incident results tables.");
+      resultsRoot = tables[0];
+    }
+    const root = resultsRoot || document.body;
+    let unreadableRows = 0;
     const busy = Array.from(root.querySelectorAll("[aria-busy='true'],.loading,.spinner"))
       .some(isVisible);
     if (!initialLoadFinished) {
@@ -410,11 +421,50 @@ export async function extractSearchResultsFromPage(options) {
       }
     }
     if (initialLoadFinished && !busy) {
-      const headers = Array.from(root.querySelectorAll("[role='columnheader']"))
+      const columnHeaders = root.querySelectorAll("[role='columnheader']");
+      const headers = Array.from(columnHeaders.length ? columnHeaders : root.querySelectorAll("thead th"))
         .map((header) => normalize(header.textContent).toLowerCase());
+      const idColumns = headers.flatMap((header, index) => /^(?:id|incident id|ticket id)$/.test(header) ? [index] : []);
       const tenantColumn = headers.indexOf("tenant name");
       const nameColumn = headers.indexOf("name");
       const typeColumn = headers.indexOf("type");
+      const rowCells = (row) => {
+        const gridCells = row?.querySelectorAll?.("[role='gridcell']") || [];
+        return gridCells.length ? gridCells : row?.querySelectorAll?.("td,[role='cell']") || [];
+      };
+      const retainTicket = (ticketId, row) => {
+        ticketIds.add(ticketId);
+        const cells = rowCells(row);
+        if (tenantColumn >= 0 && nameColumn >= 0 && cells.length === headers.length) {
+          const tenantName = normalize(cells[tenantColumn].textContent);
+          const name = normalize(cells[nameColumn].textContent);
+          if (tenantName && name) ticketRows[ticketId] ||= {
+            tenantName,
+            name,
+            type: typeColumn >= 0 ? normalize(cells[typeColumn].textContent) : ""
+          };
+        }
+      };
+      if (resultsRoot) {
+        for (const row of root.querySelectorAll("[role='row'],tr")) {
+          if (!isVisible(row)) continue;
+          const cells = rowCells(row);
+          if (!cells.length) continue;
+          unreadableRows += 1;
+          if (idColumns.length !== 1 || cells.length !== headers.length) continue;
+          const cell = cells[idColumns[0]];
+          if (!isVisible(cell)) continue;
+          const ticketId = normalize(cell.textContent).match(/^#?(\d+)$/)?.[1];
+          if (!ticketId) continue;
+          // A numeric cell must not turn an external result link into trusted navigation.
+          const links = Array.from(cell.querySelectorAll?.("a[href]") || []);
+          if (links.some((link) => {
+            try { return new URL(link.getAttribute("href"), location.href).origin !== location.origin; }
+            catch { return true; }
+          })) continue;
+          retainTicket(ticketId, row);
+        }
+      }
       for (const link of root.querySelectorAll("a[href]")) {
         if (!isVisible(link)) continue;
         let url;
@@ -430,21 +480,10 @@ export async function extractSearchResultsFromPage(options) {
           || configuredTicketId
           || visibleTicketId;
         if (ticketId && url.origin === location.origin) {
-          ticketIds.add(ticketId);
+          retainTicket(ticketId, link.closest?.("[role='row'],tr"));
           if (!url.search && !url.hash && (url.pathname.match(ticketPattern)
             || url.pathname.match(incidentOverviewPattern)
             || configuredTicketId)) ticketUrls[ticketId] ||= url.toString();
-          const row = link.closest?.("[role='row']");
-          const cells = row?.querySelectorAll?.("[role='gridcell']") || [];
-          if (tenantColumn >= 0 && nameColumn >= 0 && cells.length === headers.length) {
-            const tenantName = normalize(cells[tenantColumn].textContent);
-            const name = normalize(cells[nameColumn].textContent);
-            if (tenantName && name) ticketRows[ticketId] ||= {
-              tenantName,
-              name,
-              type: typeColumn >= 0 ? normalize(cells[typeColumn].textContent) : ""
-            };
-          }
         }
       }
     }
@@ -456,7 +495,7 @@ export async function extractSearchResultsFromPage(options) {
     const pagingUnknown = Boolean(paging && !pagingMatch);
     const empty = Array.from(document.querySelectorAll(".no-data,.empty-table,.no-results"))
       .some(isVisible);
-    return { root, paging, pagingComplete, pagingEnd, pagingTotal, pagingUnknown, empty, busy };
+    return { root, paging, pagingComplete, pagingEnd, pagingTotal, pagingUnknown, empty, busy, unreadableRows };
   };
 
   const deadline = Date.now() + Math.min(Number(options.timeoutMs) || 20000, 120000);
@@ -479,6 +518,9 @@ export async function extractSearchResultsFromPage(options) {
     }
     await new Promise((resolve) => setTimeout(resolve, 150));
     state = collect();
+  }
+  if (!state.empty && !ticketIds.size && (state.unreadableRows || state.pagingTotal > 0)) {
+    throw new Error("XSOAR historic search showed results, but no incident IDs could be read from the results table.");
   }
   if (!state.empty && !ticketIds.size && !state.paging) {
     throw new Error("XSOAR historic search results did not become ready before the timeout.");

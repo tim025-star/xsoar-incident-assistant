@@ -554,6 +554,49 @@ test("historic search returns the direct link from a fixed data table result row
   }
 });
 
+test("historic search reads ticket IDs from the labelled ID column without href links", async (t) => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  t.after(() => Object.assign(globalThis, original));
+  const headers = ["Created", "Tenant Name", "ID", "Name", "Type"]
+    .map((textContent) => ({ ...visible, textContent }));
+  const rows = ["4199", "#4198"].map((ticketId) => {
+    const cells = ["Yesterday", "Example Organisation", ticketId, "Example detection", "Endpoint"]
+      .map((textContent) => ({ ...visible, textContent }));
+    return { ...visible, querySelectorAll: (selector) => selector === "[role='gridcell']" ? cells : [] };
+  });
+  const root = {
+    ...visible,
+    clientHeight: 500,
+    scrollTop: 0,
+    querySelector: () => null,
+    querySelectorAll: (selector) => selector === "[role='columnheader']" ? headers
+      : selector === "[role='row'],tr" ? rows : []
+  };
+  globalThis.location = new URL("https://xsoar.example.test/incidents");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = {
+    body: root,
+    querySelector: (selector) => selector.includes("#incidents-page") ? root
+      : selector === ".table-paging-message" ? { textContent: "1-2 of 2" } : null,
+    querySelectorAll: () => []
+  };
+  const result = await extractSearchResultsFromPage({
+    expectedOrigin: "https://xsoar.example.test", expectedPath: "/incidents", maxResults: 5, timeoutMs: 1000
+  });
+  assert.deepEqual(result.ticketIds, ["4199", "4198"]);
+  assert.deepEqual(result.ticketUrls, {});
+  assert.deepEqual(result.ticketRows, {
+    4199: { tenantName: "Example Organisation", name: "Example detection", type: "Endpoint" },
+    4198: { tenantName: "Example Organisation", name: "Example detection", type: "Endpoint" }
+  });
+
+  // Positive paging and unrelated numeric columns must not masquerade as zero matches.
+  headers[2].textContent = "Source Port";
+  await assert.rejects(() => extractSearchResultsFromPage({
+    expectedOrigin: "https://xsoar.example.test", expectedPath: "/incidents", maxResults: 5, timeoutMs: 1000
+  }), /showed results, but no incident IDs could be read/);
+});
+
 test("historic search recognises links that use the configured custom incident route", async () => {
   const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
   const visible = { offsetWidth: 1, offsetHeight: 1, getClientRects: () => [1] };
