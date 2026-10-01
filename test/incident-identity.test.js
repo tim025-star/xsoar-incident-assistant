@@ -63,3 +63,54 @@ test("processing waits for incident search identity after other fields have sett
   assert.doesNotMatch(result.warning, /Historic incident lookup was unavailable/);
   assert.equal(submittedQuery, 'rawName:"Synthetic incident" and tenantname:"Tenant Alpha" and (created:>="3 months ago")');
 });
+
+test("processing discovers a secondary identity view without exhausting the primary timeout", async (t) => {
+  const settings = resolveSettings({ allowedOrigin: "https://xsoar.example.test", pageReadyTimeoutMs: 2500 });
+  const primaryUrl = "https://xsoar.example.test/Custom/GenericLayout/4200";
+  const viewUrl = `${primaryUrl}?view=Investigation`;
+  const rule = field("Synthetic Rule");
+  const tenant = field("Tenant Alpha");
+  const original = { location: globalThis.location, window: globalThis.window, document: globalThis.document };
+  t.after(() => Object.assign(globalThis, original));
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  const tabs = new Map([[1, primaryUrl]]);
+  let primaryReadMs;
+  let submittedQuery;
+  const result = await runIncidentDraft({
+    settings,
+    adapter: {
+      getActiveTab: async () => ({ id: 1, url: primaryUrl }),
+      extractIncident: async (id, options) => {
+        globalThis.location = new URL(tabs.get(id));
+        globalThis.document = {
+          querySelector(selector) {
+            if (selector === ".header-inv-id") return { textContent: "4200" };
+            if (selector === ".header-inv-title") return { textContent: "Synthetic incident", getAttribute: () => null };
+            return null;
+          },
+          querySelectorAll(selector) {
+            if (selector === ".field-wrapper") return id === 1 ? [rule] : [rule, tenant];
+            if (selector === ".fieldId-rulename") return [rule];
+            if (selector === ".fieldId-tenantname" && id !== 1) return [tenant];
+            if (selector === "a[role='tab'][href]" && id === 1) return [{
+              textContent: "Investigation", getAttribute: () => viewUrl, querySelector: () => null
+            }];
+            return [];
+          }
+        };
+        const started = Date.now();
+        const detail = await extractIncidentFromPage(options);
+        if (id === 1) primaryReadMs = Date.now() - started;
+        return detail;
+      },
+      openTab: async (url) => { const id = tabs.size + 1; tabs.set(id, url); return { id, url }; },
+      getTabUrl: async (id) => tabs.get(id),
+      focusTab: async () => {},
+      closeTab: async () => {},
+      extractSearchResults: async (_id, options) => { submittedQuery = options.expectedQuery; return { ticketIds: [] }; }
+    }
+  });
+  assert.equal(result.warning, "");
+  assert.match(submittedQuery, /tenantname:"Tenant Alpha"/);
+  assert.ok(primaryReadMs < settings.pageReadyTimeoutMs / 2, "a usable alternate view must bypass the primary identity wait");
+});

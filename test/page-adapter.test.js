@@ -72,7 +72,7 @@ function incidentPage({ headings = () => [], extraJsonCells = [], tabLinks = [],
 function incidentSettings(overrides = {}) {
   return {
     allowedOrigin: "https://xsoar.example.test",
-    incidentUrlPattern: "\\/Custom\\/GenericLayout\\/\\d+$",
+    incidentUrlPattern: "\\/Custom\\/GenericLayout\\/\\d+\\/?(?:[?#].*)?$",
     pageReadyTimeoutMs: 1500,
     fieldLabels: { ruleName: ["Rule Name"] },
     incidentInfoTabLabel: "Incident Info",
@@ -251,6 +251,26 @@ test("incident extraction waits for a visible field spinner to clear", async () 
   }
 });
 
+test("self links and untrusted views cannot bypass the preferred identity wait", async (t) => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  t.after(() => Object.assign(globalThis, original));
+  const primaryUrl = "https://xsoar.example.test/Custom/GenericLayout/4200";
+  globalThis.location = new URL(primaryUrl);
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = incidentPage({ tabLinks: [
+    primaryUrl,
+    "https://xsoar.example.test/Custom/GenericLayout/4201?view=Investigation",
+    "https://other.example.test/Custom/GenericLayout/4200?view=Investigation",
+    "https://xsoar.example.test/incidents?view=Investigation"
+  ].map((url) => ({ textContent: "Investigation", getAttribute: () => url, querySelector: () => null })) });
+  const started = Date.now();
+  const result = await extractIncidentFromPage(incidentSettings({
+    preferredFields: ["tenantName"], allowTabDiscovery: true, pageReadyTimeoutMs: 1000
+  }));
+  assert.deepEqual(result.tabUrls, [primaryUrl]);
+  assert.ok(Date.now() - started >= 1000, "only a trusted alternate view of the same ticket may defer identity readiness");
+});
+
 test("incident extraction does not let tab discovery bypass required alert JSON", async () => {
   const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
   const started = Date.now();
@@ -261,7 +281,7 @@ test("incident extraction does not let tab discovery bypass required alert JSON"
   const tabLink = {
     ...visible,
     textContent: "Investigation",
-    getAttribute: () => "/Custom/GenericLayout/4200/investigation",
+    getAttribute: () => "/Custom/GenericLayout/4200?view=Investigation",
     querySelector: () => ({ textContent: "Investigation" })
   };
 
