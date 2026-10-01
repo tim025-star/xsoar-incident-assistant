@@ -21,7 +21,7 @@ const settings = () => resolveSettings({
 test("settings accept one exact HTTPS origin and keep the analyst name configurable", () => {
   const resolved = settings();
   assert.equal(resolved.allowedOrigin, "https://xsoar.example.test");
-  assert.equal(resolved.template.analystName, "");
+  assert.equal(resolved.template.analystName, "Tim McNaughton-Perry");
 
   for (const origin of [
     "http://xsoar.example.test",
@@ -33,14 +33,15 @@ test("settings accept one exact HTTPS origin and keep the analyst name configura
   }
 });
 
-test("historic searches use exact alert name and tenant with a three-month window", () => {
+test("default historic searches use exact alert name and tenant without a date filter", () => {
   const resolved = settings();
   const query = buildSearchQuery("Example detection", "Tenant Alpha", resolved.historicQueryTemplate);
   const url = buildIncidentSearchUrl(resolved, query);
 
   assert.match(query, /^name:"Example detection" and tenantname:"Tenant Alpha"/);
   assert.doesNotMatch(query, /rawType/);
-  assert.match(query, /created:>="3 months ago"/);
+  assert.equal(query, 'name:"Example detection" and tenantname:"Tenant Alpha"');
+  assert.equal(new URL(url).searchParams.get("q"), query);
   assert.equal(new URL(buildIncidentSearchUrl(resolved, "")).search, "");
   assert.equal(assertSearchUrl(url, resolved, query).origin, resolved.allowedOrigin);
   assert.throws(
@@ -133,7 +134,7 @@ test("incident templates require the ID as the final path segment and must match
   );
 });
 
-test("draft output contains configured identity only when the user supplies it", () => {
+test("draft output uses the configured identity and allows an anonymous signature", () => {
   const base = {
     customerName: "Example Organisation",
     incidentName: "Example detection",
@@ -141,13 +142,13 @@ test("draft output contains configured identity only when the user supplies it",
     ruleName: "Example Rule",
     caseType: "Endpoint"
   };
-  const anonymous = buildDraft(base, settings().template);
+  const anonymous = buildDraft(base, { ...settings().template, analystName: "" });
   const named = buildDraft(base, { ...settings().template, analystName: "Example Analyst" });
   const missingCustomer = buildDraft({ ...base, customerName: "" }, settings().template);
 
   assert.doesNotMatch(anonymous, /Example Analyst/);
-  assert.doesNotMatch(anonymous, /Security Analyst$/);
-  assert.match(named, /Example Analyst\nSecurity Analyst\n\nHistoric/);
+  assert.doesNotMatch(anonymous, /Security Specialist/);
+  assert.match(named, /Example Analyst\nSecurity Specialist\n\nHistoric/);
   assert.doesNotMatch(missingCustomer, /Hello n\/a/i);
 });
 
@@ -170,6 +171,6 @@ test("processed output keeps the source-field template and adds facts without an
   assert.match(draft, /Event info breakdown is as follows:/);
   assert.match(draft, /Processed Incident Data\nEvent Summary: The source record names endpoint-01\./);
   assert.match(draft, /Observed Facts:\n- Account: example\.user\n- Source IP: 192\.0\.2\.10/);
-  assert.match(draft, /Kind regards,\n\nHistoric\n1\. #4199: Reset the affected account\./);
+  assert.match(draft, /Kind regards,\nTim McNaughton-Perry\nSecurity Specialist\n\nHistoric\n1\. #4199: Reset the affected account\./);
   assert.doesNotMatch(draft, /Investigation Summary|Related Activity|Recommended Actions|Vendor Guidance/);
 });

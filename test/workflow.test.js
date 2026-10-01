@@ -98,7 +98,7 @@ const settings = resolveSettings({
   maxHistoricalIncidents: 3
 });
 
-test("workflow searches three months of same-client alert history while AI processes the current alert", async () => {
+test("workflow searches same-client alert history while AI processes the current alert", async () => {
   let aiPending = false;
   let searchedWhileAiPending = false;
   let searchOptions;
@@ -129,7 +129,7 @@ test("workflow searches three months of same-client alert history while AI proce
   assert.doesNotMatch(searchOptions.expectedQuery, /name:"Example Rule"/);
   assert.match(searchOptions.expectedQuery, /tenantname:"Example Organisation"/);
   assert.doesNotMatch(searchOptions.expectedQuery, /rawType/);
-  assert.match(searchOptions.expectedQuery, /created:>="3 months ago"/);
+  assert.doesNotMatch(searchOptions.expectedQuery, /created:/);
   assert.match(result.draft, /Historic\n1\. #4199: Resolved incident 4199/);
   assert.doesNotMatch(result.draft, /#4198|#4197/);
 });

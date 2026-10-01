@@ -7,6 +7,7 @@ import { renderHistoricQuery } from "../src/historic-query.js";
 test("old built-in history queries migrate in every mode while custom queries survive", async () => {
   const legacy = Object.fromEntries(["historicQueryTemplate", "historicQueryJson", "historicQueryJavaScript"]
     .map((key) => [key, DEFAULT_SETTINGS[key].replace("name:", "rawName:")]));
+  legacy.historicQueryTemplate = 'rawName:{incidentName} and tenantname:{tenantName} and (created:>="3 months ago")';
   for (const historicQueryMode of ["template", "json", "javascript"]) {
     const config = resolveAppConfig({
       configVersion: 14,

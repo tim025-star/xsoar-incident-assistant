@@ -21,11 +21,11 @@ test("template and JSON historic queries insert escaped incident values", async 
   assert.throws(() => settings({ historicQueryMode: "json", historicQueryJson: '{"query":42}' }), /non-empty "query"/);
   assert.equal(
     await renderHistoricQuery(settings({ historicQueryMode: "json" }), incident),
-    await renderHistoricQuery(settings(), incident)
+    'name:"Alert \\"A\\"" and tenantname:"Tenant North" and (created:>="3 months ago")'
   );
   assert.equal(
     await renderHistoricQuery(settings({ historicQueryMode: "javascript" }), incident),
-    await renderHistoricQuery(settings(), incident)
+    'name:"Alert \\"A\\"" and tenantname:"Tenant North" and (created:>="3 months ago")'
   );
 });
 

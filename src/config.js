@@ -131,8 +131,11 @@ export function resolveAppConfig(input = {}, { requireTenant = true, allowRouteM
       "Account Short Name", ...(suppliedFieldLabels.tenantName || FIELD_LABELS.tenantName)
     ])];
     for (const key of ["historicQueryTemplate", "historicQueryJson", "historicQueryJavaScript"]) {
-      const legacyDefault = DEFAULT_SETTINGS[key].replace("name:", "rawName:");
-      if (suppliedXsoar[key] === legacyDefault) suppliedXsoar[key] = DEFAULT_SETTINGS[key];
+      // The pre-v15 template had a date filter; retain it when migrating saved queries.
+      const legacyDefault = key === "historicQueryTemplate"
+        ? 'rawName:{incidentName} and tenantname:{tenantName} and (created:>="3 months ago")'
+        : DEFAULT_SETTINGS[key].replace("name:", "rawName:");
+      if (suppliedXsoar[key] === legacyDefault) suppliedXsoar[key] = legacyDefault.replace("rawName:", "name:");
     }
   }
   if ((input.configVersion ?? 0) < 12) {

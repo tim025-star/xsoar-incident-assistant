@@ -105,7 +105,7 @@ test("processing waits for incident search identity after other fields have sett
     }
   });
   assert.doesNotMatch(result.warning, /Historic incident lookup was unavailable/);
-  assert.equal(submittedQuery, 'name:"Synthetic incident" and tenantname:"Tenant Alpha" and (created:>="3 months ago")');
+  assert.equal(submittedQuery, 'name:"Synthetic incident" and tenantname:"Tenant Alpha"');
 });
 
 test("processing discovers a secondary identity view without exhausting the primary timeout", async (t) => {
