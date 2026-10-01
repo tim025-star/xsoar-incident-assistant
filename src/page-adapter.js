@@ -179,27 +179,34 @@ export async function extractIncidentFromPage(settings) {
     const fields = {};
     for (const [key, configuredLabels] of Object.entries(settings.fieldLabels || {})) {
       const labels = Array.isArray(configuredLabels) ? configuredLabels : [];
-      const accepted = labels.map(normalizeLabel);
       const fieldId = normalize(key).toLowerCase().replace(/[^a-z0-9]+/g, "");
       let value = "";
-      for (const candidate of document.querySelectorAll(`.fieldId-${fieldId}`)) {
-        if (!isVisible(candidate)) continue;
-        const wrapper = candidate.matches(".field-wrapper") ? candidate : candidate.querySelector(".field-wrapper");
-        const root = wrapper?.querySelector(".value-wrapper") || wrapper || candidate;
-        value = extractValue(root);
-        if (available(value)) break;
-      }
-      if (!available(value)) {
-        for (const wrapper of wrappers) {
-          const label = wrapper.querySelector("label");
-          const actual = [
-            normalizeLabel(label?.getAttribute("title")),
-            normalizeLabel(label?.innerText || label?.textContent)
-          ].filter(Boolean);
-          if (!actual.some((entry) => accepted.includes(entry))) continue;
-          value = extractValue(wrapper.querySelector(".value-wrapper") || wrapper);
+      // The tenant used for history is displayed as Account Short Name in custom layouts.
+      const sources = key === "tenantName"
+        ? [{ id: "accountshortname", labels: ["Account Short Name"] }, { id: fieldId, labels }]
+        : [{ id: fieldId, labels }];
+      for (const source of sources) {
+        for (const candidate of document.querySelectorAll(`.fieldId-${source.id}`)) {
+          if (!isVisible(candidate)) continue;
+          const wrapper = candidate.matches(".field-wrapper") ? candidate : candidate.querySelector(".field-wrapper");
+          const root = wrapper?.querySelector(".value-wrapper") || wrapper || candidate;
+          value = extractValue(root);
           if (available(value)) break;
         }
+        if (!available(value)) {
+          const accepted = source.labels.map(normalizeLabel);
+          for (const wrapper of wrappers) {
+            const label = wrapper.querySelector("label");
+            const actual = [
+              normalizeLabel(label?.getAttribute("title")),
+              normalizeLabel(label?.innerText || label?.textContent)
+            ].filter(Boolean);
+            if (!actual.some((entry) => accepted.includes(entry))) continue;
+            value = extractValue(wrapper.querySelector(".value-wrapper") || wrapper);
+            if (available(value)) break;
+          }
+        }
+        if (available(value)) break;
       }
       fields[key] = available(value) ? normalize(value) : "";
     }

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { resolveSettings } from "../src/domain.js";
 import { extractIncidentFromPage } from "../src/page-adapter.js";
 import { runIncidentDraft } from "../src/workflow.js";
+import { resolveAppConfig } from "../src/config.js";
 
 const visible = { offsetWidth: 1, offsetHeight: 1, getClientRects: () => [1] };
 
@@ -19,6 +20,49 @@ function field(value) {
     querySelectorAll: () => []
   };
 }
+
+test("history uses the response incident name and Account Short Name on the original page", async (t) => {
+  const settings = resolveAppConfig({
+    configVersion: 14,
+    xsoar: {
+      allowedOrigin: "https://xsoar.example.test",
+      pageReadyTimeoutMs: 1000,
+      fieldLabels: { tenantName: ["Tenant Name"] },
+      historicQueryTemplate: 'rawName:{incidentName} and tenantname:{tenantName} and (created:>="3 months ago")'
+    }
+  }).xsoar;
+  const account = field("Tenant Short Name");
+  const original = { location: globalThis.location, window: globalThis.window, document: globalThis.document };
+  t.after(() => Object.assign(globalThis, original));
+  globalThis.location = new URL("https://xsoar.example.test/Custom/GenericLayout/4200");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = {
+    querySelector(selector) {
+      if (selector === ".header-inv-id") return { textContent: "4200" };
+      if (selector === ".header-inv-title") return { textContent: 'Synthetic "incident"', getAttribute: () => null };
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === ".field-wrapper" || selector === ".fieldId-accountshortname") return [account];
+      return [];
+    }
+  };
+  let submittedQuery;
+  const result = await runIncidentDraft({
+    settings,
+    adapter: {
+      getActiveTab: async () => ({ id: 1, url: location.href }),
+      extractIncident: async (_id, options) => extractIncidentFromPage(options),
+      openTab: async (url) => ({ id: 2, url }),
+      focusTab: async () => {},
+      closeTab: async () => {},
+      extractSearchResults: async (_id, options) => { submittedQuery = options.expectedQuery; return { ticketIds: [] }; }
+    }
+  });
+  assert.equal(result.warning, "");
+  assert.match(result.draft, /Incident: Synthetic "incident"/);
+  assert.equal(submittedQuery, 'name:"Synthetic \\"incident\\"" and tenantname:"Tenant Short Name" and (created:>="3 months ago")');
+});
 
 test("processing waits for incident search identity after other fields have settled", async (t) => {
   const settings = resolveSettings({ allowedOrigin: "https://xsoar.example.test", pageReadyTimeoutMs: 2500 });
@@ -61,7 +105,7 @@ test("processing waits for incident search identity after other fields have sett
     }
   });
   assert.doesNotMatch(result.warning, /Historic incident lookup was unavailable/);
-  assert.equal(submittedQuery, 'rawName:"Synthetic incident" and tenantname:"Tenant Alpha" and (created:>="3 months ago")');
+  assert.equal(submittedQuery, 'name:"Synthetic incident" and tenantname:"Tenant Alpha" and (created:>="3 months ago")');
 });
 
 test("processing discovers a secondary identity view without exhausting the primary timeout", async (t) => {

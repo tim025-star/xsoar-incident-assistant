@@ -260,6 +260,19 @@ function App() {
     if (!current) return;
     setConfig(await saveConfigUpdate(() => rpc.config.save(current)));
   };
+  const exportSettings = async () => {
+    // Export persisted configuration only; the console token and incident data are separate.
+    const saved = await rpc.config.get();
+    const url = URL.createObjectURL(new Blob([`${JSON.stringify(saved, null, 2)}\n`], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "xsoar-incident-assistant-settings.json";
+    document.body.append(link);
+    try { link.click(); } finally {
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  };
   const persistLocalAiSettings = async () => {
     const current = config();
     if (!current) return;
@@ -768,6 +781,7 @@ function App() {
           </details>
           <button id="saveMappings" class="button mt-5" type="button" onClick={() => runAction(persistSettings)}>Save configuration</button>
         </fieldset>
+        <button id="exportSettings" class="button button-secondary mt-5" type="button" disabled={busy()} onClick={() => runAction(exportSettings)}>Export saved settings</button>
       </section>
 
       <PageStatus />
