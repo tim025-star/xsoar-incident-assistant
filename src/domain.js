@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   incidentUrlPattern: "\\/Custom\\/[^/]+\\/\\d+\\/?(?:[?#].*)?$",
   incidentPathTemplate: "/Custom/GenericLayout/{id}",
   incidentsPath: "/incidents",
+  // Retained for saved configurations and legacy URL helpers; query-bar search does not use it.
   searchQueryParameter: "query",
   // Retained so existing saved configurations continue to load.
   lookbackQuery: "created:>=\"3 months ago\"",

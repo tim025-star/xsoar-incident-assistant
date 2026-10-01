@@ -244,14 +244,12 @@ class PlaywrightBrowserAdapter {
     await submitHistoricSearch(page, {
       ...options,
       expectedOrigin: this.settings.allowedOrigin,
-      expectedPath: new URL(this.settings.incidentsPath, this.settings.allowedOrigin).pathname,
-      queryParameter: this.settings.searchQueryParameter
+      expectedPath: new URL(this.settings.incidentsPath, this.settings.allowedOrigin).pathname
     });
     return page.evaluate(extractSearchResultsFromPage, {
       ...options,
       expectedOrigin: this.settings.allowedOrigin,
       expectedPath: new URL(this.settings.incidentsPath, this.settings.allowedOrigin).pathname,
-      queryParameter: this.settings.searchQueryParameter,
       incidentUrlPattern: this.settings.incidentUrlPattern
     });
   }

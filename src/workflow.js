@@ -80,6 +80,7 @@ async function extractIncidentViews({
   temporaryTabs,
   initialDetail,
   requiredFields = [],
+  preferredFields = [],
   requiredAnyFields = [],
   requireAlertJson = false,
   focusOpenedTabs = false,
@@ -89,6 +90,7 @@ async function extractIncidentViews({
   const initial = initialDetail || await adapter.extractIncident(primaryTab.id, {
     ...settings,
     requiredFields,
+    preferredFields,
     requiredAnyFields,
     requireAlertJson,
     allowTabDiscovery: true,
@@ -107,6 +109,7 @@ async function extractIncidentViews({
       if (finalTicketId !== expectedTicketId) throw new Error("XSOAR opened a different incident view than requested.");
       const merged = mergeIncidentDetails(...views);
       const remainingRequiredFields = requiredFields.filter((key) => !cleanText(merged[key]));
+      const remainingPreferredFields = preferredFields.filter((key) => !cleanText(merged[key]));
       const remainingAnyFields = requiredAnyFields.some((key) => cleanText(merged[key]))
         ? []
         : requiredAnyFields;
@@ -115,6 +118,7 @@ async function extractIncidentViews({
       views.push(await adapter.extractIncident(tab.id, {
         ...settings,
         requiredFields: remainingRequiredFields,
+        preferredFields: remainingPreferredFields,
         requiredAnyFields: remainingAnyFields,
         requireAlertJson: stillRequiresAlertJson,
         allowTabDiscovery: false
@@ -321,6 +325,7 @@ export async function runIncidentDraft({
     await onProgress(requestedIncidentId ? `Collecting evidence from incident ${requestedIncidentId}.` : "Collecting evidence from the open XSOAR incident.");
     const initial = await adapter.extractIncident(originalTab.id, {
       ...settings,
+      preferredFields: ["incidentName", "tenantName"],
       requireAlertJson: Boolean(enrichDraft),
       allowTabDiscovery: true
     });
@@ -334,6 +339,7 @@ export async function runIncidentDraft({
       primaryUrl: originalTab.url,
       temporaryTabs,
       initialDetail: initial,
+      preferredFields: ["incidentName", "tenantName"],
       requireAlertJson: Boolean(enrichDraft),
       onView: () => onProgress("Collecting evidence from another incident view.")
     });

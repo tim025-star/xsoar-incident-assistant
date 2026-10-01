@@ -168,6 +168,24 @@ test("incident extraction reads the ticket from a direct XSOAR result route", as
   }
 });
 
+test("incident extraction returns available source fields when preferred identity times out", async () => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  globalThis.location = new URL("https://xsoar.example.test/Custom/GenericLayout/4200");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  globalThis.document = incidentPage();
+  try {
+    const result = await extractIncidentFromPage(incidentSettings({
+      pageReadyTimeoutMs: 25,
+      preferredFields: ["incidentName", "tenantName"]
+    }));
+    assert.equal(result.ruleName, "Synthetic Rule");
+    assert.equal(result.incidentName, "Synthetic incident");
+    assert.equal(result.tenantName, undefined);
+  } finally {
+    Object.assign(globalThis, original);
+  }
+});
+
 test("incident extraction rejects a settled page that never exposes a required resolution field", async () => {
   const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
   globalThis.location = new URL("https://xsoar.example.test/Custom/GenericLayout/4199");

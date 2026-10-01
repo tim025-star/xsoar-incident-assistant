@@ -313,6 +313,7 @@ export async function extractIncidentFromPage(settings) {
     } else if (Date.now() - stableSince >= 500 && result.ticketId && !incidentFieldsBusy()) {
       const requiredFields = Array.isArray(settings.requiredFields) ? settings.requiredFields : [];
       const requiredAnyFields = Array.isArray(settings.requiredAnyFields) ? settings.requiredAnyFields : [];
+      const preferredFields = Array.isArray(settings.preferredFields) ? settings.preferredFields : [];
       const hasRequirements = requiredFields.length || requiredAnyFields.length || settings.requireAlertJson;
       const allFieldsReady = requiredFields.every((key) => available(result[key]));
       const anyFieldReady = !requiredAnyFields.length
@@ -324,8 +325,9 @@ export async function extractIncidentFromPage(settings) {
       const requiredReady = allFieldsReady && anyFieldReady && alertJsonReady;
       const readyForViewDiscovery = settings.allowPartialForTabDiscovery
         && settings.allowTabDiscovery && result.tabUrls.length > 0;
-      if (hasRequirements ? requiredReady || readyForViewDiscovery
-        : defaultReady || (settings.allowTabDiscovery && result.tabUrls.length > 0)) break;
+      const preferredReady = preferredFields.every((key) => available(result[key]));
+      if (preferredReady && (hasRequirements ? requiredReady || readyForViewDiscovery
+        : defaultReady || (settings.allowTabDiscovery && result.tabUrls.length > 0))) break;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
     result = read();
