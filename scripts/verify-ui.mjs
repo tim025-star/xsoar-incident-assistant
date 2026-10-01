@@ -30,6 +30,7 @@ let registeredConsoleUrl = "";
 const pulledModels = [];
 const requestedIncidentIds = [];
 let layaInstalled = false;
+let nextConfigSaveError = "";
 const demoCheckpoint = {
   id: "expanded-training-cuda-632-alerts-v1",
   label: "Reviewed 632-alert Laya demo",
@@ -75,6 +76,11 @@ const app = createAssistantServer({
     configStore: {
       load: async () => uiConfig,
       save: async (input, options) => {
+        if (nextConfigSaveError) {
+          const message = nextConfigSaveError;
+          nextConfigSaveError = "";
+          throw new Error(message);
+        }
         uiConfig = resolveAppConfig(input, options);
         return uiConfig;
       }
@@ -160,6 +166,8 @@ try {
   assert.equal(await page.locator("#allowedOrigin").count(), 0, "configuration controls must not appear on the home page");
   await page.getByRole("link", { name: "Configuration", exact: true }).click();
   await page.getByRole("heading", { name: "JSON log mapping" }).waitFor();
+  assert.equal(await page.locator("#localAiEnabled,#layaWorkerMode").count(), 0, "optional settings belong on their own pages");
+  assert.equal(await page.locator("#searchQueryParameter").count(), 0, "the unused URL search parameter must not be editable");
   await page.getByRole("link", { name: "Tools", exact: true }).click();
   await page.getByRole("heading", { name: "JSON sanitizer" }).waitFor();
   assert.equal(await page.locator("#allowedOrigin").count(), 0, "configuration controls must not appear on the tools page");
@@ -186,19 +194,35 @@ try {
   await page.getByRole("heading", { name: "JSON log mapping" }).waitFor();
   await page.locator("#allowedOrigin").fill("https://xsoar.example.test");
   await page.locator("#fieldLabel-occurred").fill("Occurred, Event Time");
+  nextConfigSaveError = "Configuration could not be written.";
+  await page.locator("#saveMappings").click();
+  await page.getByText("Configuration could not be written.", { exact: true }).waitFor();
+  assert.equal(await page.locator("#allowedOrigin").inputValue(), "https://xsoar.example.test", "a failed save must preserve the edited tenant");
+  assert.equal(await page.locator("#fieldLabel-occurred").inputValue(), "Occurred, Event Time", "a failed save must preserve other edits");
+  assert.equal(uiConfig.xsoar.allowedOrigin, "", "a failed save must not change persisted configuration");
+  assert.equal(await page.locator("#status").getAttribute("role"), "alert", "save failures must be highlighted");
   await page.locator("#saveMappings").click();
   await page.getByText("XSOAR config saved.").waitFor();
   assert.equal(await page.locator("#mode").count(), 0);
   assert.equal(await page.locator("#profileDirectory").count(), 0);
   assert.equal("session" in uiConfig, false);
-  assert.equal(await page.locator("#localAiEnabled").isChecked(), false);
+  await page.getByRole("link", { name: "Laya", exact: true }).click();
+  await page.getByRole("heading", { name: "Laya-mapper", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/laya");
+  assert.equal(await page.locator("#allowedOrigin,#localAiEnabled").count(), 0);
   assert.equal(await page.locator("#layaMapperEnabled").count(), 0);
   assert.equal(await page.locator("#layaWorkerMode").inputValue(), "auto");
   await page.locator("#layaModelIdentity").getByText("expanded-training-cuda-632-alerts-v1", { exact: true }).waitFor();
   await page.locator("#installLayaMapper").click();
   await page.getByText("Laya-mapper is ready.").waitFor();
+  nextConfigSaveError = "Laya settings could not be written.";
   await page.locator("#layaWorkerMode").selectOption("manual");
+  await page.getByRole("alert").getByText("Laya settings could not be written.", { exact: true }).waitFor();
+  assert.equal(await page.locator("#layaWorkerMode").inputValue(), "manual");
+  assert.equal(uiConfig.layaMapper.workerMode, "auto");
+  await page.locator("#layaWorkerCount").selectOption("2");
   await page.getByText("Laya-mapper config saved.").waitFor();
+  assert.equal(await page.locator("#status").getAttribute("role"), "status");
   assert.equal(uiConfig.layaMapper.enabled, false);
   assert.equal(uiConfig.layaMapper.workerMode, "manual");
   assert.equal(await page.locator("#layaExperiment").count(), 0);
@@ -211,9 +235,23 @@ try {
   assert.equal(await page.locator("#layaTestResult").getByText("Value agreement: agreed", { exact: true }).count(), 1);
   assert.equal(await page.locator("#layaTestResult").getByText("/documents/0/alertEnvelope/network/peer", { exact: true }).count(), 1);
   assert.equal(await page.locator("#startLayaTraining").count(), 0);
+  await page.getByRole("link", { name: "AI", exact: true }).click();
+  await page.getByRole("heading", { name: "Local AI", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/ai");
+  assert.equal(await page.locator("#allowedOrigin,#layaWorkerMode").count(), 0);
+  assert.equal(await page.locator("#localAiEnabled").isChecked(), false);
   assert.equal(await page.locator("#localAiModel").inputValue(), "qwen3.5:9b");
   assert.deepEqual(await page.locator("#localAiModels option").evaluateAll((options) => options.map((option) => option.value)), ["qwen3.5:9b"]);
   assert.equal(await page.locator("#pullModel").textContent(), "Install default model");
+  await page.locator("#localAiModel").fill("invalid model");
+  await page.locator("#localAiEnabled").check();
+  await page.getByRole("alert").getByText(/Local model names may contain/).waitFor({ timeout: 3000 });
+  await page.waitForTimeout(700);
+  assert.match(await page.locator("#status").textContent(), /Local model names may contain/, "status polling must not clear schema validation errors");
+  assert.equal(await page.locator("#localAiModel").inputValue(), "invalid model");
+  assert.equal(await page.locator("#localAiEnabled").isChecked(), true);
+  assert.equal(uiConfig.localAi.enabled, false);
+  await page.locator("#localAiModel").fill("qwen3.5:9b");
   await page.locator("#localAiEnabled").check();
   await page.locator("#pullModel").click();
   await page.getByText("Model qwen3.5:9b is ready for field processing.").waitFor();
@@ -236,12 +274,22 @@ try {
   assert.deepEqual(pulledModels, ["qwen3.5:9b", "slow-model"]);
   await page.locator("#localAiEnabled").check();
 
+  await page.getByRole("link", { name: "Configuration", exact: true }).click();
+  await page.getByRole("heading", { name: "JSON log mapping" }).waitFor();
   await page.getByText("Advanced XSOAR routing and historic search").click();
   const customHistoricQuery = 'name:{incidentName} and tenantname:{tenantName} and status:closed';
   await page.locator("#historicQueryTemplate").fill(customHistoricQuery);
   await page.locator("#previewHistoricQuery").click();
   await page.locator("#historicQueryPreview").getByText('name:"Example detection" and tenantname:"Example Organisation" and status:closed').waitFor();
   await page.locator("#historicQueryMode").selectOption("json");
+  await page.locator("#analystName").fill("Example Analyst");
+  await page.locator("#historicQueryJson").fill("{");
+  await page.locator("#saveMappings").click();
+  await page.getByRole("alert").getByText("historicQueryJson must be valid JSON.", { exact: true }).waitFor();
+  assert.equal(await page.locator("#historicQueryJson").inputValue(), "{");
+  assert.equal(await page.locator("#historicQueryMode").inputValue(), "json");
+  assert.equal(await page.locator("#analystName").inputValue(), "Example Analyst");
+  assert.equal(uiConfig.xsoar.template.analystName, "");
   await page.locator("#historicQueryJson").fill(JSON.stringify({ query: customHistoricQuery }));
   await page.locator("#previewHistoricQuery").click();
   await page.locator("#historicQueryPreview").getByText('name:"Example detection" and tenantname:"Example Organisation" and status:closed').waitFor();
@@ -260,15 +308,19 @@ try {
   assert.equal(uiConfig.xsoar.historicQueryMode, "javascript");
   assert.equal(uiConfig.xsoar.historicQueryJavaScript, customHistoricJavaScript);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
+  assert.equal(await page.locator("#status").getAttribute("role"), "status");
 
-  await page.getByRole("link", { name: "Home" }).click();
-  await page.getByRole("heading", { name: "Process incident data" }).waitFor();
+  await page.getByRole("link", { name: "Laya", exact: true }).click();
+  await page.locator("#useLayaMapping").waitFor();
   await page.locator("#useLayaMapping").check();
   await page.getByText("Laya-mapper config saved.").waitFor();
   assert.equal(uiConfig.layaMapper.enabled, true);
   await page.locator("#useLayaMapping").uncheck();
   await page.getByText("Laya-mapper config saved.").waitFor();
   assert.equal(uiConfig.layaMapper.enabled, false);
+  await page.getByRole("link", { name: "Home" }).click();
+  await page.getByRole("heading", { name: "Process incident data" }).waitFor();
+  assert.equal(await page.locator("#useLayaMapping,#localAiEnabled").count(), 0);
   await page.locator("#open").click();
   await page.locator("#stop:not([disabled])").waitFor({ timeout: 2000 });
   assert.equal(starts, 1);
@@ -279,6 +331,8 @@ try {
   assert.equal(await page.locator("#allowedOrigin").isDisabled(), true);
   assert.equal(await page.locator("#analystName").isDisabled(), true);
   assert.equal(await page.locator("#fieldLabel-occurred").isDisabled(), true);
+  await page.getByRole("link", { name: "AI", exact: true }).click();
+  await page.locator("#localAiEnabled").waitFor();
   assert.equal(await page.locator("#localAiEnabled").isDisabled(), false);
   await page.locator("#localAiEnabled").uncheck();
   await page.getByText("Local AI config saved.").waitFor();
@@ -340,8 +394,12 @@ try {
   workflowPage = undefined;
   assert.deepEqual(requestedIncidentIds, ["4300"]);
   assert.equal(await page.locator("#copy").isDisabled(), false);
+  await page.getByRole("link", { name: "Laya", exact: true }).click();
   await page.locator("#useLayaMapping").check();
   await page.getByText("Laya-mapper config saved.").waitFor();
+  await page.getByRole("link", { name: "Home" }).click();
+  await page.getByRole("heading", { name: "Process incident data" }).waitFor();
+  await page.getByText("Target a specific incident").click();
   await page.locator("#incidentId").fill("4301");
   await page.locator("#run").click();
   await page.locator("#incidentLayaProgress").getByText("Laya stage: final assessment").waitFor();
@@ -351,6 +409,17 @@ try {
 
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const [link, heading] of [["Configuration", "JSON log mapping"], ["AI", "Local AI"], ["Laya", "Laya-mapper"]]) {
+      await page.getByRole("link", { name: link, exact: true }).click();
+      await page.getByRole("heading", { name: heading, exact: true }).waitFor();
+      assert.equal(await page.getByRole("link", { name: link, exact: true }).getAttribute("aria-current"), "page");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `${link} must fit a ${width}px viewport`);
+      await page.reload();
+      await page.getByRole("heading", { name: heading, exact: true }).waitFor();
+    }
+  }
 
   const settings = resolveSettings({
     allowedOrigin: "https://xsoar.example.test",
@@ -461,10 +530,11 @@ try {
     const resolution = ticketId === "4199" && historicLoads > 1
       ? '<div class="field-wrapper fieldId-closenotes"><label>Close Notes</label><div class="value-wrapper"><div class="text-field-display-value">Resolved after foreground retry</div></div></div>'
       : "";
-    const currentIdentity = ticketId === "4199" ? "" : `<div class="field-wrapper fieldId-customername"><label>Customer Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div><div class="field-wrapper fieldId-tenantname"><label>Tenant Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper"><div class="text-field-display-value">Synthetic Rule</div></div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper"><div class="text-field-display-value">Endpoint</div></div></div>`;
+    const currentIdentity = ticketId === "4199" ? "" : `<div class="field-wrapper fieldId-customername"><label>Customer Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper"><div class="text-field-display-value">Synthetic Rule</div></div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper"><div class="text-field-display-value">Endpoint</div></div></div>`;
+    const delayedIdentity = ticketId === "4199" ? "" : `<div id="identity"></div><script>setTimeout(() => { document.querySelector(".header-inv-title").textContent = "Synthetic alert"; document.querySelector("#identity").innerHTML = '<div class="field-wrapper fieldId-tenantname"><label>Tenant Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div>'; }, 900);</script>`;
     await route.fulfill({
       contentType: "text/html",
-      body: `<div class="header-inv-id">#${ticketId}</div><div class="header-inv-title">Synthetic alert</div>${currentIdentity}${resolution}`
+      body: `<div class="header-inv-id">#${ticketId}</div><div class="header-inv-title">${ticketId === "4199" ? "Synthetic alert" : ""}</div>${currentIdentity}${resolution}${delayedIdentity}`
     });
   });
   const workflowIncidentPage = await workflowContext.newPage();
@@ -472,7 +542,7 @@ try {
   const workflowSettings = resolveSettings({
     allowedOrigin: "https://xsoar.example.test",
     incidentUrlPattern: "\\/Custom\\/GenericLayout\\/\\d+$",
-    pageReadyTimeoutMs: 1000,
+    pageReadyTimeoutMs: 2500,
     maxHistoricalIncidents: 1
   });
   const workflowAdapter = {
@@ -493,6 +563,7 @@ try {
       extractionSettings
     ),
     extractSearchResults: async (openedPage, options) => {
+      assert.equal(options.expectedQuery, 'rawName:"Synthetic alert" and tenantname:"Example Organisation" and (created:>="3 months ago")');
       await submitHistoricSearch(openedPage, {
         ...options,
         expectedOrigin: workflowSettings.allowedOrigin,
@@ -512,6 +583,7 @@ try {
   const workflowResult = await runIncidentDraft({
     adapter: workflowAdapter,
     settings: workflowSettings,
+    incidentId: "4200",
     onProgress: async (message) => workflowProgress.push(message)
   });
   assert.equal(historicLoads, 2, "an incomplete historic render must receive exactly one foreground retry");

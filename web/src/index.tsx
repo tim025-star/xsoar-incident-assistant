@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
+import { ORPCError } from "@orpc/client";
 
 import { rpc, sessionToken } from "./rpc";
 import { sanitizeJson, type SanitizerValueMode } from "./json-sanitizer";
@@ -11,7 +12,7 @@ type Status = Awaited<ReturnType<typeof rpc.status>>;
 type LocalAiStatus = Awaited<ReturnType<typeof rpc.localAi.status>>;
 type LayaStatus = Awaited<ReturnType<typeof rpc.layaMapper.status>>;
 type LayaDiagnostic = Awaited<ReturnType<typeof rpc.layaMapper.diagnostics>>;
-type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "searchQueryParameter" | "historicQueryTemplate" | "historicQueryJson" | "historicQueryJavaScript";
+type TextSetting = "allowedOrigin" | "incidentUrlPattern" | "incidentPathTemplate" | "incidentsPath" | "historicQueryTemplate" | "historicQueryJson" | "historicQueryJavaScript";
 type NumberSetting = "maxHistoricalIncidents" | "pageReadyTimeoutMs";
 type HistoricQueryMode = AppConfig["xsoar"]["historicQueryMode"];
 type TemplateSetting = keyof AppConfig["xsoar"]["template"];
@@ -54,6 +55,17 @@ const DEFAULT_MAPPER_TEST_JSON = JSON.stringify({
 }, null, 2);
 
 function errorMessage(error: unknown) {
+  if (error instanceof ORPCError && error.data && typeof error.data === "object"
+    && "issues" in error.data && Array.isArray(error.data.issues)) {
+    const messages = error.data.issues.flatMap((issue: unknown) => {
+      if (!issue || typeof issue !== "object" || !("message" in issue) || typeof issue.message !== "string") return [];
+      const path = "path" in issue && Array.isArray(issue.path)
+        ? issue.path.filter((part) => typeof part === "string" || typeof part === "number").join(".")
+        : "";
+      return [path ? `${path}: ${issue.message}` : issue.message];
+    });
+    if (messages.length) return messages.join(" ");
+  }
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -68,6 +80,8 @@ function App() {
   let followLiveOutput = true;
   const configurationPage = location.pathname === "/configuration";
   const toolsPage = location.pathname === "/tools";
+  const aiPage = location.pathname === "/ai";
+  const layaPage = location.pathname === "/laya";
   const [config, setConfig] = createSignal<AppConfig>();
   const [status, setStatus] = createSignal<Status>();
   const [localAiStatus, setLocalAiStatus] = createSignal<LocalAiStatus>();
@@ -93,6 +107,7 @@ function App() {
     ? "Loading console status…"
     : "Restart the app to open a valid local console.");
   const [busy, setBusy] = createSignal(false);
+  const [configSaveError, setConfigSaveError] = createSignal("");
   const modelDownloadRunning = () => pullingModel() || status()?.operation === "model download";
   const layaCheckpoint = () => layaStatus()?.checkpoint;
   const layaProgress = () => status()?.layaProgress;
@@ -231,40 +246,31 @@ function App() {
       setBusy(false);
     }
   };
+  const saveConfigUpdate = async <T,>(save: () => Promise<T>) => {
+    setConfigSaveError("");
+    try {
+      return await save();
+    } catch (error) {
+      setConfigSaveError(errorMessage(error));
+      throw error;
+    }
+  };
   const persistSettings = async () => {
     const current = config();
     if (!current) return;
-    try {
-      setConfig(await rpc.config.save(current));
-    } catch (error) {
-      const persisted = await rpc.config.get().catch(() => undefined);
-      if (persisted) setConfig(persisted);
-      throw error;
-    }
+    setConfig(await saveConfigUpdate(() => rpc.config.save(current)));
   };
   const persistLocalAiSettings = async () => {
     const current = config();
     if (!current) return;
-    try {
-      const localAi = await rpc.config.saveLocalAi(current.localAi);
-      setConfig((latest) => latest ? { ...latest, localAi } : latest);
-    } catch (error) {
-      const persisted = await rpc.config.get().catch(() => undefined);
-      if (persisted) setConfig(persisted);
-      throw error;
-    }
+    const localAi = await saveConfigUpdate(() => rpc.config.saveLocalAi(current.localAi));
+    setConfig((latest) => latest ? { ...latest, localAi } : latest);
   };
   const persistLayaSettings = async () => {
     const current = config();
     if (!current) return;
-    try {
-      const layaMapper = await rpc.config.saveLayaMapper(current.layaMapper);
-      setConfig((latest) => latest ? { ...latest, layaMapper } : latest);
-    } catch (error) {
-      const persisted = await rpc.config.get().catch(() => undefined);
-      if (persisted) setConfig(persisted);
-      throw error;
-    }
+    const layaMapper = await saveConfigUpdate(() => rpc.config.saveLayaMapper(current.layaMapper));
+    setConfig((latest) => latest ? { ...latest, layaMapper } : latest);
   };
   const updateLayaMapper = (key: "workerMode" | "workerCount", value: string) => {
     setConfig((current) => {
@@ -372,7 +378,7 @@ function App() {
     refreshLocalAi().catch((error) => setLocalAiStatus({ available: false, models: [], detail: errorMessage(error) }));
     refreshLaya().catch((error) => setMessage(errorMessage(error)));
     const interval = window.setInterval(() => refresh().catch(() => {}), 500);
-    const layaInterval = configurationPage
+    const layaInterval = layaPage
       ? window.setInterval(() => refreshLaya().catch(() => {}), 2000)
       : undefined;
     onCleanup(() => {
@@ -390,10 +396,12 @@ function App() {
         <p class="helper mt-3 max-w-3xl">Pull an XSOAR incident, extract important fields, and format the source data for analyst review.</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <nav class="flex rounded-xl border border-line bg-white p-1 text-sm font-bold" aria-label="Main navigation">
-          <a class={`nav-link ${!configurationPage && !toolsPage ? "nav-link-active" : ""}`} href="/">Home</a>
-          <a class={`nav-link ${toolsPage ? "nav-link-active" : ""}`} href="/tools">Tools</a>
-          <a class={`nav-link ${configurationPage ? "nav-link-active" : ""}`} href="/configuration">Configuration</a>
+        <nav class="flex flex-wrap rounded-xl border border-line bg-white p-1 text-sm font-bold" aria-label="Main navigation">
+          <a class={`nav-link ${!configurationPage && !toolsPage && !aiPage && !layaPage ? "nav-link-active" : ""}`} aria-current={location.pathname === "/" ? "page" : undefined} href="/">Home</a>
+          <a class={`nav-link ${toolsPage ? "nav-link-active" : ""}`} aria-current={toolsPage ? "page" : undefined} href="/tools">Tools</a>
+          <a class={`nav-link ${configurationPage ? "nav-link-active" : ""}`} aria-current={configurationPage ? "page" : undefined} href="/configuration">Configuration</a>
+          <a class={`nav-link ${aiPage ? "nav-link-active" : ""}`} aria-current={aiPage ? "page" : undefined} href="/ai">AI</a>
+          <a class={`nav-link ${layaPage ? "nav-link-active" : ""}`} aria-current={layaPage ? "page" : undefined} href="/laya">Laya</a>
         </nav>
         <div class="flex items-center gap-2 rounded-full border border-line bg-white px-3 py-2 text-sm font-semibold">
           <span class={`h-2.5 w-2.5 rounded-full ${status()?.session.running ? "bg-emerald-500" : "bg-slate-400"}`} aria-hidden="true" />
@@ -403,7 +411,7 @@ function App() {
     </header>
   );
 
-  const HomePage = ({ settings }: { settings: () => AppConfig }) => (
+  const HomePage = () => (
     <div class="mx-auto grid max-w-4xl gap-5">
       <Show when={tenantMissing()}>
         <section class="rounded-2xl border border-amber-300 bg-amber-50 p-5" role="alert">
@@ -438,13 +446,6 @@ function App() {
             </div>
           </Show>
         </div>
-        <label class="mt-5 flex items-start gap-3 text-sm">
-          <input id="useLayaMapping" type="checkbox" class="mt-1" disabled={busy() || (!layaStatus()?.available && !settings().layaMapper.enabled)} checked={settings().layaMapper.enabled} onChange={(event) => {
-            setConfig((current) => current ? { ...current, layaMapper: { ...current.layaMapper, enabled: event.currentTarget.checked } } : current);
-            void runAction(persistLayaSettings);
-          }} />
-          <span><strong>Route collected alert JSON through Laya</strong><span class="helper block">Use selected field matches in the response template. Tentative or incomplete matches keep the configured source fields. Review the result before copying. {layaStatus()?.available ? "" : "Install Laya-mapper in Configuration to enable this."}</span></span>
-        </label>
         <div class="my-5 flex flex-wrap gap-2.5">
           <button id="open" class="button" type="button" disabled={busy() || status()?.session.running || tenantMissing()} onClick={() => runAction(() => rpc.browser.open())}>Connect Chrome</button>
           <button id="run" class="button" type="button" disabled={busy() || tenantMissing()} onClick={generateDraft}>Process data</button>
@@ -509,110 +510,63 @@ function App() {
     </div>
   );
 
-  const ConfigurationPage = ({ settings }: { settings: () => AppConfig }) => (
+  const PageStatus = () => (
+    <div class={`rounded-xl border p-4 ${configSaveError() ? "border-rose-300 bg-rose-50" : "border-line bg-white"}`}>
+      <p id="status" class={`helper m-0 ${configSaveError() ? "text-rose-800" : ""}`} role={configSaveError() ? "alert" : "status"} aria-live={configSaveError() ? "assertive" : "polite"}>{configSaveError() || message()}</p>
+    </div>
+  );
+
+  const AiPage = ({ settings }: { settings: () => AppConfig }) => (
     <div class="grid gap-5">
       <section class="panel">
-        <div class="mb-5">
-          <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">XSOAR connection</p>
-          <h2 class="m-0 text-xl font-bold">Tenant and response identity</h2>
-        </div>
-        <fieldset class="contents" disabled={busy() || status()?.session.running}>
-          <label class="field">XSOAR tenant URL
-            <input id="allowedOrigin" class="control" type="url" placeholder="https://xsoar.example.com" autocomplete="off" value={settings().xsoar.allowedOrigin} onInput={(event) => updateTextSetting("allowedOrigin", event.currentTarget.value)} />
-          </label>
-          <div class="mt-4 grid gap-4 sm:grid-cols-2">
-            <label class="field">Analyst display name
-              <input id="analystName" class="control" autocomplete="name" placeholder="Your name" value={settings().xsoar.template.analystName} onInput={(event) => updateTemplate("analystName", event.currentTarget.value)} />
-            </label>
-            <label class="field">Role or title
-              <input id="analystTitle" class="control" placeholder="Security Analyst" value={settings().xsoar.template.analystTitle} onInput={(event) => updateTemplate("analystTitle", event.currentTarget.value)} />
-            </label>
+        <fieldset class="contents" disabled={busy() || modelDownloadRunning()}>
+          <div class="mb-5">
+            <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Optional field processing</p>
+            <h2 class="m-0 text-xl font-bold">Local AI</h2>
           </div>
-          <details class="mt-5 border-t border-line pt-4">
-            <summary class="cursor-pointer font-bold">Advanced XSOAR routing and historic search</summary>
-            <div class="mt-4 grid gap-4">
-              <label class="field">Incident route regex
-                <input id="incidentUrlPattern" class="control font-mono text-sm" value={settings().xsoar.incidentUrlPattern} onInput={(event) => updateTextSetting("incidentUrlPattern", event.currentTarget.value)} />
-              </label>
-              <label class="field">Incident URL template
-                <input id="incidentPathTemplate" class="control font-mono text-sm" value={settings().xsoar.incidentPathTemplate} onInput={(event) => updateTextSetting("incidentPathTemplate", event.currentTarget.value)} />
-                <span class="helper">End the path with <code>{"/{id}"}</code>; the Incident ID must be the final path segment.</span>
-              </label>
-              <div class="grid gap-4 sm:grid-cols-2">
-                <label class="field">Incident list path
-                  <input id="incidentsPath" class="control" value={settings().xsoar.incidentsPath} onInput={(event) => updateTextSetting("incidentsPath", event.currentTarget.value)} />
-                </label>
-                <label class="field">Search parameter
-                  <input id="searchQueryParameter" class="control" value={settings().xsoar.searchQueryParameter} onInput={(event) => updateTextSetting("searchQueryParameter", event.currentTarget.value)} />
-                </label>
-              </div>
-              <div class="grid gap-3">
-                <label class="field">Historic query format
-                  <select id="historicQueryMode" class="control" value={settings().xsoar.historicQueryMode} onChange={(event) => updateHistoricQueryMode(event.currentTarget.value as HistoricQueryMode)}>
-                    <option value="template">Template</option>
-                    <option value="json">JSON</option>
-                    <option value="javascript">JavaScript</option>
-                  </select>
-                </label>
-                <Show when={settings().xsoar.historicQueryMode === "template"}>
-                  <label class="field">Historic search query template
-                    <textarea id="historicQueryTemplate" class="control font-mono text-sm" rows="3" spellcheck={false} value={settings().xsoar.historicQueryTemplate} onInput={(event) => updateTextSetting("historicQueryTemplate", event.currentTarget.value)} />
-                    <span class="helper">Use <code>{"{incidentName}"}</code> and <code>{"{tenantName}"}</code> for quoted, escaped values from the current incident.</span>
-                  </label>
-                </Show>
-                <Show when={settings().xsoar.historicQueryMode === "json"}>
-                  <label class="field">Historic search JSON
-                    <textarea id="historicQueryJson" class="control font-mono text-sm" rows="5" spellcheck={false} value={settings().xsoar.historicQueryJson} onInput={(event) => updateTextSetting("historicQueryJson", event.currentTarget.value)} />
-                    <span class="helper">Provide a JSON object with a <code>query</code> string. It supports the same <code>{"{incidentName}"}</code> and <code>{"{tenantName}"}</code> placeholders.</span>
-                  </label>
-                </Show>
-                <Show when={settings().xsoar.historicQueryMode === "javascript"}>
-                  <label class="field">Historic search JavaScript
-                    <textarea id="historicQueryJavaScript" class="control font-mono text-sm" rows="8" spellcheck={false} value={settings().xsoar.historicQueryJavaScript} onInput={(event) => updateTextSetting("historicQueryJavaScript", event.currentTarget.value)} />
-                    <span class="helper">Define <code>buildQuery(incident, quote)</code> and return a query string. Available values: <code>incident.incidentName</code>, <code>incident.tenantName</code>, and <code>incident.ticketId</code>. Use <code>quote(value)</code> when inserting incident values. Code runs in an isolated JavaScript runtime without XSOAR page access.</span>
-                  </label>
-                </Show>
-                <div class="grid gap-3 sm:grid-cols-3">
-                  <label class="field">Preview incident name
-                    <input id="previewIncidentName" class="control" value={previewIncidentName()} onInput={(event) => { setPreviewIncidentName(event.currentTarget.value); setHistoricQueryPreview(""); setHistoricQueryPreviewError(""); }} />
-                  </label>
-                  <label class="field">Preview tenant name
-                    <input id="previewTenantName" class="control" value={previewTenantName()} onInput={(event) => { setPreviewTenantName(event.currentTarget.value); setHistoricQueryPreview(""); setHistoricQueryPreviewError(""); }} />
-                  </label>
-                  <label class="field">Preview incident ID
-                    <input id="previewTicketId" class="control" value={previewTicketId()} onInput={(event) => { setPreviewTicketId(event.currentTarget.value); setHistoricQueryPreview(""); setHistoricQueryPreviewError(""); }} />
-                  </label>
-                </div>
-                <button id="previewHistoricQuery" class="button button-secondary" type="button" disabled={historicQueryPreviewBusy()} onClick={previewHistoricQuery}>Preview query</button>
-                <Show when={historicQueryPreview()}><p id="historicQueryPreview" class="helper break-all" role="status">{historicQueryPreview()}</p></Show>
-                <Show when={historicQueryPreviewError()}><p id="historicQueryPreviewError" class="helper" role="alert">{historicQueryPreviewError()}</p></Show>
-                <p class="helper mb-0">Playwright sends the resulting query to XSOAR. Historic results must still match the selected incident’s tenant and name.</p>
-              </div>
-              <div class="grid gap-4 sm:grid-cols-2">
-                <label class="field">Historic resolutions to include
-                  <input id="maxHistoricalIncidents" class="control" type="number" min="1" max="20" value={settings().xsoar.maxHistoricalIncidents} onInput={(event) => updateNumberSetting("maxHistoricalIncidents", event.currentTarget.valueAsNumber)} />
-                  <span class="helper">Includes matching incident resolutions from the query results, up to this limit.</span>
-                </label>
-                <label class="field">Page load timeout (ms)
-                  <input id="pageReadyTimeoutMs" class="control" type="number" min="1000" max="120000" value={settings().xsoar.pageReadyTimeoutMs} onInput={(event) => updateNumberSetting("pageReadyTimeoutMs", event.currentTarget.valueAsNumber)} />
-                </label>
-              </div>
-            </div>
-          </details>
+          <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-slate-50 p-4">
+            <input id="localAiEnabled" class="mt-1 h-4 w-4" type="checkbox" checked={settings().localAi.enabled} onChange={(event) => {
+              updateLocalAi("enabled", event.currentTarget.checked);
+              void runAction(persistLocalAiSettings);
+            }} />
+            <span><span class="block font-bold">Enable local AI field processing</span><span class="helper mt-1 block">Sends allowlisted fields from the selected alert to Ollama on this workstation for factual extraction only.</span></span>
+          </label>
+          <label class="field mt-4">Local model
+            <input id="localAiModel" class="control font-mono text-sm" list="localAiModels" autocomplete="off" value={settings().localAi.model} onInput={(event) => updateLocalAi("model", event.currentTarget.value)} />
+            <datalist id="localAiModels">{localAiStatus()?.models.map((model) => <option value={model} />)}</datalist>
+          </label>
         </fieldset>
+        <div class="mt-3 flex flex-wrap items-center gap-2.5">
+          <button id="pullModel" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning()} onClick={pullSelectedModel}>{settings().localAi.model === "qwen3.5:9b" ? "Install default model" : "Pull selected model"}</button>
+          <Show when={modelDownloadRunning()}><button id="cancelPull" class="button button-secondary" type="button" onClick={cancelModelPull}>Stop download</button></Show>
+          <button id="refreshLocalAi" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning()} onClick={() => runAction(refreshLocalAi)}>Check Ollama</button>
+        </div>
+        <p id="localAiStatus" class="helper mb-0 mt-4" aria-live="polite">{localAiStatus()?.detail || "Check Ollama status."}</p>
       </section>
+      <PageStatus />
+    </div>
+  );
 
+  const LayaPage = ({ settings }: { settings: () => AppConfig }) => (
+    <div class="grid gap-5">
       <section class="panel">
         <div class="mb-5">
           <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Optional semantic mapping</p>
           <h2 class="m-0 text-xl font-bold">Laya-mapper</h2>
-          <p class="helper mb-0 mt-2">A reviewed, coverage-first tuned model for mapping local JSON fields. Enable incident routing on Home after installation.</p>
+          <p class="helper mb-0 mt-2">A reviewed, coverage-first tuned model for mapping local JSON fields.</p>
         </div>
         <p id="layaModelIdentity" class="helper">
           Reviewed demo checkpoint · <code>{layaCheckpoint()?.id || "expanded-training-cuda-632-alerts-v1"}</code>
           {layaCheckpoint() ? <> · weights <code>{layaCheckpoint()!.weightsSha256.slice(0, 12)}…</code> · {layaCheckpoint()!.trainingSequences.toLocaleString()} training sequences · {(layaCheckpoint()!.sequenceAccuracy * 100).toFixed(2)}% teacher-forced sequence score</> : ""}.
           CPU inference; incident routing requires an explicit opt-in. The sequence score is not production mapping accuracy.
         </p>
+        <label class="mt-5 flex items-start gap-3 text-sm">
+          <input id="useLayaMapping" type="checkbox" class="mt-1" disabled={busy() || (!layaStatus()?.available && !settings().layaMapper.enabled)} checked={settings().layaMapper.enabled} onChange={(event) => {
+            setConfig((current) => current ? { ...current, layaMapper: { ...current.layaMapper, enabled: event.currentTarget.checked } } : current);
+            void runAction(persistLayaSettings);
+          }} />
+          <span><strong>Route collected alert JSON through Laya</strong><span class="helper block">Use selected field matches in the response template. Tentative or incomplete matches keep the configured source fields. Review the result before copying. {layaStatus()?.available ? "" : "Install Laya-mapper to enable this."}</span></span>
+        </label>
         <div class="mt-4 grid gap-4 sm:grid-cols-2">
           <label class="field">Worker mode
             <select id="layaWorkerMode" class="control" disabled={busy()} value={settings().layaMapper.workerMode} onChange={(event) => { updateLayaMapper("workerMode", event.currentTarget.value); void runAction(persistLayaSettings); }}>
@@ -682,6 +636,98 @@ function App() {
         <p class="helper mt-4">This checkpoint is released for reviewed demonstrations and feedback, not automatic incident updates. Training remains an optional separate product and is not installed or run by this application.</p>
       </section>
 
+      <PageStatus />
+    </div>
+  );
+
+  const ConfigurationPage = ({ settings }: { settings: () => AppConfig }) => (
+    <div class="grid gap-5">
+      <section class="panel">
+        <div class="mb-5">
+          <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">XSOAR connection</p>
+          <h2 class="m-0 text-xl font-bold">Tenant and response identity</h2>
+        </div>
+        <fieldset class="contents" disabled={busy() || status()?.session.running}>
+          <label class="field">XSOAR tenant URL
+            <input id="allowedOrigin" class="control" type="url" placeholder="https://xsoar.example.com" autocomplete="off" value={settings().xsoar.allowedOrigin} onInput={(event) => updateTextSetting("allowedOrigin", event.currentTarget.value)} />
+          </label>
+          <div class="mt-4 grid gap-4 sm:grid-cols-2">
+            <label class="field">Analyst display name
+              <input id="analystName" class="control" autocomplete="name" placeholder="Your name" value={settings().xsoar.template.analystName} onInput={(event) => updateTemplate("analystName", event.currentTarget.value)} />
+            </label>
+            <label class="field">Role or title
+              <input id="analystTitle" class="control" placeholder="Security Analyst" value={settings().xsoar.template.analystTitle} onInput={(event) => updateTemplate("analystTitle", event.currentTarget.value)} />
+            </label>
+          </div>
+          <details class="mt-5 border-t border-line pt-4">
+            <summary class="cursor-pointer font-bold">Advanced XSOAR routing and historic search</summary>
+            <div class="mt-4 grid gap-4">
+              <label class="field">Incident route regex
+                <input id="incidentUrlPattern" class="control font-mono text-sm" value={settings().xsoar.incidentUrlPattern} onInput={(event) => updateTextSetting("incidentUrlPattern", event.currentTarget.value)} />
+              </label>
+              <label class="field">Incident URL template
+                <input id="incidentPathTemplate" class="control font-mono text-sm" value={settings().xsoar.incidentPathTemplate} onInput={(event) => updateTextSetting("incidentPathTemplate", event.currentTarget.value)} />
+                <span class="helper">End the path with <code>{"/{id}"}</code>; the Incident ID must be the final path segment.</span>
+              </label>
+              <label class="field">Incident list path
+                <input id="incidentsPath" class="control" value={settings().xsoar.incidentsPath} onInput={(event) => updateTextSetting("incidentsPath", event.currentTarget.value)} />
+              </label>
+              <div class="grid gap-3">
+                <label class="field">Historic query format
+                  <select id="historicQueryMode" class="control" value={settings().xsoar.historicQueryMode} onChange={(event) => updateHistoricQueryMode(event.currentTarget.value as HistoricQueryMode)}>
+                    <option value="template">Template</option>
+                    <option value="json">JSON</option>
+                    <option value="javascript">JavaScript</option>
+                  </select>
+                </label>
+                <Show when={settings().xsoar.historicQueryMode === "template"}>
+                  <label class="field">Historic search query template
+                    <textarea id="historicQueryTemplate" class="control font-mono text-sm" rows="3" spellcheck={false} value={settings().xsoar.historicQueryTemplate} onInput={(event) => updateTextSetting("historicQueryTemplate", event.currentTarget.value)} />
+                    <span class="helper">Use <code>{"{incidentName}"}</code> and <code>{"{tenantName}"}</code> for quoted, escaped values from the current incident.</span>
+                  </label>
+                </Show>
+                <Show when={settings().xsoar.historicQueryMode === "json"}>
+                  <label class="field">Historic search JSON
+                    <textarea id="historicQueryJson" class="control font-mono text-sm" rows="5" spellcheck={false} value={settings().xsoar.historicQueryJson} onInput={(event) => updateTextSetting("historicQueryJson", event.currentTarget.value)} />
+                    <span class="helper">Provide a JSON object with a <code>query</code> string. It supports the same <code>{"{incidentName}"}</code> and <code>{"{tenantName}"}</code> placeholders.</span>
+                  </label>
+                </Show>
+                <Show when={settings().xsoar.historicQueryMode === "javascript"}>
+                  <label class="field">Historic search JavaScript
+                    <textarea id="historicQueryJavaScript" class="control font-mono text-sm" rows="8" spellcheck={false} value={settings().xsoar.historicQueryJavaScript} onInput={(event) => updateTextSetting("historicQueryJavaScript", event.currentTarget.value)} />
+                    <span class="helper">Define <code>buildQuery(incident, quote)</code> and return a query string. Available values: <code>incident.incidentName</code>, <code>incident.tenantName</code>, and <code>incident.ticketId</code>. Use <code>quote(value)</code> when inserting incident values. Code runs in an isolated JavaScript runtime without XSOAR page access.</span>
+                  </label>
+                </Show>
+                <div class="grid gap-3 sm:grid-cols-3">
+                  <label class="field">Preview incident name
+                    <input id="previewIncidentName" class="control" value={previewIncidentName()} onInput={(event) => { setPreviewIncidentName(event.currentTarget.value); setHistoricQueryPreview(""); setHistoricQueryPreviewError(""); }} />
+                  </label>
+                  <label class="field">Preview tenant name
+                    <input id="previewTenantName" class="control" value={previewTenantName()} onInput={(event) => { setPreviewTenantName(event.currentTarget.value); setHistoricQueryPreview(""); setHistoricQueryPreviewError(""); }} />
+                  </label>
+                  <label class="field">Preview incident ID
+                    <input id="previewTicketId" class="control" value={previewTicketId()} onInput={(event) => { setPreviewTicketId(event.currentTarget.value); setHistoricQueryPreview(""); setHistoricQueryPreviewError(""); }} />
+                  </label>
+                </div>
+                <button id="previewHistoricQuery" class="button button-secondary" type="button" disabled={historicQueryPreviewBusy()} onClick={previewHistoricQuery}>Preview query</button>
+                <Show when={historicQueryPreview()}><p id="historicQueryPreview" class="helper break-all" role="status">{historicQueryPreview()}</p></Show>
+                <Show when={historicQueryPreviewError()}><p id="historicQueryPreviewError" class="helper" role="alert">{historicQueryPreviewError()}</p></Show>
+                <p class="helper mb-0">Playwright sends the resulting query to XSOAR. Historic results must still match the selected incident’s tenant and name.</p>
+              </div>
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label class="field">Historic resolutions to include
+                  <input id="maxHistoricalIncidents" class="control" type="number" min="1" max="20" value={settings().xsoar.maxHistoricalIncidents} onInput={(event) => updateNumberSetting("maxHistoricalIncidents", event.currentTarget.valueAsNumber)} />
+                  <span class="helper">Includes matching incident resolutions from the query results, up to this limit.</span>
+                </label>
+                <label class="field">Page load timeout (ms)
+                  <input id="pageReadyTimeoutMs" class="control" type="number" min="1000" max="120000" value={settings().xsoar.pageReadyTimeoutMs} onInput={(event) => updateNumberSetting("pageReadyTimeoutMs", event.currentTarget.valueAsNumber)} />
+                </label>
+              </div>
+            </div>
+          </details>
+        </fieldset>
+      </section>
+
       <section class="panel">
         <div class="mb-5">
           <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">JSON ingestion</p>
@@ -716,34 +762,7 @@ function App() {
         </fieldset>
       </section>
 
-      <section class="panel">
-        <fieldset class="contents" disabled={busy() || modelDownloadRunning()}>
-          <div class="mb-5">
-            <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Optional field processing</p>
-            <h2 class="m-0 text-xl font-bold">Local AI</h2>
-          </div>
-          <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-slate-50 p-4">
-            <input id="localAiEnabled" class="mt-1 h-4 w-4" type="checkbox" checked={settings().localAi.enabled} onChange={(event) => {
-              updateLocalAi("enabled", event.currentTarget.checked);
-              void runAction(persistLocalAiSettings);
-            }} />
-            <span><span class="block font-bold">Enable local AI field processing</span><span class="helper mt-1 block">Sends allowlisted fields from the selected alert to Ollama on this workstation for factual extraction only.</span></span>
-          </label>
-          <label class="field mt-4">Local model
-            <input id="localAiModel" class="control font-mono text-sm" list="localAiModels" autocomplete="off" value={settings().localAi.model} onInput={(event) => updateLocalAi("model", event.currentTarget.value)} />
-            <datalist id="localAiModels">{localAiStatus()?.models.map((model) => <option value={model} />)}</datalist>
-          </label>
-        </fieldset>
-        <div class="mt-3 flex flex-wrap items-center gap-2.5">
-          <button id="pullModel" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning()} onClick={pullSelectedModel}>{settings().localAi.model === "qwen3.5:9b" ? "Install default model" : "Pull selected model"}</button>
-          <Show when={modelDownloadRunning()}><button id="cancelPull" class="button button-secondary" type="button" onClick={cancelModelPull}>Stop download</button></Show>
-          <button id="refreshLocalAi" class="button button-secondary" type="button" disabled={busy() || modelDownloadRunning()} onClick={() => runAction(refreshLocalAi)}>Check Ollama</button>
-        </div>
-        <p id="localAiStatus" class="helper mb-0 mt-4" aria-live="polite">{localAiStatus()?.detail || "Check Ollama status."}</p>
-      </section>
-      <div class="rounded-xl border border-line bg-white p-4">
-        <p id="status" class="helper m-0" role="status" aria-live="polite">{message()}</p>
-      </div>
+      <PageStatus />
     </div>
   );
 
@@ -753,7 +772,9 @@ function App() {
       <Show when={config()} fallback={<section class="panel"><p id="status" class="helper m-0" role="status">{message()}</p></section>}>
         {(settings) => configurationPage
           ? <ConfigurationPage {...{ settings }} />
-          : toolsPage ? <ToolsPage /> : <HomePage {...{ settings }} />}
+          : aiPage ? <AiPage {...{ settings }} />
+          : layaPage ? <LayaPage {...{ settings }} />
+          : toolsPage ? <ToolsPage /> : <HomePage />}
       </Show>
     </main>
   );

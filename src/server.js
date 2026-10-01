@@ -67,6 +67,8 @@ export function createAssistantServer({
   app.get("/", serveStatic({ root: STATIC_DIRECTORY, path: "index.html" }));
   app.get("/tools", serveStatic({ root: STATIC_DIRECTORY, path: "index.html" }));
   app.get("/configuration", serveStatic({ root: STATIC_DIRECTORY, path: "index.html" }));
+  app.get("/ai", serveStatic({ root: STATIC_DIRECTORY, path: "index.html" }));
+  app.get("/laya", serveStatic({ root: STATIC_DIRECTORY, path: "index.html" }));
   app.get("/assets/*", serveStatic({ root: STATIC_DIRECTORY }));
   app.notFound((context) => context.text("Not found", 404));
   app.onError((error, context) => {

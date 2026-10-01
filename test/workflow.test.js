@@ -145,6 +145,42 @@ test("workflow submits the configured historic query to Playwright", async () =>
   assert.equal(query, 'name:"Example detection" and tenantname:"Example Organisation" and status:closed');
 });
 
+test("workflow gathers missing search identity from a secondary current-incident view", async () => {
+  const viewUrl = "https://xsoar.example.test/Custom/GenericLayout/4200?view=Investigation";
+  const adapter = createAdapter({ currentIncident: { tenantName: "", tabUrls: [viewUrl] }, searchTicketIds: [] });
+  const extract = adapter.extractIncident.bind(adapter);
+  const extractionCalls = [];
+  let query;
+  adapter.extractIncident = async (id, options) => {
+    const detail = await extract(id, options);
+    extractionCalls.push(options);
+    return id === 1 ? detail : { ...detail, tenantName: "Tenant Alpha" };
+  };
+  adapter.extractSearchResults = async (_id, options) => {
+    query = options.expectedQuery;
+    return { ticketIds: [] };
+  };
+  const result = await runIncidentDraft({ adapter, settings });
+  assert.deepEqual(extractionCalls[0].preferredFields, ["incidentName", "tenantName"]);
+  assert.deepEqual(extractionCalls[1].preferredFields, ["tenantName"]);
+  assert.match(query, /rawName:"Example detection" and tenantname:"Tenant Alpha"/);
+  assert.equal(result.warning, "");
+});
+
+test("workflow keeps source processing available when search identity is absent", async () => {
+  let searched = false;
+  const result = await runIncidentDraft({
+    adapter: createAdapter({
+      currentIncident: { incidentName: "", tenantName: "", sourceIp: "192.0.2.10" },
+      onSearch: () => { searched = true; }
+    }),
+    settings
+  });
+  assert.equal(searched, false);
+  assert.match(result.warning, /must expose both Incident Name and Tenant Name/);
+  assert.match(result.draft, /Source: 192\.0\.2\.10/);
+});
+
 test("workflow submits a conditional JavaScript historic query to Playwright", async () => {
   let query;
   await runIncidentDraft({

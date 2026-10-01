@@ -1,13 +1,15 @@
 export async function extractIncidentFromPage(settings) {
   const currentUrl = new URL(location.href);
-  const configuredRoute = new RegExp(settings.incidentUrlPattern)
-    .test(`${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
-  const resultRoute = !currentUrl.search && !currentUrl.hash && (
-    /^\/incident\/\d+\/?$/i.test(currentUrl.pathname)
-    || /^\/incident\d+\/\d+\/overview\/?$/i.test(currentUrl.pathname)
-  );
-  if (currentUrl.protocol !== "https:" || currentUrl.origin !== settings.allowedOrigin
-    || (!configuredRoute && !resultRoute)) {
+  const configuredIncidentPattern = new RegExp(settings.incidentUrlPattern);
+  const isTrustedIncidentUrl = (url) => url.protocol === "https:" && url.origin === settings.allowedOrigin
+    && !url.username && !url.password && (configuredIncidentPattern.test(`${url.pathname}${url.search}${url.hash}`)
+      || (!url.search && !url.hash && (
+        /^\/incident\/\d+\/?$/i.test(url.pathname)
+        || /^\/incident\d+\/\d+\/overview\/?$/i.test(url.pathname)
+      )));
+  const ticketIdFromUrl = (url) => url.pathname.match(/^\/incident\d+\/(\d+)\/overview\/?$/i)?.[1]
+    || url.pathname.match(/\/(\d+)\/?$/)?.[1] || "";
+  if (!isTrustedIncidentUrl(currentUrl)) {
     throw new Error("Incident extraction refused an untrusted page URL.");
   }
   const normalize = (value) => String(value || "")
@@ -265,8 +267,7 @@ export async function extractIncidentFromPage(settings) {
     );
 
     const headerTicket = normalize(document.querySelector(".header-inv-id")?.textContent);
-    const urlTicket = currentUrl.pathname.match(/^\/incident\d+\/(\d+)\/overview\/?$/i)?.[1]
-      || currentUrl.pathname.match(/\/(\d+)\/?$/)?.[1] || "";
+    const urlTicket = ticketIdFromUrl(currentUrl);
     let incidentName = normalize(
       document.querySelector(".header-inv-title")?.getAttribute("title")
       || document.querySelector(".header-inv-title")?.textContent
@@ -285,7 +286,8 @@ export async function extractIncidentFromPage(settings) {
       const label = normalizeLabel(link.querySelector(".tab-label")?.textContent || link.textContent);
       if (!wantedTabs.has(label)) continue;
       try {
-        tabUrls.push(new URL(link.getAttribute("href"), location.href).toString());
+        const url = new URL(link.getAttribute("href"), location.href);
+        if (isTrustedIncidentUrl(url) && ticketIdFromUrl(url) === urlTicket) tabUrls.push(url.toString());
       } catch {}
     }
 
@@ -313,6 +315,7 @@ export async function extractIncidentFromPage(settings) {
     } else if (Date.now() - stableSince >= 500 && result.ticketId && !incidentFieldsBusy()) {
       const requiredFields = Array.isArray(settings.requiredFields) ? settings.requiredFields : [];
       const requiredAnyFields = Array.isArray(settings.requiredAnyFields) ? settings.requiredAnyFields : [];
+      const preferredFields = Array.isArray(settings.preferredFields) ? settings.preferredFields : [];
       const hasRequirements = requiredFields.length || requiredAnyFields.length || settings.requireAlertJson;
       const allFieldsReady = requiredFields.every((key) => available(result[key]));
       const anyFieldReady = !requiredAnyFields.length
@@ -324,8 +327,11 @@ export async function extractIncidentFromPage(settings) {
       const requiredReady = allFieldsReady && anyFieldReady && alertJsonReady;
       const readyForViewDiscovery = settings.allowPartialForTabDiscovery
         && settings.allowTabDiscovery && result.tabUrls.length > 0;
-      if (hasRequirements ? requiredReady || readyForViewDiscovery
-        : defaultReady || (settings.allowTabDiscovery && result.tabUrls.length > 0)) break;
+      const preferredReady = preferredFields.every((key) => available(result[key]));
+      const alternateViewReady = settings.allowTabDiscovery
+        && result.tabUrls.some((url) => url !== currentUrl.toString());
+      if ((preferredReady || alternateViewReady) && (hasRequirements ? requiredReady || readyForViewDiscovery
+        : defaultReady || (settings.allowTabDiscovery && result.tabUrls.length > 0))) break;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
     result = read();

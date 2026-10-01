@@ -44,6 +44,7 @@ The extractor deliberately rejects arbitrary `td` elements, unrelated multi-colu
 
 ## Readiness and completeness
 
+- Current-incident extraction waits for both the header incident name and the tenant name, even when other fields have settled. A discovered trusted view of the same incident can defer that identity wait so the workflow can open it promptly. Secondary views wait only for identity fields still missing from the merged incident. This wait is bounded by the configured page timeout; unavailable identity leaves the source response usable and historic search unavailable.
 - Local AI processing requires at least one complete reconstructed alert document.
 - A named event section without a usable two-column table is incomplete.
 - Candidate, row, document-size, parse, and complexity limits fail closed to the deterministic source-field response.
