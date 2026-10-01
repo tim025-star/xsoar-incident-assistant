@@ -395,7 +395,17 @@ export async function extractSearchResultsFromPage(options) {
   const initialSettleDeadline = Date.now() + 500;
   const collect = () => {
     assertCurrentPage();
-    const resultsRoot = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page");
+    let resultsRoot = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page,.regular-table");
+    if (!resultsRoot) {
+      const tables = Array.from(document.querySelectorAll("table")).filter(isVisible).filter((table) => {
+        const headers = Array.from(table.querySelectorAll("thead th"))
+          .map((header) => normalize(header.textContent).toLowerCase());
+        return headers.includes("name")
+          && headers.filter((header) => /^(?:id|incident id|ticket id)$/.test(header)).length === 1;
+      });
+      if (tables.length > 1) throw new Error("XSOAR historic search exposed multiple possible incident results tables.");
+      resultsRoot = tables[0];
+    }
     const root = resultsRoot || document.body;
     let unreadableRows = 0;
     const busy = Array.from(root.querySelectorAll("[aria-busy='true'],.loading,.spinner"))

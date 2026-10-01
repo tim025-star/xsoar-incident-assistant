@@ -596,7 +596,7 @@ try {
     timeoutMs: 2000
   });
   assert.deepEqual(historicResults.ticketIds, ["4199"]);
-  await searchPage.setContent(`<main id="incidents-page"><table><thead><tr><th>Name</th><th>ID</th><th>Tenant Name</th></tr></thead><tbody>
+  await searchPage.setContent(`<main><table><thead><tr><th>Name</th><th>ID</th><th>Tenant Name</th></tr></thead><tbody>
     <tr><td>Synthetic alert</td><td>4199</td><td>Example Organisation</td></tr>
     <tr><td>Synthetic alert</td><td><a role="button">#4198</a></td><td>Example Organisation</td></tr>
     <tr hidden><td>Synthetic alert</td><td>9999</td><td>Example Organisation</td></tr>
