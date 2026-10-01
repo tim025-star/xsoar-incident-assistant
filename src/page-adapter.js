@@ -395,9 +395,13 @@ export async function extractSearchResultsFromPage(options) {
   const initialSettleDeadline = Date.now() + 500;
   const collect = () => {
     assertCurrentPage();
-    let resultsRoot = document.querySelector("[role='grid'][aria-rowcount],.fixedDataTableLayout_main,#incidents-page,.regular-table");
+    const workspace = document.querySelector("#incidents-page") || document;
+    // Prefer the actual table: the page wrapper also contains toolbar loading widgets.
+    let resultsRoot = workspace.querySelector(".fixedDataTableLayout_main")
+      || workspace.querySelector(".regular-table")
+      || workspace.querySelector("[role='grid'][aria-rowcount]");
     if (!resultsRoot) {
-      const tables = Array.from(document.querySelectorAll("table")).filter(isVisible).filter((table) => {
+      const tables = Array.from(workspace.querySelectorAll("table")).filter(isVisible).filter((table) => {
         const headers = Array.from(table.querySelectorAll("thead th"))
           .map((header) => normalize(header.textContent).toLowerCase());
         return headers.includes("name")
@@ -406,6 +410,7 @@ export async function extractSearchResultsFromPage(options) {
       if (tables.length > 1) throw new Error("XSOAR historic search exposed multiple possible incident results tables.");
       resultsRoot = tables[0];
     }
+    resultsRoot ||= workspace === document ? null : workspace;
     const root = resultsRoot || document.body;
     let unreadableRows = 0;
     const busy = Array.from(root.querySelectorAll("[aria-busy='true'],.loading,.spinner"))

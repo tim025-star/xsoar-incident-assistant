@@ -596,6 +596,39 @@ try {
     timeoutMs: 2000
   });
   assert.deepEqual(historicResults.ticketIds, ["4199"]);
+  // The incidents-page toolbar has a persistent loading element outside the results grid.
+  await searchPage.setContent(`<a href="/incident/9997">Outside results</a><main id="incidents-page">
+    <div class="toolbar-buttons"><span class="table-loading loading"><span class="demisto-loader-wrapper row table-loader"></span></span></div>
+    <div class="fixedDataTableLayout_main public_fixedDataTable_main" role="grid" aria-rowcount="2">
+      <div class="fixedDataTableLayout_rowsContainer">
+        <div role="row"><div role="columnheader">Tenant Name</div><div role="columnheader">ID</div><div role="columnheader">Name</div></div>
+        <div role="row"><div role="gridcell">Example Organisation</div><div role="gridcell"><span>unstarred incident</span><div><a class="investigation-id" href="/incident/4199">4199</a></div></div><div role="gridcell">Synthetic alert</div></div>
+      </div>
+    </div><div class="table-paging-message">Page 1 of many</div>
+  </main>`);
+  const scopedResults = await searchPage.evaluate(extractSearchResultsFromPage, {
+    expectedOrigin: "https://xsoar.example.test", expectedPath: "/incidents", maxResults: 100, timeoutMs: 2000
+  });
+  assert.deepEqual(scopedResults.ticketIds, ["4199"], "a toolbar loading element must not prevent reading the results grid");
+  assert.deepEqual(scopedResults.ticketUrls, { 4199: "https://xsoar.example.test/incident/4199" });
+  assert.equal(scopedResults.ticketRows["4199"].name, "Synthetic alert");
+  assert.equal(scopedResults.truncated, true, "unknown paging must continue to report incomplete coverage");
+  await searchPage.evaluate(() => {
+    const grid = document.querySelector(".fixedDataTableLayout_main");
+    const loading = grid.appendChild(document.createElement("div"));
+    loading.className = "loading";
+    loading.textContent = "Loading";
+    setTimeout(() => {
+      const link = grid.querySelector("a.investigation-id");
+      link.href = "/incident/4198";
+      link.textContent = "4198";
+      loading.remove();
+    }, 600);
+  });
+  const settledResults = await searchPage.evaluate(extractSearchResultsFromPage, {
+    expectedOrigin: "https://xsoar.example.test", expectedPath: "/incidents", maxResults: 100, timeoutMs: 2000
+  });
+  assert.deepEqual(settledResults.ticketIds, ["4198"], "loading inside the grid must still prevent collecting stale rows");
   await searchPage.setContent(`<main><table><thead><tr><th>Name</th><th>ID</th><th>Tenant Name</th></tr></thead><tbody>
     <tr><td>Synthetic alert</td><td>4199</td><td>Example Organisation</td></tr>
     <tr><td>Synthetic alert</td><td><a role="button">#4198</a></td><td>Example Organisation</td></tr>
