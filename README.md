@@ -28,6 +28,8 @@ The installer also adds a Start-menu shortcut. It does not add a browser extensi
 
 Requirements: Windows 11 x64 and Google Chrome 144 or newer.
 
+The **Theme** selector offers **System**, **Light**, and a charcoal **Dark** appearance across all console pages. System follows the operating system's theme. Explicit choices are remembered for the current console address across reloads and navigation; a new launch port defaults to System.
+
 ### Optional local AI
 
 The tool always builds the same deterministic source-field response. When Local AI is enabled and processing succeeds, Ollama transforms the selected ticket's complete bounded alert JSON and mapped source fields into a concise event summary and non-repeating observed facts inside that response; it does not replace the fixed alert fields. Credential-bearing JSON keys are removed recursively before local processing. If complete alert JSON is unavailable or exceeds the safe local-processing limit, AI enrichment fails closed and the deterministic response remains available. Its schema and prompt exclude conclusions, classifications, guidance, and recommended actions. Historic tickets are processed separately and never sent to the model. The default `qwen3.5:9b` model is suitable for a CPU-only workstation with 32 GB RAM.

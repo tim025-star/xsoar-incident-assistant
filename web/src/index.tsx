@@ -396,14 +396,22 @@ function App() {
         <p class="helper mt-3 max-w-3xl">Pull an XSOAR incident, extract important fields, and format the source data for analyst review.</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <nav class="flex flex-wrap rounded-xl border border-line bg-white p-1 text-sm font-bold" aria-label="Main navigation">
+        <nav class="flex flex-wrap rounded-xl border border-line bg-panel p-1 text-sm font-bold" aria-label="Main navigation">
           <a class={`nav-link ${!configurationPage && !toolsPage && !aiPage && !layaPage ? "nav-link-active" : ""}`} aria-current={location.pathname === "/" ? "page" : undefined} href="/">Home</a>
           <a class={`nav-link ${toolsPage ? "nav-link-active" : ""}`} aria-current={toolsPage ? "page" : undefined} href="/tools">Tools</a>
           <a class={`nav-link ${configurationPage ? "nav-link-active" : ""}`} aria-current={configurationPage ? "page" : undefined} href="/configuration">Configuration</a>
           <a class={`nav-link ${aiPage ? "nav-link-active" : ""}`} aria-current={aiPage ? "page" : undefined} href="/ai">AI</a>
           <a class={`nav-link ${layaPage ? "nav-link-active" : ""}`} aria-current={layaPage ? "page" : undefined} href="/laya">Laya</a>
         </nav>
-        <div class="flex items-center gap-2 rounded-full border border-line bg-white px-3 py-2 text-sm font-semibold">
+        <div class="flex items-center gap-2 text-sm font-semibold">
+          <label for="themePreference">Theme</label>
+          <select id="themePreference" class="control w-auto" value={document.documentElement.dataset.themePreference || "system"}>
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-2 text-sm font-semibold">
           <span class={`h-2.5 w-2.5 rounded-full ${status()?.session.running ? "bg-emerald-500" : "bg-slate-400"}`} aria-hidden="true" />
           {status()?.session.running ? "Chrome connected" : "Chrome disconnected"}
         </div>
@@ -414,14 +422,14 @@ function App() {
   const HomePage = () => (
     <div class="mx-auto grid max-w-4xl gap-5">
       <Show when={tenantMissing()}>
-        <section class="rounded-2xl border border-amber-300 bg-amber-50 p-5" role="alert">
+        <section class="rounded-2xl border border-warning-line bg-warning p-5" role="alert">
           <h2 class="m-0 text-lg font-bold">Configuration needed</h2>
           <p class="helper mb-4 mt-2">Add the XSOAR tenant and confirm the field mappings before processing incident data.</p>
           <a class="button" href="/configuration">Open configuration</a>
         </section>
       </Show>
       <Show when={chromeSetupRequired()}>
-        <section class="rounded-2xl border border-amber-300 bg-amber-50 p-5" role="alert">
+        <section class="rounded-2xl border border-warning-line bg-warning p-5" role="alert">
           <h2 class="m-0 text-lg font-bold">Chrome access needs attention</h2>
           <p class="helper mb-4 mt-2">Chrome did not expose its approved debugging session. Open the access page, enable remote debugging, approve the prompt, then connect again.</p>
           <button id="setup" class="button button-secondary" type="button" disabled={busy()} onClick={() => runAction(() => rpc.browser.setup())}>Open Chrome access setup</button>
@@ -433,7 +441,7 @@ function App() {
           <h2 class="m-0 text-2xl font-bold">Process incident data</h2>
           <p class="helper mb-0 mt-2">Connect your existing Chrome session, open the intended XSOAR incident, then extract and format its source fields.</p>
         </div>
-        <div class="rounded-xl border border-line bg-slate-50 p-4">
+        <div class="rounded-xl border border-line bg-subtle p-4">
           <p class="mb-1 text-xs font-bold uppercase tracking-wider text-muted">Run status</p>
           <p id="status" class="m-0 leading-6" role="status" aria-live="polite">{message()}</p>
           <Show when={status()?.operation === "response build" && layaProgress()?.stage !== "idle"}>
@@ -464,7 +472,7 @@ function App() {
           <Show when={status()?.processingMode}><span id="processingMode" class="helper">Processing used: {status()?.processingMode}.</span></Show>
         </label>
         <Show when={status()?.draft && (status()?.layaFields?.length || status()?.layaTentativeFields?.length)}>
-          <div id="layaFieldProvenance" class="mt-4 rounded-xl border border-line bg-slate-50 p-4 text-sm">
+          <div id="layaFieldProvenance" class="mt-4 rounded-xl border border-line bg-subtle p-4 text-sm">
             <Show when={status()?.layaFields?.length}>
               <p class="m-0 font-bold">Laya-supplied fields in the final incident record</p>
               <ul class="mb-0 mt-2 list-inside list-disc"><For each={status()?.layaFields || []}>{(field) => <li>{layaFieldName(field.key)} <code class="break-all">{field.pointer}</code></li>}</For></ul>
@@ -511,8 +519,8 @@ function App() {
   );
 
   const PageStatus = () => (
-    <div class={`rounded-xl border p-4 ${configSaveError() ? "border-rose-300 bg-rose-50" : "border-line bg-white"}`}>
-      <p id="status" class={`helper m-0 ${configSaveError() ? "text-rose-800" : ""}`} role={configSaveError() ? "alert" : "status"} aria-live={configSaveError() ? "assertive" : "polite"}>{configSaveError() || message()}</p>
+    <div class={`rounded-xl border p-4 ${configSaveError() ? "border-error-line bg-error" : "border-line bg-panel"}`}>
+      <p id="status" class={`helper m-0 ${configSaveError() ? "text-error-ink" : ""}`} role={configSaveError() ? "alert" : "status"} aria-live={configSaveError() ? "assertive" : "polite"}>{configSaveError() || message()}</p>
     </div>
   );
 
@@ -524,7 +532,7 @@ function App() {
             <p class="mb-1 text-xs font-bold uppercase tracking-wider text-brand">Optional field processing</p>
             <h2 class="m-0 text-xl font-bold">Local AI</h2>
           </div>
-          <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-slate-50 p-4">
+          <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-subtle p-4">
             <input id="localAiEnabled" class="mt-1 h-4 w-4" type="checkbox" checked={settings().localAi.enabled} onChange={(event) => {
               updateLocalAi("enabled", event.currentTarget.checked);
               void runAction(persistLocalAiSettings);
@@ -608,7 +616,7 @@ function App() {
             <button class="button button-secondary" type="button" disabled={busy()} onClick={() => { setMapperTestJson(DEFAULT_MAPPER_TEST_JSON); setMapperTestTargets(DEFAULT_MAPPER_TEST_TARGETS); setMapperTestResult(undefined); }}>Reset fictional example</button>
           </div>
           <Show when={mapperTestRunning()}>
-            <div id="layaTestProgress" class="mt-4 rounded-xl border border-brand/30 bg-blue-50 p-4" role="status" aria-live="polite">
+            <div id="layaTestProgress" class="mt-4 rounded-xl border border-brand/30 bg-info p-4" role="status" aria-live="polite">
               <div class="flex items-center justify-between gap-3 text-sm"><span>{message()}</span><span class="shrink-0 font-mono">{mapperTestElapsedSeconds()}s elapsed</span></div>
               <div class="mt-2 flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-wide text-muted"><span id="layaProgressStage">{layaProgress()?.stage.replaceAll("_", " ") || "working"}</span><span>{layaProgress()?.total ? `${layaProgress()!.completed}/${layaProgress()!.total}` : ""}</span></div>
               <progress class="mt-2 w-full" max={Math.max(1, layaProgress()?.total || 1)} value={layaProgress()?.total ? layaProgress()!.completed : 0}>Working</progress>
@@ -617,14 +625,14 @@ function App() {
           </Show>
           <Show when={mapperTestResult()}>{(result) => (
             <div id="layaTestResult" class="mt-4 grid gap-3">
-              <Show when={result().warning}><p class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm" role="alert">{result().warning}</p></Show>
+              <Show when={result().warning}><p class="rounded-xl border border-warning-line bg-warning p-3 text-sm" role="alert">{result().warning}</p></Show>
               <p class="helper">Checkpoint: <code>{result().checkpoint?.id || "unknown"}</code> · Workers: {result().runtime?.effectiveWorkers ?? 0} · Fields: {result().leaves} · Source complete: {String(result().sourceComplete)} · Model processing complete: {String(result().processingComplete)} · {result().timings.totalMs} ms</p>
               <div class="overflow-auto rounded-xl border border-line">
                 <table class="w-full text-left text-sm">
-                  <thead class="bg-slate-50"><tr><th class="p-3">Canonical field</th><th class="p-3">Status</th><th class="p-3">Value / best guess</th><th class="p-3">Exact pointer and alternatives</th></tr></thead>
+                  <thead class="bg-subtle"><tr><th class="p-3">Canonical field</th><th class="p-3">Status</th><th class="p-3">Value / best guess</th><th class="p-3">Exact pointer and alternatives</th></tr></thead>
                   <tbody><For each={Object.entries(result().statuses)}>{([field, status]) => <tr class="border-t border-line">
                     <td class="p-3 font-bold">{field}</td><td class="p-3">{String(status)}</td><td class="p-3"><span>{String(result().fields[field] ?? "—")}</span><div class="mt-1 text-xs text-muted">Value agreement: {result().provenance[field].agreement?.value || "not recorded"}</div></td>
-                    <td class="p-3 font-mono text-xs">{result().paths[field] || "—"}<Show when={status === "tentative"}><div class="mt-2 text-amber-800">Alternatives: {[...new Set([...(result().provenance[field].nominees || []), ...(result().provenance[field].pointerNominees || [])])].map((id: string) => result().provenance[field].candidates.find((candidate: { id: string }) => candidate.id === id)?.pointer || "none").join(" / ")}</div></Show></td>
+                    <td class="p-3 font-mono text-xs">{result().paths[field] || "—"}<Show when={status === "tentative"}><div class="mt-2 text-warning-ink">Alternatives: {[...new Set([...(result().provenance[field].nominees || []), ...(result().provenance[field].pointerNominees || [])])].map((id: string) => result().provenance[field].candidates.find((candidate: { id: string }) => candidate.id === id)?.pointer || "none").join(" / ")}</div></Show></td>
                   </tr>}</For></tbody>
                 </table>
               </div>
@@ -737,13 +745,13 @@ function App() {
         <fieldset class="contents" disabled={busy() || status()?.session.running}>
           <div class="grid gap-3 md:grid-cols-2">
             <For each={FIELD_MAPPINGS}>{(mapping) => (
-              <label class="field rounded-xl border border-line bg-slate-50 p-4">
+              <label class="field rounded-xl border border-line bg-subtle p-4">
                 <span>{mapping.name}</span>
                 <span class="text-xs font-normal text-muted">JSON example / output use: {mapping.use}</span>
                 <input id={`fieldLabel-${mapping.key}`} class="control mt-1 font-mono text-sm" aria-label={`${mapping.name} JSON keys or paths`} value={settings().xsoar.fieldLabels[mapping.key].join(", ")} onInput={(event) => updateFieldLabels(mapping.key, event.currentTarget.value)} />
               </label>
             )}</For>
-            <label class="field rounded-xl border border-line bg-slate-50 p-4">
+            <label class="field rounded-xl border border-line bg-subtle p-4">
               <span>Historic resolution data</span>
               <span class="text-xs font-normal text-muted">JSON paths or XSOAR labels that describe how matching incidents were resolved</span>
               <input id="historicalRecommendationLabels" class="control mt-1 font-mono text-sm" placeholder="resolution.summary, close.notes" value={settings().xsoar.historicalRecommendationLabels.join(", ")} onInput={(event) => updateHistoricalRecommendationLabels(event.currentTarget.value)} />

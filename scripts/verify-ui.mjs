@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright-core";
 
 import { submitHistoricSearch } from "../src/browser-session.js";
@@ -158,6 +159,89 @@ try {
   ];
   const executablePath = candidates.find(existsSync);
   browser = await chromium.launch(executablePath ? { executablePath, headless: true } : { channel: "chromium", headless: true });
+
+  // Exercise the built theme bootstrap under the server's real CSP, independently
+  // of the incident workflow fixtures below.
+  const themeContext = await browser.newContext({ colorScheme: "dark", viewport: { width: 1280, height: 900 } });
+  const themePage = await themeContext.newPage();
+  const themeErrors = [];
+  themePage.on("pageerror", (error) => themeErrors.push(error.message));
+  await themePage.goto(url);
+  const themeSelect = themePage.getByLabel("Theme", { exact: true });
+  const assertTheme = async (page, dark) => {
+    await page.waitForFunction((expected) => document.documentElement.classList.contains("dark") === expected, dark);
+    assert.equal(await page.locator("html").evaluate((node) => getComputedStyle(node).colorScheme), dark ? "dark" : "light");
+    assert.equal(await page.locator("body").evaluate((node) => getComputedStyle(node).backgroundColor), dark ? "rgb(28, 28, 28)" : "rgb(244, 247, 251)");
+  };
+  await themeSelect.waitFor();
+  assert.equal(await themeSelect.inputValue(), "system");
+  await assertTheme(themePage, true);
+  await themePage.emulateMedia({ colorScheme: "light" });
+  await assertTheme(themePage, false);
+  await themeSelect.selectOption("dark");
+  await assertTheme(themePage, true);
+  await themePage.reload();
+  await themeSelect.waitFor();
+  assert.equal(await themeSelect.inputValue(), "dark", "explicit preferences survive reloads and override the system");
+  await assertTheme(themePage, true);
+
+  await mkdir("output/playwright", { recursive: true });
+  for (const mode of ["dark", "light"]) {
+    await themeSelect.selectOption(mode);
+    for (const [pathname, control] of [["/", "#draft"], ["/tools", "#sanitizerInput"], ["/configuration", "#allowedOrigin"], ["/ai", "#localAiModel"], ["/laya", "#layaTestJson"]]) {
+      await themePage.goto(new URL(pathname, url).href);
+      await themePage.locator(control).waitFor();
+      assert.equal(await themeSelect.inputValue(), mode, `${pathname} preserves the selected theme`);
+      await assertTheme(themePage, mode === "dark");
+      assert.equal(await themePage.locator(control).evaluate((node) => getComputedStyle(node).backgroundColor), mode === "dark" ? "rgb(38, 38, 38)" : "rgb(255, 255, 255)");
+      await themePage.screenshot({ path: `output/playwright/${mode}-${pathname.slice(1) || "home"}.png`, fullPage: true });
+    }
+  }
+  await themePage.emulateMedia({ colorScheme: "dark" });
+  await assertTheme(themePage, false);
+  await themeSelect.selectOption("system");
+  await assertTheme(themePage, true);
+  assert.equal(await themePage.evaluate(() => localStorage.getItem("xsoar-theme")), null);
+
+  const otherThemePage = await themeContext.newPage();
+  await otherThemePage.goto(url);
+  await otherThemePage.getByLabel("Theme", { exact: true }).waitFor();
+  await themeSelect.selectOption("light");
+  await assertTheme(otherThemePage, false);
+  assert.equal(await otherThemePage.getByLabel("Theme", { exact: true }).inputValue(), "light", "open tabs synchronize the selector");
+
+  // The initial preference must apply even while the main app bundle is delayed.
+  await themeSelect.selectOption("dark");
+  let releaseAppBundle;
+  const appBundleGate = new Promise((resolve) => { releaseAppBundle = resolve; });
+  await otherThemePage.route("**/assets/index-*.js", async (route) => { await appBundleGate; await route.continue(); });
+  await otherThemePage.reload({ waitUntil: "commit" });
+  await otherThemePage.waitForFunction(() => document.documentElement.dataset.themePreference === "dark");
+  assert.equal(await otherThemePage.locator("html").getAttribute("class"), "dark", "theme applies before the app bundle executes");
+  releaseAppBundle();
+  await otherThemePage.getByLabel("Theme", { exact: true }).waitFor();
+  await otherThemePage.close();
+  await themePage.setViewportSize({ width: 320, height: 800 });
+  await themePage.goto(url);
+  await themePage.locator("#draft").waitFor();
+  assert.equal(await themePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "theme controls fit a narrow viewport");
+  await themePage.screenshot({ path: "output/playwright/dark-mobile.png", fullPage: true });
+  assert.deepEqual(themeErrors, []);
+  await themeContext.close();
+
+  const noStorageContext = await browser.newContext({ colorScheme: "dark" });
+  await noStorageContext.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", { get() { throw new DOMException("Storage disabled", "SecurityError"); } });
+  });
+  const noStoragePage = await noStorageContext.newPage();
+  const noStorageErrors = [];
+  noStoragePage.on("pageerror", (error) => noStorageErrors.push(error.message));
+  await noStoragePage.goto(url);
+  await noStoragePage.getByLabel("Theme", { exact: true }).selectOption("light");
+  await assertTheme(noStoragePage, false);
+  assert.deepEqual(noStorageErrors, [], "unavailable storage must not prevent using the app or selecting a theme");
+  await noStorageContext.close();
+
   const page = await browser.newPage();
   consolePage = page;
   await page.goto(url);
