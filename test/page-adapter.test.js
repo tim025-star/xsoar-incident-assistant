@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { extractIncidentFromPage, extractSearchResultsFromPage } from "../src/page-adapter.js";
+import { FIELD_LABELS } from "../src/domain.js";
 
 const visible = { offsetWidth: 1, offsetHeight: 1, getClientRects: () => [1] };
 
@@ -145,6 +146,41 @@ test("incident extraction reads Tenant Name independently from Type", async () =
     globalThis.document = original.document;
     globalThis.location = original.location;
     globalThis.window = original.window;
+  }
+});
+
+test("Account Short Name supports labelled fields and event tables as well as field IDs", async (t) => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  t.after(() => Object.assign(globalThis, original));
+  globalThis.location = new URL("https://xsoar.example.test/Custom/GenericLayout/4200");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  const accountValue = { ...visible, textContent: "Short Tenant", getAttribute: () => null };
+  const legacyValue = { ...visible, textContent: "Legacy Tenant", getAttribute: () => null };
+  const wrapper = (value, label) => ({
+    ...visible,
+    matches: (selector) => selector === ".field-wrapper",
+    querySelector: (selector) => selector === "label"
+      ? { textContent: label, getAttribute: () => null }
+      : selector === ".value-wrapper"
+        ? { querySelectorAll: () => [value] } : null
+  });
+  const account = wrapper(accountValue, "Account Short Name");
+  const legacy = wrapper(legacyValue, "Tenant Name");
+  const table = keyValueTable([["Account Short Name", "Short Tenant"]]);
+  for (const source of ["fieldId", "label", "table"]) {
+    const page = incidentPage({ headings: () => source === "table" ? [sectionHeading("Source Events", table)] : [] });
+    const querySelectorAll = page.querySelectorAll.bind(page);
+    page.querySelectorAll = (selector) => {
+      if (source !== "table" && selector === ".field-wrapper") return [legacy, account];
+      if (source !== "table" && selector === ".fieldId-tenantname") return [legacy];
+      if (source === "fieldId" && selector === ".fieldId-accountshortname") return [account];
+      return querySelectorAll(selector);
+    };
+    globalThis.document = page;
+    const result = await extractIncidentFromPage(incidentSettings({
+      fieldLabels: { tenantName: FIELD_LABELS.tenantName }, pageReadyTimeoutMs: 25
+    }));
+    assert.equal(result.tenantName, "Short Tenant", source);
   }
 });
 

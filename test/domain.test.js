@@ -38,7 +38,7 @@ test("historic searches use exact alert name and tenant with a three-month windo
   const query = buildSearchQuery("Example detection", "Tenant Alpha", resolved.historicQueryTemplate);
   const url = buildIncidentSearchUrl(resolved, query);
 
-  assert.match(query, /^rawName:"Example detection" and tenantname:"Tenant Alpha"/);
+  assert.match(query, /^name:"Example detection" and tenantname:"Tenant Alpha"/);
   assert.doesNotMatch(query, /rawType/);
   assert.match(query, /created:>="3 months ago"/);
   assert.equal(new URL(buildIncidentSearchUrl(resolved, "")).search, "");

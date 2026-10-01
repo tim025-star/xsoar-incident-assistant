@@ -1,6 +1,6 @@
 export const FIELD_LABELS = Object.freeze({
   customerName: ["Customer Name"],
-  tenantName: ["Tenant Name"],
+  tenantName: ["Account Short Name", "Tenant Name"],
   classification: ["Classification"],
   occurred: ["Occurred"],
   incidentOutcome: ["Incident Outcome"],
@@ -38,9 +38,9 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // Retained so existing saved configurations continue to load.
   lookbackQuery: "created:>=\"3 months ago\"",
   historicQueryMode: "template",
-  historicQueryTemplate: 'rawName:{incidentName} and tenantname:{tenantName} and (created:>="3 months ago")',
-  historicQueryJson: '{\n  "query": "rawName:{incidentName} and tenantname:{tenantName} and (created:>=\\"3 months ago\\")"\n}',
-  historicQueryJavaScript: 'function buildQuery(incident, quote) {\n  const name = quote(incident.incidentName);\n  const tenant = quote(incident.tenantName);\n  return `rawName:${name} and tenantname:${tenant} and (created:>="3 months ago")`;\n}',
+  historicQueryTemplate: 'name:{incidentName} and tenantname:{tenantName} and (created:>="3 months ago")',
+  historicQueryJson: '{\n  "query": "name:{incidentName} and tenantname:{tenantName} and (created:>=\\"3 months ago\\")"\n}',
+  historicQueryJavaScript: 'function buildQuery(incident, quote) {\n  const name = quote(incident.incidentName);\n  const tenant = quote(incident.tenantName);\n  return `name:${name} and tenantname:${tenant} and (created:>="3 months ago")`;\n}',
   maxHistoricalIncidents: 5,
   pageReadyTimeoutMs: 20000,
   incidentInfoTabLabel: "Incident Info",

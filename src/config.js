@@ -12,7 +12,7 @@ const APP_DATA_DIRECTORY = path.join(localAppDataDirectory, "XSOAR Incident Assi
 const CONFIG_PATH = path.join(APP_DATA_DIRECTORY, "config.json");
 
 export const DEFAULT_APP_CONFIG = Object.freeze({
-  configVersion: 14,
+  configVersion: 15,
   xsoar: DEFAULT_SETTINGS,
   layaMapper: { enabled: false, checkpointId: DEFAULT_LAYA_CHECKPOINT, workerMode: "auto", workerCount: 1 },
   localAi: { enabled: false, model: DEFAULT_OLLAMA_MODEL }
@@ -74,7 +74,7 @@ const legacySessionSchema = z.object({
 }).strict();
 
 export const appConfigInputSchema = z.object({
-  configVersion: z.number().int().min(3).max(14).optional(),
+  configVersion: z.number().int().min(3).max(15).optional(),
   session: legacySessionSchema.optional(),
   xsoar: xsoarInputSchema.optional(),
   layaMapper: layaMapperSettingsSchema.optional(),
@@ -102,7 +102,7 @@ export const appConfigInputSchema = z.object({
 });
 
 export const resolvedAppConfigSchema = z.object({
-  configVersion: z.literal(14),
+  configVersion: z.literal(15),
   xsoar: z.object({
     ...xsoarShape,
     configVersion: z.literal(3),
@@ -123,8 +123,18 @@ function parseConfigInput(input) {
 
 export function resolveAppConfig(input = {}, { requireTenant = true, allowRouteMismatch = false } = {}) {
   input = parseConfigInput(input);
+  const suppliedXsoar = { ...(input.xsoar || {}) };
   const suppliedFieldLabels = { ...(input.xsoar?.fieldLabels || {}) };
   for (const key of retiredFieldLabels) delete suppliedFieldLabels[key];
+  if ((input.configVersion ?? 0) < 15) {
+    suppliedFieldLabels.tenantName = [...new Set([
+      "Account Short Name", ...(suppliedFieldLabels.tenantName || FIELD_LABELS.tenantName)
+    ])];
+    for (const key of ["historicQueryTemplate", "historicQueryJson", "historicQueryJavaScript"]) {
+      const legacyDefault = DEFAULT_SETTINGS[key].replace("name:", "rawName:");
+      if (suppliedXsoar[key] === legacyDefault) suppliedXsoar[key] = DEFAULT_SETTINGS[key];
+    }
+  }
   if ((input.configVersion ?? 0) < 12) {
     for (const key of LOG_TABLE_FIELD_KEYS) {
       suppliedFieldLabels[key] = [...new Set([
@@ -134,10 +144,10 @@ export function resolveAppConfig(input = {}, { requireTenant = true, allowRouteM
     }
   }
   const merged = {
-    configVersion: 14,
+    configVersion: 15,
     xsoar: {
       ...structuredClone(DEFAULT_SETTINGS),
-      ...(input.xsoar || {}),
+      ...suppliedXsoar,
       fieldLabels: { ...structuredClone(DEFAULT_SETTINGS.fieldLabels), ...suppliedFieldLabels },
       template: { ...DEFAULT_SETTINGS.template, ...(input.xsoar?.template || {}) }
     },

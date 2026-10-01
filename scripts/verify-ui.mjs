@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
 
 import { submitHistoricSearch } from "../src/browser-session.js";
@@ -307,6 +307,16 @@ try {
   await page.locator("#layaWorkerCount").selectOption("2");
   await page.getByText("Laya-mapper config saved.").waitFor();
   assert.equal(await page.locator("#status").getAttribute("role"), "status");
+
+  const verifySettingsExport = async () => {
+    const downloading = page.waitForEvent("download");
+    await page.locator("#exportSettings").click();
+    const download = await downloading;
+    assert.equal(download.suggestedFilename(), "xsoar-incident-assistant-settings.json");
+    const exported = JSON.parse(await readFile(await download.path(), "utf8"));
+    assert.deepEqual(exported, uiConfig);
+    assert.doesNotMatch(JSON.stringify(exported), /browser-verification-token/);
+  };
   assert.equal(uiConfig.layaMapper.enabled, false);
   assert.equal(uiConfig.layaMapper.workerMode, "manual");
   assert.equal(await page.locator("#layaExperiment").count(), 0);
@@ -393,6 +403,10 @@ try {
   assert.equal(uiConfig.xsoar.historicQueryJavaScript, customHistoricJavaScript);
   assert.equal(uiConfig.xsoar.template.analystName, "Example Analyst");
   assert.equal(await page.locator("#status").getAttribute("role"), "status");
+  await page.locator("#analystName").fill("Unsaved Analyst");
+  await verifySettingsExport();
+  assert.equal(await page.locator("#analystName").inputValue(), "Unsaved Analyst");
+  await page.locator("#analystName").fill("Example Analyst");
 
   await page.getByRole("link", { name: "Laya", exact: true }).click();
   await page.locator("#useLayaMapping").waitFor();
@@ -415,6 +429,8 @@ try {
   assert.equal(await page.locator("#allowedOrigin").isDisabled(), true);
   assert.equal(await page.locator("#analystName").isDisabled(), true);
   assert.equal(await page.locator("#fieldLabel-occurred").isDisabled(), true);
+  assert.equal(await page.locator("#exportSettings").isDisabled(), false);
+  await verifySettingsExport();
   await page.getByRole("link", { name: "AI", exact: true }).click();
   await page.locator("#localAiEnabled").waitFor();
   assert.equal(await page.locator("#localAiEnabled").isDisabled(), false);
@@ -615,7 +631,7 @@ try {
       ? '<div class="field-wrapper fieldId-closenotes"><label>Close Notes</label><div class="value-wrapper"><div class="text-field-display-value">Resolved after foreground retry</div></div></div>'
       : "";
     const currentIdentity = ticketId === "4199" ? "" : `<div class="field-wrapper fieldId-customername"><label>Customer Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div><div class="field-wrapper fieldId-rulename"><label>Rule Name</label><div class="value-wrapper"><div class="text-field-display-value">Synthetic Rule</div></div></div><div class="field-wrapper fieldId-casetype"><label>Type</label><div class="value-wrapper"><div class="text-field-display-value">Endpoint</div></div></div>`;
-    const delayedIdentity = ticketId === "4199" ? "" : `<div id="identity"></div><script>setTimeout(() => { document.querySelector(".header-inv-title").textContent = "Synthetic alert"; document.querySelector("#identity").innerHTML = '<div class="field-wrapper fieldId-tenantname"><label>Tenant Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div>'; }, 900);</script>`;
+    const delayedIdentity = ticketId === "4199" ? "" : `<div id="identity"></div><script>setTimeout(() => { document.querySelector(".header-inv-title").textContent = "Synthetic alert"; document.querySelector("#identity").innerHTML = '<div class="field-wrapper fieldId-accountshortname"><label>Account Short Name</label><div class="value-wrapper"><div class="text-field-display-value">Example Organisation</div></div></div>'; }, 900);</script>`;
     await route.fulfill({
       contentType: "text/html",
       body: `<div class="header-inv-id">#${ticketId}</div><div class="header-inv-title">${ticketId === "4199" ? "Synthetic alert" : ""}</div>${currentIdentity}${resolution}${delayedIdentity}`
@@ -647,7 +663,7 @@ try {
       extractionSettings
     ),
     extractSearchResults: async (openedPage, options) => {
-      assert.equal(options.expectedQuery, 'rawName:"Synthetic alert" and tenantname:"Example Organisation" and (created:>="3 months ago")');
+      assert.equal(options.expectedQuery, 'name:"Synthetic alert" and tenantname:"Example Organisation" and (created:>="3 months ago")');
       await submitHistoricSearch(openedPage, {
         ...options,
         expectedOrigin: workflowSettings.allowedOrigin,

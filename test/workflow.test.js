@@ -124,8 +124,8 @@ test("workflow searches three months of same-client alert history while AI proce
 
   assert.equal(searchedWhileAiPending, true);
   assert.equal(new URL(adapter.opened[0]).search, "");
-  assert.match(searchOptions.expectedQuery, /rawName:"Example detection"/);
-  assert.doesNotMatch(searchOptions.expectedQuery, /rawName:"Example Rule"/);
+  assert.match(searchOptions.expectedQuery, /name:"Example detection"/);
+  assert.doesNotMatch(searchOptions.expectedQuery, /name:"Example Rule"/);
   assert.match(searchOptions.expectedQuery, /tenantname:"Example Organisation"/);
   assert.doesNotMatch(searchOptions.expectedQuery, /rawType/);
   assert.match(searchOptions.expectedQuery, /created:>="3 months ago"/);
@@ -163,7 +163,7 @@ test("workflow gathers missing search identity from a secondary current-incident
   const result = await runIncidentDraft({ adapter, settings });
   assert.deepEqual(extractionCalls[0].preferredFields, ["incidentName", "tenantName"]);
   assert.deepEqual(extractionCalls[1].preferredFields, ["tenantName"]);
-  assert.match(query, /rawName:"Example detection" and tenantname:"Tenant Alpha"/);
+  assert.match(query, /name:"Example detection" and tenantname:"Tenant Alpha"/);
   assert.equal(result.warning, "");
 });
 
