@@ -832,6 +832,33 @@ test("historic search understands the XSOAR Showing incidents paging format", as
   assert.equal(result.truncated, false);
 });
 
+test("historic search settles a zero-total pager without an empty-state element", async (t) => {
+  const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
+  t.after(() => Object.assign(globalThis, original));
+  let elapsed = 0;
+  t.mock.method(Date, "now", () => elapsed);
+  t.mock.method(globalThis, "setTimeout", (callback, delay) => { elapsed += delay; callback(); });
+  const root = { ...visible, querySelector: () => null, querySelectorAll: () => [] };
+  globalThis.location = new URL("https://xsoar.example.test/incidents");
+  globalThis.window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  let paging = "Showing incidents 0 to 0 out of 0";
+  globalThis.document = {
+    body: root,
+    querySelector: (selector) => selector === ".fixedDataTableLayout_main" ? root
+      : selector === ".table-paging-message" ? { textContent: paging } : null,
+    querySelectorAll: () => []
+  };
+  for (paging of ["Showing incidents 0 to 0 out of 0", "0-0 of 0"]) {
+    elapsed = 0;
+    const result = await extractSearchResultsFromPage({
+      expectedOrigin: "https://xsoar.example.test", expectedPath: "/incidents", timeoutMs: 20000, maxResults: 5
+    });
+    assert.deepEqual(result.ticketIds, []);
+    assert.equal(result.truncated, false);
+    assert.ok(elapsed < 20000, "a recognized empty pager must settle before the full timeout");
+  }
+});
+
 test("historic search treats unrecognised paging text as truncated", async () => {
   const original = { document: globalThis.document, location: globalThis.location, window: globalThis.window };
   const link = { ...visible, getAttribute: () => "/incident/4199" };
