@@ -596,6 +596,18 @@ try {
     timeoutMs: 2000
   });
   assert.deepEqual(historicResults.ticketIds, ["4199"]);
+  await searchPage.setContent(`<main id="incidents-page"><table><thead><tr><th>Name</th><th>ID</th><th>Tenant Name</th></tr></thead><tbody>
+    <tr><td>Synthetic alert</td><td>4199</td><td>Example Organisation</td></tr>
+    <tr><td>Synthetic alert</td><td><a role="button">#4198</a></td><td>Example Organisation</td></tr>
+    <tr hidden><td>Synthetic alert</td><td>9999</td><td>Example Organisation</td></tr>
+    <tr><td>Synthetic alert</td><td><a href="https://untrusted.example.test/incident/9998">9998</a></td><td>Example Organisation</td></tr>
+  </tbody></table></main><div class="table-paging-message">1-2 of 2</div>`);
+  const columnResults = await searchPage.evaluate(extractSearchResultsFromPage, {
+    expectedOrigin: "https://xsoar.example.test", expectedPath: "/incidents", maxResults: 100, timeoutMs: 2000
+  });
+  assert.deepEqual(columnResults.ticketIds, ["4199", "4198"]);
+  assert.deepEqual(columnResults.ticketUrls, {});
+  assert.equal(columnResults.ticketRows["4198"].tenantName, "Example Organisation");
   await searchPage.close();
 
   const delayedIncidentPage = await browser.newPage();
@@ -621,7 +633,7 @@ try {
     if (requested.pathname === "/incidents") {
       await route.fulfill({
         contentType: "text/html",
-        body: `<main id="incidents-page"><label>Incident query<textarea aria-label="Incident search query"></textarea></label><div role="grid" aria-rowcount="0"></div><div class="table-paging-message"></div></main><script>document.querySelector("textarea").addEventListener("keydown", (event) => { if (event.key !== "Enter") return; event.preventDefault(); const grid = document.querySelector("[role=grid]"); grid.innerHTML = '<div role="row"><div role="columnheader">Created</div><div role="columnheader">Tenant Name</div><div role="columnheader">ID</div><div role="columnheader">Name</div><div role="columnheader">Type</div></div><div role="row"><div role="gridcell">Yesterday</div><div role="gridcell">Example Organisation</div><div role="gridcell"><a href="/incident/4199">#4199</a></div><div role="gridcell">Synthetic alert</div><div role="gridcell">Endpoint</div></div>'; grid.setAttribute("aria-rowcount", "2"); document.querySelector(".table-paging-message").textContent = "1-1 of 1"; });</script>`
+        body: `<main id="incidents-page"><label>Incident query<textarea aria-label="Incident search query"></textarea></label><div role="grid" aria-rowcount="0"></div><div class="table-paging-message"></div></main><script>document.querySelector("textarea").addEventListener("keydown", (event) => { if (event.key !== "Enter") return; event.preventDefault(); const grid = document.querySelector("[role=grid]"); grid.innerHTML = '<div role="row"><div role="columnheader">Created</div><div role="columnheader">Tenant Name</div><div role="columnheader">ID</div><div role="columnheader">Name</div><div role="columnheader">Type</div></div><div role="row"><div role="gridcell">Yesterday</div><div role="gridcell">Example Organisation</div><div role="gridcell"><a role="button">#4199</a></div><div role="gridcell">Synthetic alert</div><div role="gridcell">Endpoint</div></div>'; grid.setAttribute("aria-rowcount", "2"); document.querySelector(".table-paging-message").textContent = "1-1 of 1"; });</script>`
       });
       return;
     }
