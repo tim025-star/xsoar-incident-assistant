@@ -11,6 +11,7 @@ function createAdapter({
   historicalViews = {},
   historicFailuresBeforeSuccess = {},
   searchError,
+  searchTruncated = false,
   searchTicketIds = ["4200", "4199", "4198", "4197"],
   searchTicketUrls = {},
   searchTicketRows = {},
@@ -84,7 +85,7 @@ function createAdapter({
     async extractSearchResults(id, options) {
       onSearch(options);
       if (searchError) throw searchError;
-      return { ticketIds: searchTicketIds.slice(0, options.maxResults), ticketUrls: searchTicketUrls, ticketRows: searchTicketRows, truncated: searchTicketIds.length > options.maxResults };
+      return { ticketIds: searchTicketIds.slice(0, options.maxResults), ticketUrls: searchTicketUrls, ticketRows: searchTicketRows, truncated: searchTruncated || searchTicketIds.length > options.maxResults };
     },
     async closeTab(id) { events.push(`close:${id}`); closed.push(id); tabs.delete(id); },
     async focusTab(id) { events.push(`focus:${id}`); this.focused.push(id); }
@@ -326,28 +327,59 @@ test("workflow skips unresolved matches before applying the historic resolution 
   assert.equal(result.reviewed, 1);
 });
 
+test("historic review does not open secondary views after identity and resolution are available", async () => {
+  const adapter = createAdapter({
+    searchTicketIds: ["4200", "4199"],
+    historicalIncidents: {
+      4199: { tabUrls: ["https://xsoar.example.test/Custom/GenericLayout/4199?view=Investigation"] }
+    }
+  });
+  const result = await runIncidentDraft({ adapter, settings });
+  assert.equal(result.reviewed, 1);
+  assert.deepEqual(adapter.opened.filter((url) => url.includes("/4199")), [
+    "https://xsoar.example.test/Custom/GenericLayout/4199"
+  ]);
+});
+
+test("historic coverage warning reflects whether the requested resolution count was reached", async () => {
+  for (const [count, expectedWarning] of [[5, false], [2, true]]) {
+    const result = await runIncidentDraft({
+      adapter: createAdapter({
+        searchTicketIds: Array.from({ length: count }, (_, index) => String(4199 - index)),
+        searchTruncated: true
+      }),
+      settings: resolveSettings({ ...settings, maxHistoricalIncidents: 5 })
+    });
+    assert.equal(result.reviewed, count);
+    assert.equal(result.warning.includes("Historic search results were incomplete"), expectedWarning);
+  }
+});
+
 test("workflow merges trusted detail views for historic identity and resolution fields", async () => {
   const detailUrl = "https://xsoar.example.test/Custom/GenericLayout/4199?view=Investigation";
+  const unneededUrl = "https://xsoar.example.test/Custom/GenericLayout/4199?view=Other";
   const extractionCalls = [];
+  const adapter = createAdapter({
+    searchTicketIds: ["4200", "4199"],
+    historicalIncidents: {
+      4199: { tenantName: "", incidentName: "", closeNotes: "", tabUrls: [detailUrl, unneededUrl] }
+    },
+    historicalViews: {
+      [detailUrl]: {
+        tenantName: "Example Organisation",
+        incidentName: "Example detection",
+        closeNotes: "Resolved from the investigation view"
+      }
+    },
+    onExtract: (call) => extractionCalls.push(call)
+  });
   const result = await runIncidentDraft({
-    adapter: createAdapter({
-      searchTicketIds: ["4200", "4199"],
-      historicalIncidents: {
-        4199: { tenantName: "", incidentName: "", closeNotes: "", tabUrls: [detailUrl] }
-      },
-      historicalViews: {
-        [detailUrl]: {
-          tenantName: "Example Organisation",
-          incidentName: "Example detection",
-          closeNotes: "Resolved from the investigation view"
-        }
-      },
-      onExtract: (call) => extractionCalls.push(call)
-    }),
+    adapter,
     settings: resolveSettings({ ...settings, maxHistoricalIncidents: 1 })
   });
 
   assert.match(result.draft, /#4199: Resolved from the investigation view/);
+  assert.ok(!adapter.opened.includes(unneededUrl));
   assert.ok(extractionCalls.some(({ url }) => url === detailUrl));
   assert.ok(extractionCalls.some(({ url, settings: extractionSettings }) =>
     url.endsWith("/4199") && extractionSettings.requiredFields?.includes("tenantName")));

@@ -83,6 +83,7 @@ async function extractIncidentViews({
   requiredAnyFields = [],
   requireAlertJson = false,
   focusOpenedTabs = false,
+  stopWhenRequirementsMet = false,
   onView = async () => {}
 }) {
   const expectedTicketId = ticketIdFromIncidentUrl(primaryUrl, settings, "Incident view extraction");
@@ -98,6 +99,16 @@ async function extractIncidentViews({
   const views = [initial];
   for (const url of uniqueTrustedTabUrls(initial, settings)) {
     if (url === primaryUrl) continue;
+    const merged = mergeIncidentDetails(...views);
+    const remainingRequiredFields = requiredFields.filter((key) => !cleanText(merged[key]));
+    const remainingPreferredFields = preferredFields.filter((key) => !cleanText(merged[key]));
+    const remainingAnyFields = requiredAnyFields.some((key) => cleanText(merged[key]))
+      ? []
+      : requiredAnyFields;
+    const stillRequiresAlertJson = requireAlertJson
+      && !(merged.alertJsonComplete && Array.isArray(merged.alertJson) && merged.alertJson.length > 0);
+    if (stopWhenRequirementsMet && !remainingRequiredFields.length && !remainingPreferredFields.length
+      && !remainingAnyFields.length && !stillRequiresAlertJson) break;
     await onView();
     const tab = await adapter.openTab(url, { focusBeforeNavigation: focusOpenedTabs });
     temporaryTabs.add(tab);
@@ -106,14 +117,6 @@ async function extractIncidentViews({
       const finalUrl = await adapter.getTabUrl(tab.id);
       const finalTicketId = ticketIdFromIncidentUrl(finalUrl, settings, "Incident view navigation");
       if (finalTicketId !== expectedTicketId) throw new Error("XSOAR opened a different incident view than requested.");
-      const merged = mergeIncidentDetails(...views);
-      const remainingRequiredFields = requiredFields.filter((key) => !cleanText(merged[key]));
-      const remainingPreferredFields = preferredFields.filter((key) => !cleanText(merged[key]));
-      const remainingAnyFields = requiredAnyFields.some((key) => cleanText(merged[key]))
-        ? []
-        : requiredAnyFields;
-      const stillRequiresAlertJson = requireAlertJson
-        && !(merged.alertJsonComplete && Array.isArray(merged.alertJson) && merged.alertJson.length > 0);
       views.push(await adapter.extractIncident(tab.id, {
         ...settings,
         requiredFields: remainingRequiredFields,
@@ -188,7 +191,8 @@ async function readHistoricCandidate({
           requiredFields: hasRowIdentity ? [] : ["tenantName", "incidentName"],
           requiredAnyFields: ["historicalRecommendations", "closeNotes", "incidentOutcome"],
           requireAlertJson: false,
-          focusOpenedTabs: true
+          focusOpenedTabs: true,
+          stopWhenRequirementsMet: true
         });
         if (String(detail.ticketId) !== String(ticketId)) {
           throw new Error("XSOAR opened a different historic incident than requested.");
@@ -258,7 +262,9 @@ async function collectHistoric({ adapter, settings, incident, temporaryTabs, onP
       }
     }
     warnings.push(...failures);
-    if (result.truncated) warnings.push("Historic search results were incomplete; older matches may be omitted.");
+    if (result.truncated && items.length < settings.maxHistoricalIncidents) {
+      warnings.push("Historic search results were incomplete; older matches may be omitted.");
+    }
     return {
       items,
       warning: [...new Set(warnings)].join(" ")

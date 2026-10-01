@@ -493,10 +493,11 @@ export async function extractSearchResultsFromPage(options) {
       }
     }
     const paging = normalize(document.querySelector(".table-paging-message")?.textContent);
-    const pagingMatch = paging.match(/([\d,]+)\s*[-–]\s*([\d,]+)\s+of\s+([\d,]+)/i);
+    const pagingMatch = paging.match(/([\d,]+)\s*[-–]\s*([\d,]+)\s+of\s+([\d,]+)/i)
+      || paging.match(/^Showing incidents\s+([\d,]+)\s+to\s+([\d,]+)\s+out of\s+([\d,]+)$/i);
     const pagingEnd = pagingMatch ? Number(pagingMatch[2].replace(/,/g, "")) : 0;
     const pagingTotal = pagingMatch ? Number(pagingMatch[3].replace(/,/g, "")) : 0;
-    const pagingComplete = Boolean(pagingTotal && pagingEnd >= pagingTotal);
+    const pagingComplete = Boolean(pagingMatch && pagingEnd >= pagingTotal);
     const pagingUnknown = Boolean(paging && !pagingMatch);
     const empty = Array.from(document.querySelectorAll(".no-data,.empty-table,.no-results"))
       .some(isVisible);
