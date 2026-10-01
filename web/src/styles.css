@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-ink: #172033;
   --color-muted: #59677e;
@@ -7,17 +9,49 @@
   --color-panel: #ffffff;
   --color-line: #dbe3ef;
   --color-brand: #315cc9;
-  --color-brand-dark: #24489f;
+  --color-action: #315cc9;
+  --color-action-hover: #24489f;
+  --color-subtle: #f8fafc;
+  --color-control-line: #cbd5e1;
+  --color-secondary: #e2e8f0;
+  --color-secondary-hover: #cbd5e1;
+  --color-warning: #fffbeb;
+  --color-warning-line: #fcd34d;
+  --color-warning-ink: #92400e;
+  --color-error: #fff1f2;
+  --color-error-line: #fda4af;
+  --color-error-ink: #9f1239;
+  --color-info: #eff6ff;
   --font-sans: Inter, "Segoe UI", sans-serif;
   --font-mono: "Cascadia Code", Consolas, monospace;
 }
 
 @layer base {
+  :root { @apply scheme-light dark:scheme-dark; }
+  .dark {
+    --color-ink: #ededed;
+    --color-muted: #b5b5b5;
+    --color-canvas: #1c1c1c;
+    --color-panel: #262626;
+    --color-line: #414141;
+    --color-brand: #93b4ff;
+    --color-subtle: #303030;
+    --color-control-line: #737373;
+    --color-secondary: #414141;
+    --color-secondary-hover: #525252;
+    --color-warning: #302619;
+    --color-warning-line: #a16207;
+    --color-warning-ink: #fcd34d;
+    --color-error: #351c29;
+    --color-error-line: #be4560;
+    --color-error-ink: #fda4af;
+    --color-info: #1b2b48;
+  }
   * { box-sizing: border-box; }
   body { margin: 0; min-width: 320px; background: var(--color-canvas); color: var(--color-ink); }
   button, input, select, textarea { font: inherit; }
   button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
-    outline: 3px solid rgb(49 92 201 / 25%);
+    outline: 3px solid var(--color-brand);
     outline-offset: 2px;
   }
 }
@@ -25,11 +59,11 @@
 @layer components {
   .panel { @apply rounded-2xl border border-line bg-panel p-5 shadow-[0_10px_30px_rgb(23_32_51/0.06)] sm:p-6; }
   .field { @apply grid gap-1.5 text-sm font-semibold text-ink; }
-  .control { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-ink transition focus:border-brand; }
-  .button { @apply inline-flex min-h-10 items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50; }
-  .button-secondary { @apply bg-slate-200 text-slate-800 hover:bg-slate-300; }
+  .control { @apply w-full rounded-lg border border-control-line bg-panel px-3 py-2.5 text-ink placeholder:text-muted transition focus:border-brand; }
+  .button { @apply inline-flex min-h-10 items-center justify-center rounded-lg bg-action px-4 py-2 text-sm font-bold text-white transition hover:bg-action-hover disabled:cursor-not-allowed disabled:opacity-50; }
+  .button-secondary { @apply bg-secondary text-ink hover:bg-secondary-hover; }
   .button-danger { @apply bg-rose-700 text-white hover:bg-rose-800; }
   .helper { @apply text-sm leading-6 text-muted; }
-  .nav-link { @apply rounded-lg px-3 py-2 text-muted no-underline transition hover:bg-slate-100 hover:text-ink; }
-  .nav-link-active { @apply bg-slate-100 text-ink; }
+  .nav-link { @apply rounded-lg px-3 py-2 text-muted no-underline transition hover:bg-subtle hover:text-ink; }
+  .nav-link-active { @apply bg-subtle text-ink; }
 }
